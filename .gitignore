@@ -1,0 +1,48 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Vite cache
+.vite
+
+# Python
+.venv
+venv
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+
+# ML model caches (do NOT commit; download on setup)
+python-worker/models/
+models/
+
+# Runtime uploads / local storage
+storage/
+python-worker/storage/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
