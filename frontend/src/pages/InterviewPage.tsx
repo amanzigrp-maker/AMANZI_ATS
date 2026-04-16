@@ -65,11 +65,20 @@ export default function InterviewPage() {
         if (res.ok && data.success) {
           setCandidateInfo({ name: data.data.name, email: data.data.email });
           
+          if (data.data.duration) {
+            setTimeLeft(data.data.duration * 60);
+          }
+
           if (data.data.session_id) {
             setSessionId(data.data.session_id);
             await fetchQuestions(data.data.session_id);
             setStatus("interviewing");
           } else {
+            // Pre-fill setup or auto-start if both role and duration are set
+            if (data.data.role) {
+              setSetupData(prev => ({ ...prev, role: data.data.role }));
+              // We could auto-start here if we want, but let's just pre-fill
+            }
             setStatus("setup");
           }
         } else {

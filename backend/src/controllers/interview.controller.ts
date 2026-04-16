@@ -17,14 +17,18 @@ export const searchCandidates = async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(
-      `SELECT candidate_id, full_name, email 
-       FROM candidates 
-       WHERE email ILIKE $1 OR full_name ILIKE $1
+      `SELECT c.candidate_id, c.full_name, c.email,
+              json_agg(json_build_object('id', j.job_id, 'title', j.title)) FILTER (WHERE j.job_id IS NOT NULL) as applied_jobs
+       FROM candidates c
+       LEFT JOIN applications a ON c.candidate_id = a.candidate_id
+       LEFT JOIN jobs j ON a.job_id = j.job_id
+       WHERE c.email ILIKE $1 OR c.full_name ILIKE $1
+       GROUP BY c.candidate_id
        ORDER BY 
          CASE 
-           WHEN email = $2 THEN 1
-           WHEN email ILIKE $3 THEN 2
-           WHEN full_name ILIKE $3 THEN 3
+           WHEN c.email = $2 THEN 1
+           WHEN c.email ILIKE $3 THEN 2
+           WHEN c.full_name ILIKE $3 THEN 3
            ELSE 4
          END
        LIMIT 10`,
@@ -43,11 +47,13 @@ export const searchCandidates = async (req: Request, res: Response) => {
  */
 export const generateAndSendLink = async (req: Request, res: Response) => {
   try {
-    const { email } = req.body;
+    const { email, jobRole, validityMins } = req.body;
 
     if (!email) {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
+
+    const duration = validityMins || 5;
 
     // 1. Validate candidate exists (case-insensitive)
     const candidateResult = await pool.query(
@@ -63,19 +69,27 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
 
     // 2. Generate secure token
     const token = crypto.randomBytes(32).toString('hex');
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes window to start
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins to OPEN the link
+    // The duration_mins is how long they have to COMPLETE the interview once started.
+    // Actually, validityMins in the UI refers to the link expiration or the test duration?
+    // "Search candidate and send secure 5-min link" -> implies the link is available for 5 mins?
+    // Or the test is 5 mins?
+    // Looking at InterviewPage.tsx: setTimeLeft(300) -> 5 mins.
+    // So validityMins is the test duration.
+    
+    // Link expiration should probably also be configurable, but for now let's use duration_mins for the test.
 
     // 3. Save in DB
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, expires_at, is_used, device_id) 
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [token, candidate.email, candidate.full_name, expiresAt, false, null]
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [token, candidate.email, candidate.full_name, jobRole || null, duration, expiresAt, false, null]
     );
 
     // 4. Generate link
-    // Hardcoded to 8080 as environment variables are not resolving correctly
-    const frontendUrl = 'http://localhost:8080';
+    // Use environment variable for frontend URL, fallback to localhost if not set
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
     const interviewLink = `${frontendUrl}/interview?token=${token}`;
 
     // 5. Send email
@@ -145,6 +159,8 @@ export const validateLink = async (req: Request, res: Response) => {
       data: {
         email: tokenData.candidate_email,
         name: tokenData.candidate_name,
+        role: tokenData.job_role,
+        duration: tokenData.duration_mins,
         session_id: tokenData.session_id,
         is_started: tokenData.is_used
       }

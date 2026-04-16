@@ -55,18 +55,24 @@ export const testConnection = async (): Promise<boolean> => {
 
     console.log('✅ Database connected successfully');
 
-    // Ensure interview_tokens table exists
+    // Ensure interview_tokens table exists with new columns
     await pool.query(`
       CREATE TABLE IF NOT EXISTS interview_tokens (
         token TEXT PRIMARY KEY,
         candidate_email TEXT NOT NULL,
         candidate_name TEXT NOT NULL,
+        job_role TEXT,
+        duration_mins INTEGER DEFAULT 5,
         expires_at TIMESTAMP NOT NULL,
         is_used BOOLEAN DEFAULT FALSE,
         device_id TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Add columns if they don't exist (for existing databases)
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS job_role TEXT`);
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS duration_mins INTEGER DEFAULT 5`);
 
     // Ensure interview_sessions table exists
     await pool.query(`

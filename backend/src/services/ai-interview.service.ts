@@ -1,10 +1,16 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const API_KEY = process.env.GEMINI_API_KEY || "";
-const MODEL_NAME = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+let genAI: GoogleGenerativeAI | null = null;
+let model: any = null;
 
-const genAI = new GoogleGenerativeAI(API_KEY);
-const model = genAI.getGenerativeModel({ model: MODEL_NAME });
+const initAI = () => {
+  if (genAI) return;
+  const apiKey = process.env.GEMINI_API_KEY || "";
+  const modelName = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+  console.log(`🤖 AI Initialization: Key Length=${apiKey.length}, Model=${modelName}`);
+  genAI = new GoogleGenerativeAI(apiKey);
+  model = genAI.getGenerativeModel({ model: modelName });
+};
 
 export interface MCQQuestion {
   question: string;
@@ -16,6 +22,7 @@ export const generateAIQuestions = async (
   experience: number,
   role: string
 ): Promise<MCQQuestion[]> => {
+  initAI();
   try {
     const prompt = `
       You are a senior recruiter. Generate exactly 5 challenging multiple choice questions for a candidate with ${experience} years of experience as a ${role}.

@@ -9,6 +9,7 @@ interface CandidateInfo {
   candidate_id: number;
   full_name: string;
   email: string;
+  applied_jobs?: { id: number; title: string }[];
 }
 
 export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -19,6 +20,9 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
   const [suggestions, setSuggestions] = useState<CandidateInfo[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  
+  const [selectedRole, setSelectedRole] = useState('');
+  const [validity, setValidity] = useState(15); // Default 15 mins
 
   const fetchSuggestions = async (val: string) => {
     if (val.length < 2) {
@@ -55,6 +59,13 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     setEmail(c.email);
     setSuggestions([]);
     setShowSuggestions(false);
+    
+    // Auto-select first job if available
+    if (c.applied_jobs && c.applied_jobs.length > 0) {
+      setSelectedRole(c.applied_jobs[0].title);
+    } else {
+      setSelectedRole('');
+    }
   };
 
   const handleSearch = async () => {
@@ -84,7 +95,11 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
       const response = await authenticatedFetch('/api/interview/send-link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: candidate.email })
+        body: JSON.stringify({ 
+          email: candidate.email,
+          jobRole: selectedRole,
+          validityMins: validity
+        })
       });
       const data = await response.json();
       if (data.success) {
@@ -174,15 +189,53 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                       <h4 className="font-bold text-slate-800 text-lg mb-0.5">{candidate.full_name}</h4>
                       <p className="text-blue-600 font-medium text-sm mb-4">{candidate.email}</p>
                       
+                      <div className="space-y-4 mb-6">
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Interview Role (Question Domain)</label>
+                          <select 
+                            value={selectedRole}
+                            onChange={(e) => setSelectedRole(e.target.value)}
+                            className="w-full bg-white border border-blue-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                          >
+                            <option value="">-- Select or type role --</option>
+                            {candidate.applied_jobs?.map(job => (
+                              <option key={job.id} value={job.title}>{job.title}</option>
+                            ))}
+                            <option value="Custom">Other (Type Below)</option>
+                          </select>
+                          {(!candidate.applied_jobs || candidate.applied_jobs.length === 0 || selectedRole === 'Custom') && (
+                            <Input 
+                              placeholder="Type role manually..."
+                              value={selectedRole === 'Custom' ? '' : selectedRole}
+                              onChange={(e) => setSelectedRole(e.target.value)}
+                              className="mt-2"
+                            />
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Test Duration (Minutes)</label>
+                          <div className="flex items-center gap-4">
+                            <input 
+                              type="range" 
+                              min="5" 
+                              max="60" 
+                              step="5"
+                              value={validity}
+                              onChange={(e) => setValidity(parseInt(e.target.value))}
+                              className="flex-1 h-2 bg-blue-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            />
+                            <span className="text-sm font-bold text-blue-700 w-12">{validity}m</span>
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="flex flex-wrap gap-3 mb-5">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700">
-                          5 min validity
+                          {validity} min validity
                         </span>
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">
-                          Single Device
-                        </span>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-100 text-rose-700">
-                          One-time use
+                          Device Locked
                         </span>
                       </div>
 
@@ -211,7 +264,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                 <CheckCircle2 className="w-10 h-10 text-green-500" />
               </div>
               <h3 className="text-2xl font-bold text-slate-900 mb-2 font-outfit">Link Sent!</h3>
-              <p className="text-slate-500 max-w-sm">The interview link has been sent to candidate's email and will expire in 5 minutes.</p>
+              <p className="text-slate-500 max-w-sm">The secure interview link for <b>{selectedRole}</b> has been sent. It includes a <b>{validity}-minute</b> assessment window.</p>
             </div>
           )}
         </div>
