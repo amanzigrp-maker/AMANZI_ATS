@@ -7,55 +7,113 @@ const initAI = () => {
   if (genAI) return;
   const apiKey = process.env.GEMINI_API_KEY || "";
   const modelName = process.env.GEMINI_MODEL || "gemini-1.5-flash";
-  console.log(`🤖 AI Initialization: Key Length=${apiKey.length}, Model=${modelName}`);
   genAI = new GoogleGenerativeAI(apiKey);
   model = genAI.getGenerativeModel({ model: modelName });
 };
 
-export interface MCQQuestion {
+// ... existing AdaptiveQuestion interface if needed elsewhere ...
+
+export interface AdaptiveSequenceItem {
+  q_no: number;
+  difficulty: number;
   question: string;
   options: string[];
   correct_answer: string;
+  candidate_answer: string;
+  is_correct: boolean;
+  explanation: string;
+  next_level: number;
 }
 
-export const generateAIQuestions = async (
+export interface AdaptiveSequenceResponse {
+  questions: AdaptiveSequenceItem[];
+  summary: {
+    total_questions: number;
+    difficulty_progression: number[];
+    score: number;
+  };
+}
+
+/**
+ * Generate a full sequence of adaptive questions with simulated progression.
+ */
+export const generateAdaptiveSequence = async (
+  role: string,
   experience: number,
-  role: string
-): Promise<MCQQuestion[]> => {
+  skill: string,
+  total_questions: number
+): Promise<AdaptiveSequenceResponse> => {
   initAI();
   try {
     const prompt = `
-      You are a senior recruiter. Generate exactly 5 challenging multiple choice questions for a candidate with ${experience} years of experience as a ${role}.
-      
-      Requirements:
-      1. Each question must have exactly 4 options.
-      2. The correct_answer must be the exact text of one of the options.
-      3. Questions should be relevant to the ${role} role and ${experience} years experience level.
-      4. Return ONLY a JSON array with the following structure, no other text:
-      [
-        {
-          "question": "string",
-          "options": ["string", "string", "string", "string"],
-          "correct_answer": "string"
+      You are an AI Adaptive Interview Question Engine.
+      Your job is to generate MULTIPLE questions in sequence using adaptive difficulty logic.
+
+      ---
+      ## 📥 INPUT
+      {
+        "role": "${role}",
+        "experience": "${experience}",
+        "skill": "${skill}",
+        "total_questions": ${total_questions}
+      }
+
+      ---
+      ## 🧠 ADAPTIVE RULES (STRICT)
+      * Start with MEDIUM level (level = 2)
+      * IF answer is CORRECT: level +1 (Max 3)
+      * IF answer is WRONG: level -1 (Min 1)
+      * Level 1 + wrong → stay at 1
+      * Level 3 + correct → stay at 3
+
+      ---
+      ## 📊 DIFFICULTY
+      1 → EASY | 2 → MEDIUM | 3 → HARD
+
+      ---
+      ## ❓ QUESTION RULES
+      * Generate ONE question at a time internally until ${total_questions} are reached.
+      * Simulate candidate answer realistically (Mix of correct and wrong).
+      * Output MUST be a strictly valid JSON.
+
+      ---
+      ## 📦 OUTPUT FORMAT (STRICT JSON)
+      {
+        "questions": [
+          {
+            "q_no": 1,
+            "difficulty": 2,
+            "question": "...",
+            "options": ["A","B","C","D"],
+            "correct_answer": "...",
+            "candidate_answer": "...",
+            "is_correct": true,
+            "explanation": "...",
+            "next_level": 3
+          }
+        ],
+        "summary": {
+          "total_questions": ${total_questions},
+          "difficulty_progression": [2,3,...],
+          "score": X
         }
-      ]
+      }
+
+      ---
+      ## 🚫 STRICT RULES
+      * OUTPUT ONLY JSON | NO markdown | NO text outside JSON.
     `;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
     
-    // Clean potential markdown formatting
     const jsonStr = text.replace(/```json|```/g, "").trim();
-    const questions: MCQQuestion[] = JSON.parse(jsonStr);
+    const sequence: AdaptiveSequenceResponse = JSON.parse(jsonStr);
 
-    if (!Array.isArray(questions) || questions.length === 0) {
-      throw new Error("Invalid response format from Gemini");
-    }
-
-    return questions;
+    return sequence;
   } catch (error) {
-    console.error("Gemini Question Generation Error:", error);
-    throw new Error("Failed to generate AI questions");
+    console.error("Adaptive Sequence Generation Error:", error);
+    throw new Error("Failed to generate adaptive question sequence");
   }
 };

@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool } from '../lib/database';
 import { sendInterviewLink } from '../services/email.service';
-import { generateAIQuestions } from '../services/ai-interview.service';
+import { generateAdaptiveSequence } from '../services/ai-interview.service';
 
 /**
  * Search candidates by email or name (partial matching)
@@ -47,7 +47,7 @@ export const searchCandidates = async (req: Request, res: Response) => {
  */
 export const generateAndSendLink = async (req: Request, res: Response) => {
   try {
-    const { email, jobRole, validityMins } = req.body;
+    const { email, jobRole, validityMins, questionCount } = req.body;
 
     if (!email) {
       return res.status(400).json({ success: false, error: 'Email is required' });
@@ -70,35 +70,64 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     // 2. Generate secure token
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins to OPEN the link
-    // The duration_mins is how long they have to COMPLETE the interview once started.
-    // Actually, validityMins in the UI refers to the link expiration or the test duration?
-    // "Search candidate and send secure 5-min link" -> implies the link is available for 5 mins?
-    // Or the test is 5 mins?
-    // Looking at InterviewPage.tsx: setTimeLeft(300) -> 5 mins.
-    // So validityMins is the test duration.
-    
-    // Link expiration should probably also be configurable, but for now let's use duration_mins for the test.
 
-    // 3. Save in DB
-    await pool.query(
-      `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [token, candidate.email, candidate.full_name, jobRole || null, duration, expiresAt, false, null]
-    );
+    // 3. Robust Schema Update & Save in DB
+    try {
+      // Check if column exists first to be safe
+      const checkColumn = await pool.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name='interview_tokens' AND column_name='total_questions';
+      `);
+      
+      if (checkColumn.rows.length === 0) {
+        console.log('👷 Adding missing total_questions column...');
+        await pool.query('ALTER TABLE interview_tokens ADD COLUMN total_questions INTEGER DEFAULT 10;');
+      }
+    } catch (e) {
+      console.error('⚠️ Schema update warning (may already exist):', e.message);
+    }
+
+    try {
+      await pool.query(
+        `INSERT INTO interview_tokens 
+         (token, candidate_email, candidate_name, job_role, duration_mins, total_questions, expires_at, is_used, device_id) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [token, candidate.email, candidate.full_name, jobRole || null, duration, questionCount || 10, expiresAt, false, null]
+      );
+    } catch (dbError) {
+      console.error('❌ Database Insert Failed:', dbError.message);
+      // Fallback: If total_questions failed, try inserting WITHOUT it to at least send the link
+      try {
+        await pool.query(
+          `INSERT INTO interview_tokens 
+           (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id) 
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [token, candidate.email, candidate.full_name, jobRole || null, duration, expiresAt, false, null]
+        );
+      } catch (fallbackError) {
+        return res.status(500).json({ success: false, error: 'Database could not be updated' });
+      }
+    }
 
     // 4. Generate link
-    // Use environment variable for frontend URL, fallback to localhost if not set
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
     const interviewLink = `${frontendUrl}/interview?token=${token}`;
 
     // 5. Send email
-    await sendInterviewLink(candidate.email, candidate.full_name, interviewLink);
+    try {
+      await sendInterviewLink(candidate.email, candidate.full_name, interviewLink);
+    } catch (mailError) {
+      console.error('❌ Email Sending Failed:', mailError);
+      // We still return true if DB is saved, or handle based on preference. 
+      // Usually, if email fails, the process is considered failed.
+      return res.status(500).json({ success: false, error: 'Failed to send email notification' });
+    }
 
-    res.json({ success: true, message: 'Interview link sent successfully to port 8080' });
+    res.json({ success: true, message: 'Interview link sent successfully' });
   } catch (error) {
-    console.error('Generate and send link error:', error);
-    res.status(500).json({ success: false, error: 'Failed to generate and send link' });
+    console.error('❌ Generate and send link overall error:', error);
+    res.status(500).json({ success: false, error: 'Internal system error' });
   }
 };
 
@@ -161,6 +190,7 @@ export const validateLink = async (req: Request, res: Response) => {
         name: tokenData.candidate_name,
         role: tokenData.job_role,
         duration: tokenData.duration_mins,
+        total_questions: tokenData.total_questions || 10,
         session_id: tokenData.session_id,
         is_started: tokenData.is_used
       }
@@ -172,7 +202,7 @@ export const validateLink = async (req: Request, res: Response) => {
 };
 
 /**
- * Generate Questions for Interview
+ * Generate Questions for Interview (Adaptive Sequence Engine)
  */
 export const generateQuestions = async (req: Request, res: Response) => {
   try {
@@ -182,7 +212,15 @@ export const generateQuestions = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
-    // 1. Check if session already exists
+    // 1. Fetch token data for question count
+    const tokenResult = await pool.query('SELECT total_questions, candidate_email FROM interview_tokens WHERE token = $1', [token]);
+    if (tokenResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Invalid session' });
+    }
+    const tokenData = tokenResult.rows[0];
+    const totalQCount = tokenData.total_questions || 10;
+
+    // 2. Check if session already exists
     const sessionCheck = await pool.query(
       'SELECT id FROM interview_sessions WHERE token = $1',
       [token]
@@ -191,30 +229,26 @@ export const generateQuestions = async (req: Request, res: Response) => {
     let sessionId;
     if (sessionCheck.rows.length > 0) {
       sessionId = sessionCheck.rows[0].id;
-      // If questions already exist, return session
       const questionsCheck = await pool.query('SELECT id FROM interview_questions WHERE session_id = $1', [sessionId]);
       if (questionsCheck.rows.length > 0) {
         return res.json({ success: true, session_id: sessionId });
       }
     } else {
       // Create new session
-      const tokenData = await pool.query('SELECT candidate_email FROM interview_tokens WHERE token = $1', [token]);
       const result = await pool.query(
         `INSERT INTO interview_sessions (token, candidate_email, role, experience_years) 
          VALUES ($1, $2, $3, $4) RETURNING id`,
-        [token, tokenData.rows[0].candidate_email, role, experience || 0]
+        [token, tokenData.candidate_email, role, experience || 0]
       );
       sessionId = result.rows[0].id;
-
-      // Mark token as used
       await pool.query('UPDATE interview_tokens SET is_used = true WHERE token = $1', [token]);
     }
 
-    // 2. Generate questions via Gemini
-    const questions = await generateAIQuestions(experience || 0, role);
+    // 3. Generate Sequence via Engine
+    const sequenceData = await generateAdaptiveSequence(role, experience || 0, "General", totalQCount);
 
-    // 3. Save questions to DB
-    for (const q of questions) {
+    // 4. Save entire sequence to DB
+    for (const q of sequenceData.questions) {
       await pool.query(
         `INSERT INTO interview_questions (session_id, question, options, correct_answer) 
          VALUES ($1, $2, $3, $4)`,
@@ -222,12 +256,12 @@ export const generateQuestions = async (req: Request, res: Response) => {
       );
     }
 
-    await pool.query('UPDATE interview_sessions SET total_questions = $1 WHERE id = $2', [questions.length, sessionId]);
+    await pool.query('UPDATE interview_sessions SET total_questions = $1 WHERE id = $2', [sequenceData.questions.length, sessionId]);
 
     res.json({ success: true, session_id: sessionId });
   } catch (error) {
-    console.error('Generate questions error:', error);
-    res.status(500).json({ success: false, error: 'AI generation failed' });
+    console.error('Generate sequence error:', error);
+    res.status(500).json({ success: false, error: 'AI sequence generation failed' });
   }
 };
 

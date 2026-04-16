@@ -49,6 +49,7 @@ export default function InterviewPage() {
   const [timeLeft, setTimeLeft] = useState(300); // 5 minutes in seconds
   const [score, setScore] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [totalQuestions, setTotalQuestions] = useState(10); // Dynamic total from Admin
 
   // 1. Validate Token on Mount
   useEffect(() => {
@@ -69,6 +70,10 @@ export default function InterviewPage() {
             setTimeLeft(data.data.duration * 60);
           }
 
+          if (data.data.total_questions) {
+            setTotalQuestions(data.data.total_questions);
+          }
+
           if (data.data.session_id) {
             setSessionId(data.data.session_id);
             await fetchQuestions(data.data.session_id);
@@ -77,7 +82,6 @@ export default function InterviewPage() {
             // Pre-fill setup or auto-start if both role and duration are set
             if (data.data.role) {
               setSetupData(prev => ({ ...prev, role: data.data.role }));
-              // We could auto-start here if we want, but let's just pre-fill
             }
             setStatus("setup");
           }
@@ -328,7 +332,7 @@ export default function InterviewPage() {
 
   if (status === "interviewing") {
     const currentQ = questions[currentQuestionIndex];
-    const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
+    const progress = ((currentQuestionIndex + 1) / totalQuestions) * 100;
 
     return (
         <div className="min-h-screen w-full bg-[#020617] flex flex-col items-center p-4 md:p-8 text-left">
@@ -377,7 +381,7 @@ export default function InterviewPage() {
                         {currentQ ? (
                             <Card className="bg-slate-900/40 border-white/5 backdrop-blur-xl rounded-[2rem] p-8 md:p-12">
                                 <span className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-4 block">
-                                    Question {currentQuestionIndex + 1} of {questions.length}
+                                    Question {currentQuestionIndex + 1} of {totalQuestions}
                                 </span>
                                 <h3 className="text-2xl md:text-3xl font-bold text-white mb-10 leading-snug">
                                     {currentQ.question}
@@ -419,7 +423,7 @@ export default function InterviewPage() {
                                         Previous
                                     </Button>
                                     
-                                    {currentQuestionIndex === questions.length - 1 ? (
+                                    {currentQuestionIndex === totalQuestions - 1 ? (
                                         <Button 
                                             onClick={handleSubmit} 
                                             disabled={isSubmitting || !answers[currentQ.id]}
@@ -468,7 +472,7 @@ export default function InterviewPage() {
             
             <div className="bg-white/5 rounded-2xl p-6 mb-8 border border-white/10">
                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Your Performance</span>
-               <div className="text-4xl font-bold text-white mb-2">{score} / {questions.length}</div>
+               <div className="text-4xl font-bold text-white mb-2">{score} / {totalQuestions}</div>
                <div className="text-xs text-slate-500">Correct Answers</div>
             </div>
 

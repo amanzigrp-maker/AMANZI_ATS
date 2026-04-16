@@ -23,6 +23,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
   
   const [selectedRole, setSelectedRole] = useState('');
   const [validity, setValidity] = useState(15); // Default 15 mins
+  const [questionCount, setQuestionCount] = useState(10); // Default 10 questions
 
   const fetchSuggestions = async (val: string) => {
     if (val.length < 2) {
@@ -98,7 +99,8 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
         body: JSON.stringify({ 
           email: candidate.email,
           jobRole: selectedRole,
-          validityMins: validity
+          validityMins: validity,
+          questionCount: questionCount
         })
       });
       const data = await response.json();
@@ -228,11 +230,30 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                             <span className="text-sm font-bold text-blue-700 w-12">{validity}m</span>
                           </div>
                         </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Number of Questions</label>
+                          <div className="flex items-center gap-4">
+                            <input 
+                              type="range" 
+                              min="1" 
+                              max="50" 
+                              step="1"
+                              value={questionCount}
+                              onChange={(e) => setQuestionCount(parseInt(e.target.value))}
+                              className="flex-1 h-2 bg-purple-100 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                            />
+                            <span className="text-sm font-bold text-purple-700 w-12">{questionCount}</span>
+                          </div>
+                        </div>
                       </div>
 
                       <div className="flex flex-wrap gap-3 mb-5">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700">
                           {validity} min validity
+                        </span>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+                          {questionCount} Questions
                         </span>
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">
                           Device Locked
