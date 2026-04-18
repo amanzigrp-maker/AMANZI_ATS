@@ -10,7 +10,7 @@
     "server": "npm run dev:backend",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && tsc",
-    "start": "npm run build:frontend && npm run serve",
+    "start": "npm run build:frontend && npm run dev:backend",
     "fix-assignments": "cd backend && node scripts/fix-existing-job-assignments.js",
     "setup:linux": "chmod +x linux-setup.sh && ./linux-setup.sh",
     "deploy:monolithic": "chmod +x deploy-monolithic.sh && ./deploy-monolithic.sh",

@@ -108,12 +108,22 @@ export const generateAdaptiveSequence = async (
     const response = await result.response;
     const text = response.text();
     
-    const jsonStr = text.replace(/```json|```/g, "").trim();
-    const sequence: AdaptiveSequenceResponse = JSON.parse(jsonStr);
+    // Find the JSON block even if there is text before or after
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.error("No JSON found in AI response:", text);
+      throw new Error("AI returned invalid question format");
+    }
+    
+    const sequence: AdaptiveSequenceResponse = JSON.parse(jsonMatch[0]);
+
+    if (!sequence.questions || !Array.isArray(sequence.questions)) {
+       throw new Error("AI sequence missing questions array");
+    }
 
     return sequence;
   } catch (error) {
     console.error("Adaptive Sequence Generation Error:", error);
-    throw new Error("Failed to generate adaptive question sequence");
+    throw error;
   }
 };

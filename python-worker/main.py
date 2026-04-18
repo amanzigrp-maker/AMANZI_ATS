@@ -42,6 +42,8 @@ logger.add(
            "<cyan>{name}:{function}</cyan> - "
            "<level>{message}</level>",
     level=settings.log_level,
+    backtrace=False,
+    diagnose=False,
 )
 
 # ---------------------------------------------------------------------

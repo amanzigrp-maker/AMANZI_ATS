@@ -98,7 +98,7 @@ export function AILogicScreen() {
                 </div>
                 <ShieldCheck className="w-4 h-4 text-emerald-500/50" />
              </div>
-             <div className="p-6 font-mono text-xs space-y-4 overflow-y-auto max-h-[150px] no-scrollbar">
+             <div className="p-6 font-mono text-xs space-y-4 overflow-hidden h-full">
                 <AnimatePresence mode="popLayout" initial={false}>
                   {logs.map((log) => (
                     <motion.div

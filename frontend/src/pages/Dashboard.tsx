@@ -164,6 +164,18 @@ export default function Dashboard() {
   const [statsMounted, setStatsMounted] = useState(false);
   const [pipelineUpdating, setPipelineUpdating] = useState(false);
   const [notificationIds, setNotificationIds] = useState<Set<number>>(new Set());
+  const [bellShake, setBellShake] = useState(false);
+  const prevUnreadRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    // skip if unreadNotifications is the same or if it's the first load
+    if (prevUnreadRef.current !== null && unreadNotifications > prevUnreadRef.current) {
+      setBellShake(true);
+      const timer = setTimeout(() => setBellShake(false), 800);
+      return () => clearTimeout(timer);
+    }
+    prevUnreadRef.current = unreadNotifications;
+  }, [unreadNotifications]);
 
   // Loading states for nicer UI
   const [statsLoading, setStatsLoading] = useState(true);
@@ -379,9 +391,10 @@ export default function Dashboard() {
   // storage event listener for cross-tab updates
   useEffect(() => {
     const handler = (e: StorageEvent) => {
-      if (e.key === 'jobsUpdated') {
-        console.log('Storage event: jobsUpdated detected — refreshing dashboard');
+      if (e.key === 'jobsUpdated' || e.key === 'applicantsUpdated') {
+        console.log(`Storage event: ${e.key} detected — refreshing dashboard`);
         refreshDashboard();
+        fetchRecentApplications();
       }
       if (e.key === 'accessToken' || e.key === 'refreshToken') {
         setAuthOk(isAuthenticated());
@@ -970,6 +983,8 @@ export default function Dashboard() {
       // refresh UI after upload
       fetchDashboardStats();
       fetchJobOpenings();
+      fetchRecentApplications();
+      fetchNotifications();
     } catch (err) {
       console.error('Upload error:', err);
       setFiles(prev => prev.map(f => ({ ...f, status: 'error', progress: 0, error: (err as any).message || 'Upload failed' })));
@@ -1204,7 +1219,18 @@ export default function Dashboard() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="relative p-2 hover:bg-slate-100 dark:hover:bg-card/10 rounded-lg transition-colors">
-                  <Bell size={18} />
+                  <motion.div
+                    animate={bellShake ? {
+                      rotate: [0, -15, 15, -15, 15, -10, 10, 0],
+                      scale: [1, 1.2, 1]
+                    } : {}}
+                    transition={{
+                      duration: 0.6,
+                      ease: "easeInOut"
+                    }}
+                  >
+                    <Bell size={18} />
+                  </motion.div>
                   {unreadNotifications > 0 && (
                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
                       {unreadNotifications > 9 ? '9+' : unreadNotifications}
@@ -1323,7 +1349,16 @@ export default function Dashboard() {
           >
             <div className="relative bg-card dark:bg-slate-950 rounded-2xl shadow-2xl max-w-7xl w-full max-h-[95vh] overflow-y-auto border border-border dark:border-white/10">
               <button onClick={() => setShowUploader(false)} className="absolute top-4 right-4 z-10 p-2 hover:bg-gray-100 dark:hover:bg-card/10 rounded-full transition-colors"><X className="h-5 w-5 text-muted-foreground dark:text-slate-300" /></button>
-              <DashboardResumeUploader onClose={() => setShowUploader(false)} userRole={profile?.role} selectedJob={selectedJobForUpload} />
+              <DashboardResumeUploader 
+                onClose={() => setShowUploader(false)} 
+                userRole={profile?.role} 
+                selectedJob={selectedJobForUpload} 
+                onUploadSuccess={() => {
+                  refreshDashboard();
+                  fetchRecentApplications();
+                  fetchNotifications();
+                }}
+              />
             </div>
           </div>
         )}

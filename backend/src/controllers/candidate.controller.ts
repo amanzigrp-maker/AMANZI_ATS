@@ -462,27 +462,11 @@ export const createCandidate = async (req: Request, res: Response) => {
 
     await client.query('COMMIT');
 
-    // Notify all admins about the new candidate
+    // Notify all admins about the new candidate - REMOVED per user request
+    /*
     try {
-      const admins = await pool.query(
-        `SELECT userid FROM users WHERE role = 'admin' AND status = 'active'`
-      );
-
-      if (admins.rows.length > 0) {
-        const notifications = admins.rows.map((a) => ({
-          userId: a.userid as number,
-          title: "New Candidate Created",
-          message: `Candidate ${candidate.full_name} has been added to the system.`,
-          type: "info" as const,
-          relatedEntityType: "candidate",
-          relatedEntityId: candidate.candidate_id as number,
-        }));
-
-        await notificationService.sendBulkNotifications(notifications);
-      }
-    } catch (notifyErr) {
-      console.error("⚠️ Failed to send admin new candidate notification:", notifyErr);
     }
+    */
 
     res.status(201).json({
       success: true,

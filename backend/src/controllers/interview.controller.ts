@@ -249,6 +249,10 @@ export const generateQuestions = async (req: Request, res: Response) => {
     // 3. Generate Sequence via Engine
     const sequenceData = await generateAdaptiveSequence(role, experience || 0, "General", totalQCount);
 
+    if (!sequenceData || !sequenceData.questions || sequenceData.questions.length === 0) {
+      return res.status(500).json({ success: false, error: 'AI failed to generate questions' });
+    }
+
     // 4. Save entire sequence to DB
     for (const q of sequenceData.questions) {
       await pool.query(
@@ -413,6 +417,11 @@ export const startInterviewSession = async (req: InterviewRequest, res: Response
     
     if (questionsCheck.rows.length === 0) {
       const sequenceData = await generateAdaptiveSequence(role || 'Software Engineer', experience || 0, "General", 10);
+      
+      if (!sequenceData || !sequenceData.questions || sequenceData.questions.length === 0) {
+        throw new Error("AI failed to generate questions");
+      }
+
       const questions = sequenceData.questions;
       
       for (const q of questions) {

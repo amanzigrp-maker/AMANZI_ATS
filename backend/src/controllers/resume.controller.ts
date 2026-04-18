@@ -214,22 +214,63 @@ export const uploadResume = async (req: Request, res: Response) => {
         );
       }
 
-      const userRole = String((req as any).user?.role || '').toLowerCase();
-      const uploaderId = (req as any).user?.userid ?? (req as any).user?.id ?? null;
-
-      if (uploaderId && rawJobId) {
-        // Application linking and admin notifications have been intentionally
-        // removed here so that the applicant is NOT added until the user clicks
-        // "Save Changes" on the frontend, which will explicitly trigger the 
-        // link-candidate endpoint.
-      }
-
       elasticsearchService.indexResume({
         resume_id: resumeId,
         candidate_id: candidateId,
         raw_text: originalname,
         skills: parseResult?.parsed_data?.skills || [],
       });
+
+      // --- Link Candidate to Job & Create Application Entry ---
+      // This ensures the upload shows up in "Recent Applications" immediately.
+      try {
+        const uploaderId = (req as any).user?.userid ?? (req as any).user?.id ?? null;
+        if (uploaderId && rawJobId) {
+          await client.query(
+            `INSERT INTO applications (
+              job_id, 
+              candidate_id, 
+              status, 
+              applied_date, 
+              uploaded_by_user_id,
+              application_type
+            ) VALUES ($1, $2, 'pending', NOW(), $3, $4)
+            ON CONFLICT (job_id, candidate_id) DO NOTHING`,
+            [
+              rawJobId, 
+              candidateId, 
+              uploaderId,
+              (req as any).user?.role === 'vendor' ? 'vendor' : 'recruiter', 
+            ]
+          );
+          console.log(`✅ Application auto-created for candidate ${candidateId} on job ${rawJobId}`);
+        }
+
+        // --- Notify Admins/System about New Resume ---
+        const admins = await pool.query(
+          `SELECT userid FROM users WHERE role = 'admin' AND status = 'active'`
+        );
+
+        if (admins.rows.length > 0) {
+          const jobRow = await pool.query("SELECT job_code FROM jobs WHERE job_id = $1", [rawJobId]);
+          const jobCode = jobRow.rows[0]?.job_code || rawJobId;
+
+          const notifications = admins.rows.map((a) => ({
+            userId: a.userid as number,
+            title: "New Application Received",
+            message: `New candidate linked to job ${jobCode}`,
+            type: "info" as const,
+            relatedJobId: Number(rawJobId),
+            relatedJobCode: String(jobCode),
+            relatedEntityType: "application",
+            relatedEntityId: resumeId || undefined,
+          }));
+
+          await notificationService.sendBulkNotifications(notifications);
+        }
+      } catch (notifyErr) {
+        console.error("⚠️ Failed to process post-upload actions (app linking/notifications):", notifyErr);
+      }
     }
 
     return res.status(201).json({
@@ -538,6 +579,33 @@ export const uploadModifiedResume = async (req: AuthenticatedRequest, res: Respo
       raw_text: originalname,
       skills: parseResult?.parsed_data?.skills || [],
     });
+
+    // Notify Admins about the modified upload
+    try {
+      const admins = await pool.query(
+        `SELECT userid FROM users WHERE role = 'admin' AND status = 'active'`
+      );
+
+      if (admins.rows.length > 0) {
+        const jobRow = await pool.query("SELECT job_code FROM jobs WHERE job_id = $1", [rawJobId]);
+        const jobCode = jobRow.rows[0]?.job_code || rawJobId;
+
+        const notifications = admins.rows.map((a) => ({
+          userId: a.userid as number,
+          title: "Candidate Update",
+          message: `Candidate ${parseResult?.parsed_data?.full_name || 'ID '+rawCandidateId} updated resume for job ${jobCode}`,
+          type: "info" as const,
+          relatedJobId: Number(rawJobId),
+          relatedJobCode: String(jobCode),
+          relatedEntityType: "application",
+          relatedEntityId: resumeId || undefined,
+        }));
+
+        await notificationService.sendBulkNotifications(notifications);
+      }
+    } catch (notifyErr) {
+      console.error("⚠️ Failed to send admin modification notification:", notifyErr);
+    }
 
     return res.status(201).json({
       success: true,

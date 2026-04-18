@@ -143,7 +143,7 @@ export default function InterviewPage() {
           setErrorMessage("The secure session is taking too long to initialize. Please check your internet or refresh the page.");
           setStatus("error");
         }
-      }, 15000); // 15 seconds timeout
+      }, 30000); // 30 seconds timeout
       return () => clearTimeout(timer);
     }
   }, [status]);

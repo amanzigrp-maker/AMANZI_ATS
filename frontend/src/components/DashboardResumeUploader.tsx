@@ -57,9 +57,10 @@ interface DashboardResumeUploaderProps {
   userRole?: string;
   // Optional: when recruiter uploads from a specific job, associate resumes with that job
   selectedJob?: { job_id?: number; id?: number } | null;
+  onUploadSuccess?: () => void;
 }
 
-export default function DashboardResumeUploader({ onClose, userRole, selectedJob }: DashboardResumeUploaderProps) {
+export default function DashboardResumeUploader({ onClose, userRole, selectedJob, onUploadSuccess }: DashboardResumeUploaderProps) {
   const [file, setFile] = useState<File | null>(null);
   const [files, setFiles] = useState<Array<{ file: File, status: 'pending' | 'uploading' | 'success' | 'error' | 'duplicate', progress: number, error?: string }>>([]);
   const [uploading, setUploading] = useState(false);
@@ -502,6 +503,7 @@ export default function DashboardResumeUploader({ onClose, userRole, selectedJob
       }
 
       // Close the modal after save (and optional link)
+      onUploadSuccess?.();
       onClose();
     } catch (error) {
       console.error('Error saving:', error);
