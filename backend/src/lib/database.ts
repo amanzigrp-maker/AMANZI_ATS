@@ -1,8 +1,10 @@
 import { Pool } from 'pg';
+import dotenv from 'dotenv';
 
 // -----------------------------------------------------------------------------
-// ENV VALIDATION (dotenv is loaded in server.ts)
+// ENV VALIDATION (ensure dotenv is loaded before proceeding)
 // -----------------------------------------------------------------------------
+dotenv.config();
 const {
   DATABASE_URL,
   DB_HOST,
@@ -79,6 +81,7 @@ export const testConnection = async (): Promise<boolean> => {
         expires_at TIMESTAMP NOT NULL,
         is_used BOOLEAN DEFAULT FALSE,
         device_id TEXT,
+        password TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -86,6 +89,7 @@ export const testConnection = async (): Promise<boolean> => {
     // Add columns if they don't exist (for existing databases)
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS job_role TEXT`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS duration_mins INTEGER DEFAULT 5`);
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS password TEXT`);
 
     // Ensure interview_sessions table exists
     await pool.query(`
@@ -122,18 +126,16 @@ export const testConnection = async (): Promise<boolean> => {
         session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
         interview_id TEXT,
         question TEXT NOT NULL,
-        question_text TEXT,
-        options JSONB,
-        correct_answer TEXT,
-        difficulty_level VARCHAR(20),
+        options JSONB NOT NULL,
+        difficulty VARCHAR(20) DEFAULT 'medium',
+        correct_answer TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    // Add new columns to interview_questions if they don't exist
-    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS interview_id TEXT`);
-    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS question_text TEXT`);
-    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty_level VARCHAR(20)`);
+    // Add difficulty column if it doesn't exist
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'medium'`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS options JSONB`);
 
     // Ensure interview_responses table exists
     await pool.query(`
@@ -165,6 +167,10 @@ export const testConnection = async (): Promise<boolean> => {
     `);
 
     console.log('✅ Temporary Interview Access System tables verified');
+
+    // Add decision column for select/reject status
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS decision TEXT DEFAULT 'pending'`);
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS feedback TEXT`);
 
     return true;
   } catch (error: any) {

@@ -15,21 +15,17 @@ const initAI = () => {
 
 export interface AdaptiveSequenceItem {
   q_no: number;
-  difficulty: number;
   question: string;
   options: string[];
   correct_answer: string;
-  candidate_answer: string;
-  is_correct: boolean;
-  explanation: string;
-  next_level: number;
+  difficulty: 'basic' | 'medium' | 'advanced';
 }
 
 export interface AdaptiveSequenceResponse {
   questions: AdaptiveSequenceItem[];
   summary: {
     total_questions: number;
-    difficulty_progression: number[];
+    difficulty_progression: string[];
     score: number;
   };
 }
@@ -46,56 +42,30 @@ export const generateAdaptiveSequence = async (
   initAI();
   try {
     const prompt = `
-      You are an AI Adaptive Interview Question Engine.
-      Your job is to generate MULTIPLE questions in sequence using adaptive difficulty logic.
-
-      ---
-      ## 📥 INPUT
-      {
-        "role": "${role}",
-        "experience": "${experience}",
-        "skill": "${skill}",
-        "total_questions": ${total_questions}
-      }
-
-      ---
-      ## 🧠 ADAPTIVE RULES (STRICT)
-      * Start with MEDIUM level (level = 2)
-      * IF answer is CORRECT: level +1 (Max 3)
-      * IF answer is WRONG: level -1 (Min 1)
-      * Level 1 + wrong → stay at 1
-      * Level 3 + correct → stay at 3
-
-      ---
-      ## 📊 DIFFICULTY
-      1 → EASY | 2 → MEDIUM | 3 → HARD
-
-      ---
-      ## ❓ QUESTION RULES
-      * Generate ONE question at a time internally until ${total_questions} are reached.
-      * Simulate candidate answer realistically (Mix of correct and wrong).
-      * Output MUST be a strictly valid JSON.
-
+      You are an AI Adaptive Interview Question Engine. Generate a sequence of ${total_questions} questions for a ${role} with ${experience} years experience.
+      
+      Requirements:
+      1. Each question must have exactly 4 options.
+      2. The correct_answer must be the exact text of one of the options.
+      3. For a sequence of ${total_questions} questions, provide a mix of basic, medium, and advanced levels.
+      4. Each question must include a "difficulty" field with value "basic", "medium", or "advanced".
+      
       ---
       ## 📦 OUTPUT FORMAT (STRICT JSON)
       {
         "questions": [
           {
             "q_no": 1,
-            "difficulty": 2,
+            "difficulty": "basic" | "medium" | "advanced",
             "question": "...",
             "options": ["A","B","C","D"],
-            "correct_answer": "...",
-            "candidate_answer": "...",
-            "is_correct": true,
-            "explanation": "...",
-            "next_level": 3
+            "correct_answer": "..."
           }
         ],
         "summary": {
           "total_questions": ${total_questions},
-          "difficulty_progression": [2,3,...],
-          "score": X
+          "difficulty_progression": ["basic", "medium", ...],
+          "score": 0
         }
       }
 

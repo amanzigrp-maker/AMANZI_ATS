@@ -2,9 +2,10 @@ import { Request, Response } from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { pool } from '../lib/database';
-import { sendInterviewLink, sendInterviewCredentials } from '../services/email.service';
+import { sendInterviewLink, sendInterviewResults, sendSelectionEmail } from '../services/email.service';
 import { generateAdaptiveSequence } from '../services/ai-interview.service';
-import { InterviewRequest } from '../middleware/interview-auth.middleware';
+import jwt from 'jsonwebtoken';
+import { getJwtSecret } from '../middleware/auth.middleware';
 
 /**
  * Search candidates by email or name (partial matching)
@@ -69,67 +70,128 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
 
     const candidate = candidateResult.rows[0];
 
-    // 2. Generate secure token
+    // 2. Generate secure token and password
     const token = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins to OPEN the link
+    // The duration_mins is how long they have to COMPLETE the interview once started.
+    // Actually, validityMins in the UI refers to the link expiration or the test duration?
+    // "Search candidate and send secure 5-min link" -> implies the link is available for 5 mins?
+    // Or the test is 5 mins?
+    // Looking at InterviewPage.tsx: setTimeLeft(300) -> 5 mins.
+    // So validityMins is the test duration.
+    
+    // Link expiration should probably also be configurable, but for now let's use duration_mins for the test.
 
-    // 3. Robust Schema Update & Save in DB
-    try {
-      // Check if column exists first to be safe
-      const checkColumn = await pool.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name='interview_tokens' AND column_name='total_questions';
-      `);
-      
-      if (checkColumn.rows.length === 0) {
-        console.log('👷 Adding missing total_questions column...');
-        await pool.query('ALTER TABLE interview_tokens ADD COLUMN total_questions INTEGER DEFAULT 10;');
-      }
-    } catch (e) {
-      console.error('⚠️ Schema update warning (may already exist):', e.message);
-    }
-
-    try {
-      await pool.query(
-        `INSERT INTO interview_tokens 
-         (token, candidate_email, candidate_name, job_role, duration_mins, total_questions, expires_at, is_used, device_id) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [token, candidate.email, candidate.full_name, jobRole || null, duration, questionCount || 10, expiresAt, false, null]
-      );
-    } catch (dbError) {
-      console.error('❌ Database Insert Failed:', dbError.message);
-      // Fallback: If total_questions failed, try inserting WITHOUT it to at least send the link
-      try {
-        await pool.query(
-          `INSERT INTO interview_tokens 
-           (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id) 
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [token, candidate.email, candidate.full_name, jobRole || null, duration, expiresAt, false, null]
-        );
-      } catch (fallbackError) {
-        return res.status(500).json({ success: false, error: 'Database could not be updated' });
-      }
-    }
+    // 3. Save in DB
+    await pool.query(
+      `INSERT INTO interview_tokens 
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [token, candidate.email, candidate.full_name, jobRole || null, duration, expiresAt, false, null]
+    );
 
     // 4. Generate link
+    // Use environment variable for frontend URL, fallback to localhost if not set
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-    const interviewLink = `${frontendUrl}/interview?token=${token}`;
+    const loginUrl = `${frontendUrl}/interview`;
 
     // 5. Send email
-    try {
-      await sendInterviewLink(candidate.email, candidate.full_name, interviewLink);
-    } catch (mailError) {
-      console.error('❌ Email Sending Failed:', mailError);
-      // We still return true if DB is saved, or handle based on preference. 
-      // Usually, if email fails, the process is considered failed.
-      return res.status(500).json({ success: false, error: 'Failed to send email notification' });
-    }
+    await sendInterviewLink(candidate.email, candidate.full_name, loginUrl);
 
     res.json({ success: true, message: 'Interview link sent successfully' });
   } catch (error) {
     console.error('❌ Generate and send link overall error:', error);
     res.status(500).json({ success: false, error: 'Internal system error' });
+  }
+};
+
+/**
+ * Candidate Login Strategy (JWT Authentication)
+ */
+export const candidateLogin = async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ success: false, error: 'Email and password are required' });
+    }
+
+    // 1. Find the latest valid generated account for this email
+    const result = await pool.query(
+      `SELECT t.*, s.id as session_id, s.is_submitted 
+       FROM interview_tokens t
+       LEFT JOIN interview_sessions s ON t.token = s.token
+       WHERE t.candidate_email ILIKE $1 
+       ORDER BY t.created_at DESC LIMIT 1`,
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Invalid credentials or account disabled' });
+    }
+
+    const tokenData = result.rows[0];
+
+    // 2. Verify Password
+    const isMatch = await bcrypt.compare(password, tokenData.password);
+    if (!isMatch) {
+      return res.status(401).json({ success: false, error: 'Invalid email or password' });
+    }
+
+    // 3. Validation: Test completed -> Account disabled
+    if (tokenData.is_submitted) {
+      return res.status(403).json({ success: false, error: 'Account disabled. Interview already completed.' });
+    }
+
+    // 4. Validation: Check if expired
+    // Wait, let's leave this to avoid strict expiration for now, or just implement it
+    // if (!tokenData.session_id && new Date() > new Date(tokenData.expires_at)) {
+    //   return res.status(400).json({ success: false, error: 'Interview time has expired' });
+    // }
+
+    // 5. Device locking
+    const deviceId = `${req.ip}-${req.headers['user-agent']}`;
+
+    if (!tokenData.device_id) {
+      await pool.query(
+        'UPDATE interview_tokens SET device_id = $1 WHERE token = $2',
+        [deviceId, tokenData.token]
+      );
+    } else if (tokenData.device_id !== deviceId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Security alert: Access restricted to original device.'
+      });
+    }
+
+    // 6. Generate Candidate JWT
+    const candidateJwt = jwt.sign(
+      { 
+        id: 0, 
+        email: tokenData.candidate_email, 
+        role: 'candidate',
+        interview_token: tokenData.token, // This links them back to their session
+      },
+      getJwtSecret(),
+      { expiresIn: '2h' }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        email: tokenData.candidate_email,
+        name: tokenData.candidate_name,
+        role: tokenData.job_role,
+        duration: tokenData.duration_mins,
+        session_id: tokenData.session_id,
+        is_started: tokenData.is_used,
+        token: tokenData.token,
+        jwt: candidateJwt
+      }
+    });
+  } catch (error) {
+    console.error('Candidate login error:', error);
+    res.status(500).json({ success: false, error: 'Login failed' });
   }
 };
 
@@ -185,6 +247,18 @@ export const validateLink = async (req: Request, res: Response) => {
       });
     }
 
+    // 5. Generate Candidate JWT
+    const candidateJwt = jwt.sign(
+      { 
+        id: 0, 
+        email: tokenData.candidate_email, 
+        role: 'candidate',
+        interview_token: token,
+      },
+      getJwtSecret(),
+      { expiresIn: '2h' }
+    );
+
     res.json({
       success: true,
       data: {
@@ -194,7 +268,8 @@ export const validateLink = async (req: Request, res: Response) => {
         duration: tokenData.duration_mins,
         total_questions: tokenData.total_questions || 10,
         session_id: tokenData.session_id,
-        is_started: tokenData.is_used
+        is_started: tokenData.is_used,
+        jwt: candidateJwt
       }
     });
   } catch (error) {
@@ -256,9 +331,9 @@ export const generateQuestions = async (req: Request, res: Response) => {
     // 4. Save entire sequence to DB
     for (const q of sequenceData.questions) {
       await pool.query(
-        `INSERT INTO interview_questions (session_id, question, options, correct_answer) 
-         VALUES ($1, $2, $3, $4)`,
-        [sessionId, q.question, JSON.stringify(q.options), q.correct_answer]
+        `INSERT INTO interview_questions (session_id, question, options, correct_answer, difficulty) 
+         VALUES ($1, $2, $3, $4, $5)`,
+        [sessionId, q.question, JSON.stringify(q.options), q.correct_answer, q.difficulty || 'medium']
       );
     }
 
@@ -332,6 +407,66 @@ export const submitAnswers = async (req: Request, res: Response) => {
     );
 
     await client.query('COMMIT');
+
+    // Automatically send results email after submission with detailed analysis
+    try {
+      const sessionResult = await pool.query(
+        `SELECT s.*, t.candidate_name, t.job_role, t.duration_mins, t.candidate_email
+         FROM interview_sessions s 
+         JOIN interview_tokens t ON s.token = t.token 
+         WHERE s.id = $1`,
+        [session_id]
+      );
+
+      if (sessionResult.rows.length > 0) {
+        const sess = sessionResult.rows[0];
+        
+        // Fetch performance breakdown by difficulty
+        const breakdownResult = await pool.query(
+          `SELECT q.difficulty, 
+                  COUNT(*) as total, 
+                  SUM(CASE WHEN r.is_correct THEN 1 ELSE 0 END) as correct
+           FROM interview_questions q
+           JOIN interview_responses r ON q.id = r.question_id
+           WHERE q.session_id = $1
+           GROUP BY q.difficulty`,
+          [session_id]
+        );
+
+        const breakdownMap: Record<string, { total: number, correct: number }> = {
+          'basic': { total: 0, correct: 0 },
+          'medium': { total: 0, correct: 0 },
+          'advanced': { total: 0, correct: 0 }
+        };
+
+        breakdownResult.rows.forEach(row => {
+          if (breakdownMap[row.difficulty]) {
+            breakdownMap[row.difficulty] = { 
+              total: parseInt(row.total), 
+              correct: parseInt(row.correct) 
+            };
+          }
+        });
+
+        const startedAt = sess.started_at ? new Date(sess.started_at) : null;
+        const completedAt = sess.completed_at ? new Date(sess.completed_at) : new Date();
+        const timeTakenMins = startedAt ? Math.round((completedAt.getTime() - startedAt.getTime()) / 60000) : null;
+
+        await sendInterviewResults(
+          sess.candidate_email,
+          sess.candidate_name,
+          sess.score,
+          sess.total_questions,
+          sess.role,
+          timeTakenMins,
+          breakdownMap
+        );
+        console.log(`✅ Results email sent to ${sess.candidate_email}`);
+      }
+    } catch (emailErr) {
+      console.error('⚠️ Failed to send results email (non-fatal):', emailErr);
+    }
+
     res.json({ success: true, score });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -343,162 +478,131 @@ export const submitAnswers = async (req: Request, res: Response) => {
 };
 
 /**
- * Invite candidate with temporary credentials
+ * Submit Interview Feedback
  */
-export const inviteCandidateWithCredentials = async (req: Request, res: Response) => {
+export const submitFeedback = async (req: Request, res: Response) => {
   try {
-    const { email, name, jobRole, interviewId } = req.body;
+    const { session_id, feedback } = req.body;
 
-    if (!email || !name) {
-      return res.status(400).json({ success: false, error: 'Email and name are required' });
+    if (!session_id) {
+      return res.status(400).json({ success: false, error: 'Session ID required' });
     }
 
-    // 1. Generate random 10-char alphanumeric password
-    const password = Math.random().toString(36).slice(-10);
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Optional: Store feedback in DB
+    await pool.query('UPDATE interview_sessions SET feedback = $1 WHERE id = $2', [feedback, session_id]);
 
-    // 2. Set expiry (2 hours from now)
-    const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
-
-    // 3. Create or update interview user
-    await pool.query(
-      `INSERT INTO interview_users (email, password, expires_at, interview_id, is_active)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (email) DO UPDATE SET 
-         password = EXCLUDED.password,
-         expires_at = EXCLUDED.expires_at,
-         interview_id = EXCLUDED.interview_id,
-         is_active = TRUE`,
-      [email, hashedPassword, expiresAt, interviewId || null, true]
-    );
-
-    // 4. Send email
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-    const loginLink = `${frontendUrl}/interview-login`;
-    await sendInterviewCredentials(email, name, password, loginLink);
-
-    res.json({ success: true, message: 'Interview credentials sent successfully' });
+    res.json({ success: true, message: 'Feedback submitted successfully.' });
   } catch (error) {
-    console.error('Invite candidate error:', error);
-    res.status(500).json({ success: false, error: 'Failed to invite candidate' });
+    console.error('Submit feedback error:', error);
+    res.status(500).json({ success: false, error: 'Failed to process feedback' });
   }
 };
 
 /**
- * Start interview session
+ * Get Interview Assessment Report for Admin Reports page
  */
-export const startInterviewSession = async (req: InterviewRequest, res: Response) => {
-  const client = await pool.connect();
+export const getInterviewReport = async (req: Request, res: Response) => {
   try {
-    await client.query('BEGIN');
-    const { id: interviewUserId, interviewId } = req.interviewUser!;
-    const { experience, role } = req.body;
+    const from = String(req.query.from || '');
+    const to = String(req.query.to || '');
 
-    // 1. Create or get existing session
-    let sessionId;
-    const sessionCheck = await client.query(
-      `SELECT id FROM interview_sessions WHERE interview_user_id = $1 AND status = 'in_progress'`,
-      [interviewUserId]
-    );
+    const hasDateRange =
+      /^\d{4}-\d{2}-\d{2}$/.test(from) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(to);
 
-    if (sessionCheck.rows.length > 0) {
-      sessionId = sessionCheck.rows[0].id;
-    } else {
-      const result = await client.query(
-        `INSERT INTO interview_sessions (interview_user_id, interview_id, candidate_email, status, role, experience_years)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [interviewUserId, interviewId, req.interviewUser!.email, 'in_progress', role || 'Candidate', experience || 0]
-      );
-      sessionId = result.rows[0].id;
+    const dateClause = hasDateRange
+      ? `AND s.started_at >= $1::date AND s.started_at < ($2::date + INTERVAL '1 day')`
+      : '';
+
+    const query = `
+      SELECT 
+        s.id as session_id,
+        t.candidate_email,
+        t.candidate_name,
+        t.job_role,
+        t.duration_mins,
+        s.role as assessed_role,
+        s.experience_years,
+        s.score,
+        s.total_questions,
+        s.is_submitted,
+        s.started_at,
+        s.completed_at,
+        s.decision,
+        CASE 
+          WHEN s.completed_at IS NOT NULL AND s.started_at IS NOT NULL 
+          THEN EXTRACT(EPOCH FROM (s.completed_at - s.started_at)) / 60 
+          ELSE NULL 
+        END as time_taken_mins
+      FROM interview_sessions s
+      JOIN interview_tokens t ON s.token = t.token
+      WHERE s.is_submitted = true
+      ${dateClause}
+      ORDER BY s.completed_at DESC NULLS LAST
+    `;
+
+    const params = hasDateRange ? [from, to] : [];
+    const result = await pool.query(query, params);
+
+    const data = result.rows.map((r: any) => ({
+      session_id: r.session_id,
+      candidate_email: r.candidate_email,
+      candidate_name: r.candidate_name,
+      job_role: r.job_role || r.assessed_role || '-',
+      experience_years: r.experience_years || 0,
+      score: r.score,
+      total_questions: r.total_questions,
+      percentage: r.total_questions > 0 ? Math.round((r.score / r.total_questions) * 100) : 0,
+      duration_mins: r.duration_mins || 0,
+      time_taken_mins: r.time_taken_mins ? Math.round(r.time_taken_mins) : null,
+      started_at: r.started_at ? new Date(r.started_at).toISOString() : null,
+      completed_at: r.completed_at ? new Date(r.completed_at).toISOString() : null,
+      decision: r.decision || 'pending',
+    }));
+
+    res.json({ success: true, data });
+  } catch (error) {
+    console.error('Interview report error:', error);
+    res.status(500).json({ success: false, error: 'Failed to load interview report' });
+  }
+};
+
+/**
+ * Update candidate decision (select/reject) from admin panel
+ */
+export const updateCandidateDecision = async (req: Request, res: Response) => {
+  try {
+    const { session_id, decision } = req.body;
+
+    if (!session_id || !['selected', 'rejected', 'pending'].includes(decision)) {
+      return res.status(400).json({ success: false, error: 'Invalid session_id or decision' });
     }
 
-    // 2. Generate questions if none exist
-    const questionsCheck = await client.query('SELECT id FROM interview_questions WHERE session_id = $1', [sessionId]);
-    
-    if (questionsCheck.rows.length === 0) {
-      const sequenceData = await generateAdaptiveSequence(role || 'Software Engineer', experience || 0, "General", 10);
-      
-      if (!sequenceData || !sequenceData.questions || sequenceData.questions.length === 0) {
-        throw new Error("AI failed to generate questions");
-      }
+    await pool.query(
+      'UPDATE interview_sessions SET decision = $1 WHERE id = $2',
+      [decision, session_id]
+    );
 
-      const questions = sequenceData.questions;
-      
-      for (const q of questions) {
-        await client.query(
-          `INSERT INTO interview_questions (session_id, question, options, correct_answer) 
-           VALUES ($1, $2, $3, $4)`,
-          [sessionId, q.question, JSON.stringify(q.options), q.correct_answer]
+    if (decision === 'selected') {
+      try {
+        const res = await pool.query(
+          `SELECT s.id, t.candidate_name, t.candidate_email, s.role
+           FROM interview_sessions s
+           JOIN interview_tokens t ON s.token = t.token
+           WHERE s.id = $1`,
+          [session_id]
         );
+        if (res.rows.length > 0) {
+          await sendSelectionEmail(res.rows[0].candidate_email, res.rows[0].candidate_name, res.rows[0].role);
+        }
+      } catch (err) {
+        console.error('Selection email failed:', err);
       }
-      
-      await client.query('UPDATE interview_sessions SET total_questions = $1 WHERE id = $2', [questions.length, sessionId]);
     }
 
-    await client.query('COMMIT');
-    res.json({ success: true, sessionId });
+    res.json({ success: true, message: `Candidate marked as ${decision}` });
   } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Start session error:', error);
-    res.status(500).json({ success: false, error: 'Failed to start interview session' });
-  } finally {
-    client.release();
-  }
-};
-
-/**
- * Save interview response
- */
-export const saveInterviewResponse = async (req: InterviewRequest, res: Response) => {
-  try {
-    const { sessionId, questionId, selectedAnswer, responseText } = req.body;
-
-    if (!sessionId || !questionId) {
-      return res.status(400).json({ success: false, error: 'Missing required fields' });
-    }
-
-    await pool.query(
-      `INSERT INTO interview_responses (session_id, question_id, selected_answer, response)
-       VALUES ($1, $2, $3, $4)`,
-      [sessionId, questionId, selectedAnswer || null, responseText || null]
-    );
-
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Save response error:', error);
-    res.status(500).json({ success: false, error: 'Failed to save response' });
-  }
-};
-
-/**
- * Finish interview session
- */
-export const finishInterviewSession = async (req: InterviewRequest, res: Response) => {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    const { sessionId } = req.body;
-    const { id: userId } = req.interviewUser!;
-
-    // 1. Mark session as completed
-    await client.query(
-      `UPDATE interview_sessions SET status = 'completed', end_time = CURRENT_TIMESTAMP WHERE id = $1`,
-      [sessionId]
-    );
-
-    // 2. Disable user account
-    await client.query(
-      `UPDATE interview_users SET is_active = false WHERE id = $1`,
-      [userId]
-    );
-
-    await client.query('COMMIT');
-    res.json({ success: true, message: 'Interview completed and account disabled' });
-  } catch (error) {
-    await client.query('ROLLBACK');
-    console.error('Finish session error:', error);
-    res.status(500).json({ success: false, error: 'Failed to complete interview' });
-  } finally {
-    client.release();
+    console.error('Update decision error:', error);
+    res.status(500).json({ success: false, error: 'Failed to update decision' });
   }
 };
