@@ -8,7 +8,7 @@ import {
   CardTitle,
 } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Filter, BarChart3, Users, Briefcase, CalendarCheck, Award, ChevronDown, ArrowLeft } from 'lucide-react';
+import { Filter, BarChart3, Users, Briefcase, CalendarCheck, Award, ChevronDown, ArrowLeft, CheckCircle2, XCircle, Clock, Trophy } from 'lucide-react';
 import { authenticatedFetch } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import {
@@ -45,7 +45,10 @@ const Reports: React.FC = () => {
   const [statusUpdatesLoading, setStatusUpdatesLoading] = useState(true);
   const [statusUpdates, setStatusUpdates] = useState<any[]>([]);
 
-  const [activeReportTab, setActiveReportTab] = useState<'uploads' | 'activity'>('uploads');
+  const [interviewReportLoading, setInterviewReportLoading] = useState(true);
+  const [interviewReport, setInterviewReport] = useState<any[]>([]);
+
+  const [activeReportTab, setActiveReportTab] = useState<'uploads' | 'activity' | 'interviews'>('uploads');
 
   const [fromDate, setFromDate] = useState(
     dayjs().format('YYYY-MM-DD')
@@ -321,6 +324,17 @@ const Reports: React.FC = () => {
         setStatusUpdates(
           Array.isArray(statusPayload.data) ? statusPayload.data : []
         );
+
+        /* -------- INTERVIEW ASSESSMENT REPORT -------- */
+        const interviewRes = await authenticatedFetch(
+          `/api/interview/report?from=${apiFrom}&to=${apiTo}`
+        );
+        if (interviewRes.ok) {
+          const interviewPayload = await interviewRes.json();
+          setInterviewReport(
+            Array.isArray(interviewPayload.data) ? interviewPayload.data : []
+          );
+        }
       } catch (err) {
         console.error('Reports fetch failed:', err);
       } finally {
@@ -328,6 +342,7 @@ const Reports: React.FC = () => {
         setJobsLoading(false);
         setResumeUploadsLoading(false);
         setStatusUpdatesLoading(false);
+        setInterviewReportLoading(false);
       }
     };
 
@@ -580,6 +595,7 @@ const Reports: React.FC = () => {
                 <SelectContent>
                   <SelectItem value="uploads" className="text-blue-700 font-medium">Resume Upload Report</SelectItem>
                   <SelectItem value="activity">Pipeline Status Activity</SelectItem>
+                  <SelectItem value="interviews">Interview Assessment</SelectItem>
                 </SelectContent>
               </Select>
 
@@ -685,6 +701,134 @@ const Reports: React.FC = () => {
                             <td className="px-4 py-3 text-muted-foreground">{r.recruiter_name || '-'}</td>
                           </tr>
                         ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeReportTab === 'interviews' && (
+              <div className="space-y-4">
+                {interviewReportLoading && (
+                  <p className="text-sm text-gray-400 py-8 text-center">Loading interview data...</p>
+                )}
+                {!interviewReportLoading && interviewReport.length === 0 && (
+                  <p className="text-sm text-gray-400 py-8 text-center text-muted-foreground">No interview assessments in this period.</p>
+                )}
+                {!interviewReportLoading && interviewReport.length > 0 && (
+                  <div className="overflow-x-auto rounded-lg border border-gray-100 dark:border-white/10 bg-card">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/30 text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-medium">Candidate</th>
+                          <th className="px-4 py-3 text-left font-medium">Role</th>
+                          <th className="px-4 py-3 text-left font-medium">Score</th>
+                          <th className="px-4 py-3 text-left font-medium">Percentage</th>
+                          <th className="px-4 py-3 text-left font-medium">Time Taken</th>
+                          <th className="px-4 py-3 text-left font-medium">Date</th>
+                          <th className="px-4 py-3 text-center font-medium">Decision</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50 dark:divide-white/5">
+                        {interviewReport.map((r: any, idx: number) => {
+                          const pct = r.percentage || 0;
+                          const perfColor = pct >= 80 ? '#10B981' : pct >= 60 ? '#3B82F6' : pct >= 40 ? '#F59E0B' : '#EF4444';
+                          const perfLabel = pct >= 80 ? 'Excellent' : pct >= 60 ? 'Good' : pct >= 40 ? 'Average' : 'Poor';
+                          return (
+                            <tr key={`interview-${r.session_id}-${idx}`} className="hover:bg-muted/20 transition-colors">
+                              <td className="px-4 py-3">
+                                <div className="text-foreground font-semibold">{r.candidate_name || '-'}</div>
+                                <div className="text-[10px] text-muted-foreground font-mono">{r.candidate_email}</div>
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground text-xs">{r.job_role || '-'}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <Trophy className="w-3.5 h-3.5" style={{ color: perfColor }} />
+                                  <span className="font-bold text-foreground tabular-nums">{r.score}/{r.total_questions}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                    <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: perfColor }} />
+                                  </div>
+                                  <span className="text-xs font-bold tabular-nums" style={{ color: perfColor }}>{pct}%</span>
+                                </div>
+                                <div className="text-[10px] mt-0.5" style={{ color: perfColor }}>{perfLabel}</div>
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center gap-1.5 text-muted-foreground">
+                                  <Clock className="w-3.5 h-3.5" />
+                                  <span className="text-xs tabular-nums">{r.time_taken_mins != null ? `${r.time_taken_mins} min` : '-'}</span>
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-muted-foreground tabular-nums text-xs">
+                                {r.completed_at ? dayjs(r.completed_at).format('DD MMM, HH:mm') : '-'}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={async () => {
+                                      const newDecision = r.decision === 'selected' ? 'pending' : 'selected';
+                                      try {
+                                        await authenticatedFetch('/api/interview/decision', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ session_id: r.session_id, decision: newDecision }),
+                                        });
+                                        setInterviewReport(prev => prev.map(item =>
+                                          item.session_id === r.session_id ? { ...item, decision: newDecision } : item
+                                        ));
+                                      } catch (e) { console.error(e); }
+                                    }}
+                                    className={cn(
+                                      'p-1.5 rounded-lg border transition-all duration-200',
+                                      r.decision === 'selected'
+                                        ? 'bg-emerald-50 border-emerald-300 text-emerald-600 shadow-sm shadow-emerald-100'
+                                        : 'bg-white border-gray-200 text-gray-400 hover:border-emerald-300 hover:text-emerald-500'
+                                    )}
+                                    title="Select"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      const newDecision = r.decision === 'rejected' ? 'pending' : 'rejected';
+                                      try {
+                                        await authenticatedFetch('/api/interview/decision', {
+                                          method: 'POST',
+                                          headers: { 'Content-Type': 'application/json' },
+                                          body: JSON.stringify({ session_id: r.session_id, decision: newDecision }),
+                                        });
+                                        setInterviewReport(prev => prev.map(item =>
+                                          item.session_id === r.session_id ? { ...item, decision: newDecision } : item
+                                        ));
+                                      } catch (e) { console.error(e); }
+                                    }}
+                                    className={cn(
+                                      'p-1.5 rounded-lg border transition-all duration-200',
+                                      r.decision === 'rejected'
+                                        ? 'bg-red-50 border-red-300 text-red-600 shadow-sm shadow-red-100'
+                                        : 'bg-white border-gray-200 text-gray-400 hover:border-red-300 hover:text-red-500'
+                                    )}
+                                    title="Reject"
+                                  >
+                                    <XCircle className="w-4 h-4" />
+                                  </button>
+                                </div>
+                                {r.decision && r.decision !== 'pending' && (
+                                  <div className={cn(
+                                    'text-center text-[10px] font-bold uppercase mt-1 tracking-wider',
+                                    r.decision === 'selected' ? 'text-emerald-600' : 'text-red-600'
+                                  )}>
+                                    {r.decision}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

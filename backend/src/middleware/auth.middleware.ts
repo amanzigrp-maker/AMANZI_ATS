@@ -13,7 +13,7 @@ export type AuthenticatedRequest = Request & {
 // -----------------------------------------------------------------------------
 // INTERNAL HELPER — SAFE SECRET ACCESS
 // -----------------------------------------------------------------------------
-const getJwtSecret = (): string => {
+export const getJwtSecret = (): string => {
   const secret = process.env.JWT_SECRET;
 
   if (!secret) {

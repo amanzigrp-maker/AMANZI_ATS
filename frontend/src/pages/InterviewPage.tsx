@@ -35,13 +35,16 @@ export default function InterviewPage() {
   const navigate = useNavigate();
 
   // State
-  const [status, setStatus] = useState<"loading" | "setup" | "interviewing" | "completed" | "error">("loading");
+  const [status, setStatus] = useState<"login" | "loading" | "setup" | "interviewing" | "completed" | "error">(token ? "loading" : "login");
   const [errorHeader, setErrorHeader] = useState("Invalid Link");
   const [errorMessage, setErrorMessage] = useState("This interview link is invalid or has expired.");
   
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" });
+  const [interviewToken, setInterviewToken] = useState<string | null>(token);
   const [candidateInfo, setCandidateInfo] = useState<{ name: string; email: string } | null>(null);
   const [setupData, setSetupData] = useState({ experience: 0, role: "" });
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const [jwtToken, setJwtToken] = useState<string | null>(null);
   
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -49,53 +52,69 @@ export default function InterviewPage() {
   const [timeLeft, setTimeLeft] = useState(300); // 5 minutes in seconds
   const [score, setScore] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
-  // 1. Validate Token on Mount
+  // 1. Validate Token on Mount (Fallback for old flow)
   useEffect(() => {
+    if (!token) return;
     const validate = async () => {
-      if (!token) {
-        setStatus("error");
-        return;
-      }
-
       try {
         const res = await fetch(`/api/interview/validate?token=${token}`);
         const data = await res.json();
-
         if (res.ok && data.success) {
-          setCandidateInfo({ name: data.data.name, email: data.data.email });
-          
-          if (data.data.duration) {
-            setTimeLeft(data.data.duration * 60);
-          }
-
-          if (data.data.session_id) {
-            setSessionId(data.data.session_id);
-            await fetchQuestions(data.data.session_id);
-            setStatus("interviewing");
-          } else {
-            // Pre-fill setup or auto-start if both role and duration are set
-            if (data.data.role) {
-              setSetupData(prev => ({ ...prev, role: data.data.role }));
-              // We could auto-start here if we want, but let's just pre-fill
-            }
-            setStatus("setup");
-          }
+          handleAuthSuccess(data.data);
         } else {
-          console.error("Link validation failed:", data);
           setErrorHeader(data.error || "Access Denied");
           setErrorMessage(data.message || data.error || "Please contact your recruiter for a new link.");
           setStatus("error");
         }
       } catch (err) {
-        console.error("Validation error:", err);
         setErrorHeader("Connection Error");
-        setErrorMessage("Could not connect to the assessment server. Please check your network.");
+        setErrorMessage("Could not connect to the assessment server.");
         setStatus("error");
       }
     };
     validate();
   }, [token]);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/interview/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(loginForm)
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setInterviewToken(data.data.token);
+        handleAuthSuccess(data.data);
+      } else {
+        setStatus("login");
+        toast.error(data.error || "Invalid credentials");
+      }
+    } catch (err) {
+      setStatus("login");
+      toast.error("Connection error");
+    }
+  };
+
+  const handleAuthSuccess = async (data: any) => {
+    setCandidateInfo({ name: data.name, email: data.email });
+    if (data.jwt) setJwtToken(data.jwt);
+    if (data.duration) setTimeLeft(data.duration * 60);
+
+    if (data.session_id) {
+      setSessionId(data.session_id);
+      await fetchQuestions(data.session_id, data.jwt);
+      setStatus("interviewing");
+    } else {
+      if (data.role) setSetupData(prev => ({ ...prev, role: data.role }));
+      setStatus("setup");
+    }
+  };
 
   // Timer Effect
   const handleSubmit = useCallback(async () => {
@@ -113,7 +132,10 @@ export default function InterviewPage() {
 
       const res = await fetch("/api/interview/submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwtToken}`
+        },
         body: JSON.stringify(submission)
       });
       const data = await res.json();
@@ -139,7 +161,7 @@ export default function InterviewPage() {
           setErrorMessage("The secure session is taking too long to initialize. Please check your internet or refresh the page.");
           setStatus("error");
         }
-      }, 15000); // 15 seconds timeout
+      }, 120000); // 120 seconds timeout — AI question generation can take a while
       return () => clearTimeout(timer);
     }
   }, [status]);
@@ -161,8 +183,12 @@ export default function InterviewPage() {
     return () => clearInterval(timer);
   }, [status, timeLeft, handleSubmit]);
 
-  const fetchQuestions = async (sId: number) => {
-    const res = await fetch(`/api/interview/questions?session_id=${sId}`);
+  const fetchQuestions = async (sId: number, jwt: string | null = jwtToken) => {
+    const res = await fetch(`/api/interview/questions?session_id=${sId}`, {
+      headers: {
+        "Authorization": `Bearer ${jwt}`
+      }
+    });
     const data = await res.json();
     if (data.success) {
       setQuestions(data.data);
@@ -179,9 +205,12 @@ export default function InterviewPage() {
     try {
       const res = await fetch("/api/interview/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwtToken}`
+        },
         body: JSON.stringify({
-          token,
+          token: interviewToken,
           experience: setupData.experience,
           role: setupData.role
         })
@@ -210,6 +239,61 @@ export default function InterviewPage() {
   };
 
   // --- Render Functions ---
+
+  if (status === "login") {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-[#020617] p-6">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="w-full max-w-md">
+          <Card className="bg-slate-900/50 border-white/10 backdrop-blur-3xl shadow-2xl overflow-hidden rounded-[2rem]">
+            <CardHeader className="text-center pb-8 border-b border-white/5">
+              <div className="mx-auto w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(59,130,246,0.15)]">
+                <BrainCircuit className="w-8 h-8 text-blue-500" />
+              </div>
+              <CardTitle className="text-white text-3xl font-bold mb-2 tracking-tight">Candidate Portal</CardTitle>
+              <CardDescription className="text-slate-400">
+                Log in with the credentials provided by your recruiter.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="p-8">
+              <form onSubmit={handleLogin} className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    value={loginForm.email}
+                    onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })}
+                    className="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all font-sans placeholder:text-slate-600"
+                    placeholder="you@example.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Temporary Password</label>
+                  <input
+                    type="password"
+                    required
+                    value={loginForm.password}
+                    onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                    className="w-full bg-slate-950/50 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all font-sans placeholder:text-slate-600"
+                    placeholder="Enter password from email"
+                  />
+                </div>
+                <Button type="submit" className="w-full h-12 mt-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.3)] transition-all">
+                  Sign In to Assessment
+                </Button>
+              </form>
+            </CardContent>
+            <CardFooter className="bg-slate-950/50 py-4 flex justify-center border-t border-white/5">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-500 opacity-60" />
+                <span className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">Secure Access</span>
+              </div>
+            </CardFooter>
+          </Card>
+        </motion.div>
+      </div>
+    );
+  }
 
   if (status === "loading") {
     return (
@@ -454,27 +538,66 @@ export default function InterviewPage() {
   }
 
   if (status === "completed") {
+    const handleFeedbackSubmit = async () => {
+      try {
+        await fetch("/api/interview/feedback", {
+          method: "POST",
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${jwtToken}`
+          },
+          body: JSON.stringify({ session_id: sessionId, feedback })
+        });
+      } catch (err) {
+        console.error("Feedback submission error:", err);
+      }
+      setFeedbackSubmitted(true);
+    };
+
     return (
       <div className="h-screen w-full flex items-center justify-center bg-[#020617] p-6 text-center">
-        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-          <Card className="max-w-md w-full bg-slate-900/40 border-white/10 backdrop-blur-3xl p-8 text-center rounded-[2.5rem]">
+        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="w-full max-w-lg">
+          <Card className="bg-slate-900/40 border-white/10 backdrop-blur-3xl p-8 text-center rounded-[2.5rem] shadow-2xl">
             <div className="w-20 h-20 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
               <CheckCircle2 className="w-10 h-10 text-emerald-500" />
             </div>
-            <CardTitle className="text-white text-3xl font-bold mb-2">Interview Completed!</CardTitle>
-            <p className="text-slate-400 mb-8">
-              Thank you for completing the technical assessment. Your responses have been securely submitted to our hiring team.
+            <CardTitle className="text-white text-3xl font-bold mb-4">Assessment Completed</CardTitle>
+            
+            <p className="text-slate-200 text-lg mb-4 font-medium">
+              Thank you for taking the assessment!
             </p>
             
-            <div className="bg-white/5 rounded-2xl p-6 mb-8 border border-white/10">
-               <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-1">Your Performance</span>
-               <div className="text-4xl font-bold text-white mb-2">{score} / {questions.length}</div>
-               <div className="text-xs text-slate-500">Correct Answers</div>
+            <div className="bg-white/5 rounded-2xl p-6 border border-white/10 mb-6 text-left">
+               <p className="text-slate-300 text-sm leading-relaxed">
+                Your responses have been securely submitted. 
+                <strong className="text-blue-400 block mt-2">Results will be shared on your registered email shortly.</strong>
+                <span className="block mt-2 text-xs text-slate-400 italic">If selected, you will receive a follow-up mail regarding the next steps of the process.</span>
+               </p>
             </div>
-
-            <Button onClick={() => navigate("/")} className="w-full h-12 bg-white/5 hover:bg-white text-white hover:text-black font-bold uppercase tracking-widest rounded-xl transition-all">
-              Return to Website
-            </Button>
+            
+            {!feedbackSubmitted ? (
+              <div className="bg-white/5 rounded-2xl p-6 text-left border border-white/10 mt-4">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-4">Leave Feedback (Optional)</span>
+                <textarea 
+                  className="w-full bg-slate-950 border border-white/10 rounded-xl p-4 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none"
+                  rows={3}
+                  placeholder="How was your interview experience?"
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                />
+                <Button 
+                  onClick={handleFeedbackSubmit}
+                  className="w-full mt-4 h-11 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(37,99,235,0.2)]"
+                >
+                  Submit & Finish
+                </Button>
+              </div>
+            ) : (
+               <div className="bg-emerald-500/10 rounded-2xl p-6 text-center border border-emerald-500/20 mt-4">
+                  <span className="text-emerald-400 font-bold block">Feedback Received</span>
+                  <p className="text-xs text-emerald-500/80 mt-1">Thank you. You may now safely close this window.</p>
+               </div>
+            )}
           </Card>
         </motion.div>
       </div>

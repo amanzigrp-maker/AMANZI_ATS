@@ -16,6 +16,7 @@ export interface MCQQuestion {
   question: string;
   options: string[];
   correct_answer: string;
+  difficulty: 'basic' | 'medium' | 'advanced';
 }
 
 export const generateAIQuestions = async (
@@ -25,18 +26,21 @@ export const generateAIQuestions = async (
   initAI();
   try {
     const prompt = `
-      You are a senior recruiter. Generate exactly 5 challenging multiple choice questions for a candidate with ${experience} years of experience as a ${role}.
+      You are a senior recruiter. Generate exactly 5 multiple choice questions for a candidate with ${experience} years of experience as a ${role}.
       
       Requirements:
       1. Each question must have exactly 4 options.
       2. The correct_answer must be the exact text of one of the options.
       3. Questions should be relevant to the ${role} role and ${experience} years experience level.
-      4. Return ONLY a JSON array with the following structure, no other text:
+      4. Generate 2 basic-level, 2 medium-level, and 1 advanced-level question.
+      5. Each question must include a "difficulty" field with value "basic", "medium", or "advanced".
+      6. Return ONLY a JSON array with the following structure, no other text:
       [
         {
           "question": "string",
           "options": ["string", "string", "string", "string"],
-          "correct_answer": "string"
+          "correct_answer": "string",
+          "difficulty": "basic" | "medium" | "advanced"
         }
       ]
     `;

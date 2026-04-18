@@ -3,10 +3,15 @@ import {
   searchCandidates, 
   generateAndSendLink, 
   validateLink, 
+  candidateLogin,
   generateQuestions,
   getQuestions,
-  submitAnswers
+  submitAnswers,
+  submitFeedback,
+  getInterviewReport,
+  updateCandidateDecision
 } from '../controllers/interview.controller';
+import { verifyToken } from '../middleware/auth.middleware';
 
 const router = Router();
 
@@ -16,18 +21,33 @@ router.get('/candidates', searchCandidates);
 // Generate and send link (Admin only)
 router.post('/send-link', generateAndSendLink);
 
-// --- Public Interview Routes ---
+// --- Public / Candidate Interview Routes ---
 
-// 1. Validate link
+// 1. Validate link (Pubic - generates Candidate JWT) - Legacy or alternative option
 router.get('/validate', validateLink);
 
-// 2. Start session & generate questions
-router.post('/generate', generateQuestions);
+// 1.5 Login candidate via temporary credentials (JWT Authentication Flow)
+router.post('/login', candidateLogin);
 
-// 3. Get questions
-router.get('/questions', getQuestions);
+// 2. Start session & generate questions (Authenticated Candidate)
+router.post('/generate', verifyToken, generateQuestions);
 
-// 4. Submit answers
-router.post('/submit', submitAnswers);
+// 3. Get questions (Authenticated Candidate)
+router.get('/questions', verifyToken, getQuestions);
+
+// 4. Submit answers (Authenticated Candidate)
+router.post('/submit', verifyToken, submitAnswers);
+
+// 5. Submit feedback (Authenticated Candidate)
+router.post('/feedback', verifyToken, submitFeedback);
+
+// --- Admin Report Routes ---
+
+// 6. Get interview assessment report (Admin)
+router.get('/report', verifyToken, getInterviewReport);
+
+// 7. Update candidate decision (select/reject) (Admin)
+router.post('/decision', verifyToken, updateCandidateDecision);
 
 export default router;
+
