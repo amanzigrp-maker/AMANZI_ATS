@@ -50,3 +50,6 @@ amanzi_backup.dump
 *.njsproj
 *.sln
 *.sw?
+.venv/
+
+pgvector/
