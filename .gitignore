@@ -15,6 +15,7 @@ dist-ssr
 # Env files
 .env
 .env.*
+.venv
 !.env.example
 
 # Vite cache
@@ -35,6 +36,9 @@ models/
 # Runtime uploads / local storage
 storage/
 python-worker/storage/
+
+# Local database backups
+amanzi_backup.dump
 
 # Editor directories and files
 .vscode/*
