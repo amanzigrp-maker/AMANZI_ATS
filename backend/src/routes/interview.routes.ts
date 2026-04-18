@@ -5,29 +5,43 @@ import {
   validateLink, 
   generateQuestions,
   getQuestions,
-  submitAnswers
+  submitAnswers,
+  inviteCandidateWithCredentials,
+  startInterviewSession,
+  saveInterviewResponse,
+  finishInterviewSession
 } from '../controllers/interview.controller';
+import { login } from '../controllers/interview-auth.controller';
+import { authenticateInterviewUser } from '../middleware/interview-auth.middleware';
 
 const router = Router();
 
+// --- Admin Protected Routes ---
 // Candidate search (Admin only)
 router.get('/candidates', searchCandidates);
 
 // Generate and send link (Admin only)
 router.post('/send-link', generateAndSendLink);
 
-// --- Public Interview Routes ---
+// Invite with credentials (Admin only)
+router.post('/invite-credentials', inviteCandidateWithCredentials);
 
-// 1. Validate link
+
+// --- Public/Candidate Routes ---
+
+// 1. Interview Login
+router.post('/login', login);
+
+// 2. Token-based flow (Legacy/Alternative)
 router.get('/validate', validateLink);
-
-// 2. Start session & generate questions
 router.post('/generate', generateQuestions);
-
-// 3. Get questions
 router.get('/questions', getQuestions);
-
-// 4. Submit answers
 router.post('/submit', submitAnswers);
+
+// 3. Credential-based flow (Protected)
+router.use('/session', authenticateInterviewUser);
+router.post('/session/start', startInterviewSession);
+router.post('/session/response', saveInterviewResponse);
+router.post('/session/finish', finishInterviewSession);
 
 export default router;

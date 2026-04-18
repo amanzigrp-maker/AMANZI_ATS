@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { pool } from '../lib/database';
-import { sendInterviewLink } from '../services/email.service';
+import { sendInterviewLink, sendInterviewCredentials } from '../services/email.service';
 import { generateAdaptiveSequence } from '../services/ai-interview.service';
+import { InterviewRequest } from '../middleware/interview-auth.middleware';
 
 /**
  * Search candidates by email or name (partial matching)
@@ -331,6 +333,162 @@ export const submitAnswers = async (req: Request, res: Response) => {
     await client.query('ROLLBACK');
     console.error('Submit answers error:', error);
     res.status(500).json({ success: false, error: 'Submission failed' });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Invite candidate with temporary credentials
+ */
+export const inviteCandidateWithCredentials = async (req: Request, res: Response) => {
+  try {
+    const { email, name, jobRole, interviewId } = req.body;
+
+    if (!email || !name) {
+      return res.status(400).json({ success: false, error: 'Email and name are required' });
+    }
+
+    // 1. Generate random 10-char alphanumeric password
+    const password = Math.random().toString(36).slice(-10);
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // 2. Set expiry (2 hours from now)
+    const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+
+    // 3. Create or update interview user
+    await pool.query(
+      `INSERT INTO interview_users (email, password, expires_at, interview_id, is_active)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (email) DO UPDATE SET 
+         password = EXCLUDED.password,
+         expires_at = EXCLUDED.expires_at,
+         interview_id = EXCLUDED.interview_id,
+         is_active = TRUE`,
+      [email, hashedPassword, expiresAt, interviewId || null, true]
+    );
+
+    // 4. Send email
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const loginLink = `${frontendUrl}/interview-login`;
+    await sendInterviewCredentials(email, name, password, loginLink);
+
+    res.json({ success: true, message: 'Interview credentials sent successfully' });
+  } catch (error) {
+    console.error('Invite candidate error:', error);
+    res.status(500).json({ success: false, error: 'Failed to invite candidate' });
+  }
+};
+
+/**
+ * Start interview session
+ */
+export const startInterviewSession = async (req: InterviewRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { id: interviewUserId, interviewId } = req.interviewUser!;
+    const { experience, role } = req.body;
+
+    // 1. Create or get existing session
+    let sessionId;
+    const sessionCheck = await client.query(
+      `SELECT id FROM interview_sessions WHERE interview_user_id = $1 AND status = 'in_progress'`,
+      [interviewUserId]
+    );
+
+    if (sessionCheck.rows.length > 0) {
+      sessionId = sessionCheck.rows[0].id;
+    } else {
+      const result = await client.query(
+        `INSERT INTO interview_sessions (interview_user_id, interview_id, candidate_email, status, role, experience_years)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+        [interviewUserId, interviewId, req.interviewUser!.email, 'in_progress', role || 'Candidate', experience || 0]
+      );
+      sessionId = result.rows[0].id;
+    }
+
+    // 2. Generate questions if none exist
+    const questionsCheck = await client.query('SELECT id FROM interview_questions WHERE session_id = $1', [sessionId]);
+    
+    if (questionsCheck.rows.length === 0) {
+      const sequenceData = await generateAdaptiveSequence(role || 'Software Engineer', experience || 0, "General", 10);
+      const questions = sequenceData.questions;
+      
+      for (const q of questions) {
+        await client.query(
+          `INSERT INTO interview_questions (session_id, question, options, correct_answer) 
+           VALUES ($1, $2, $3, $4)`,
+          [sessionId, q.question, JSON.stringify(q.options), q.correct_answer]
+        );
+      }
+      
+      await client.query('UPDATE interview_sessions SET total_questions = $1 WHERE id = $2', [questions.length, sessionId]);
+    }
+
+    await client.query('COMMIT');
+    res.json({ success: true, sessionId });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Start session error:', error);
+    res.status(500).json({ success: false, error: 'Failed to start interview session' });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Save interview response
+ */
+export const saveInterviewResponse = async (req: InterviewRequest, res: Response) => {
+  try {
+    const { sessionId, questionId, selectedAnswer, responseText } = req.body;
+
+    if (!sessionId || !questionId) {
+      return res.status(400).json({ success: false, error: 'Missing required fields' });
+    }
+
+    await pool.query(
+      `INSERT INTO interview_responses (session_id, question_id, selected_answer, response)
+       VALUES ($1, $2, $3, $4)`,
+      [sessionId, questionId, selectedAnswer || null, responseText || null]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Save response error:', error);
+    res.status(500).json({ success: false, error: 'Failed to save response' });
+  }
+};
+
+/**
+ * Finish interview session
+ */
+export const finishInterviewSession = async (req: InterviewRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { sessionId } = req.body;
+    const { id: userId } = req.interviewUser!;
+
+    // 1. Mark session as completed
+    await client.query(
+      `UPDATE interview_sessions SET status = 'completed', end_time = CURRENT_TIMESTAMP WHERE id = $1`,
+      [sessionId]
+    );
+
+    // 2. Disable user account
+    await client.query(
+      `UPDATE interview_users SET is_active = false WHERE id = $1`,
+      [userId]
+    );
+
+    await client.query('COMMIT');
+    res.json({ success: true, message: 'Interview completed and account disabled' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Finish session error:', error);
+    res.status(500).json({ success: false, error: 'Failed to complete interview' });
   } finally {
     client.release();
   }

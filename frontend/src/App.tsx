@@ -27,6 +27,8 @@ import InterviewScheduledList from "./pages/InterviewScheduledList";
 import Reports from "./pages/Reports";
 import PasswordReset from "./pages/PasswordReset";
 import InterviewPage from "./pages/InterviewPage";
+import InterviewLogin from "./pages/InterviewLogin";
+import InterviewSession from "./pages/InterviewSession";
 import NotFound from "./pages/NotFound";
 
 // Admin Components & Pages
@@ -76,6 +78,8 @@ const App: React.FC = () => {
                 <Route path="/login" element={<Login />} />
                 <Route path="/forgot-password" element={<PasswordReset />} />
                 <Route path="/interview" element={<InterviewPage />} />
+                <Route path="/interview-login" element={<InterviewLogin />} />
+                <Route path="/interview-session" element={<InterviewSession />} />
 
                 {/* User Routes (Protected + Persistent Sidebar Layout) */}
                 <Route

@@ -347,3 +347,111 @@ export const sendInterviewLink = async (to: string, name: string, interviewLink:
     console.log('==============================================\n');
   }
 };
+
+/**
+ * Send temporary interview credentials to candidate
+ * @param to - Candidate email address
+ * @param name - Candidate name
+ * @param password - Generated temporary password
+ * @param loginLink - Login page link
+ */
+export const sendInterviewCredentials = async (to: string, name: string, password: string, loginLink: string): Promise<void> => {
+  try {
+    const transporter = createTransporter();
+
+    // If email is not configured, log to console for development
+    if (!transporter) {
+      console.log('\n==============================================');
+      console.log('📧 [DEV MODE] Interview Credentials');
+      console.log('==============================================');
+      console.log(`To: ${to}`);
+      console.log(`Name: ${name}`);
+      console.log(`Username: ${to}`);
+      console.log(`Password: ${password}`);
+      console.log(`Link: ${loginLink}`);
+      console.log('==============================================\n');
+      return;
+    }
+
+    const mailOptions = {
+      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
+      to: to,
+      subject: 'Temporary Interview Access - Amanzi ATS',
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #1a1a1a; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; }
+            .header { text-align: center; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb; }
+            .content { padding: 30px 20px; }
+            .creds-box { background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            .button { display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 20px 0; }
+            .warning { background-color: #FFFBEB; border-left: 4px solid #F59E0B; padding: 15px; margin: 25px 0; font-size: 14px; }
+            .footer { text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 20px; }
+            .bold { font-weight: 700; color: #111827; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1 style="color: #4F46E5; margin: 0;">Amanzi ATS</h1>
+            </div>
+            <div class="content">
+              <p>Dear <span class="bold">${name}</span>,</p>
+              <p>You have been invited for a technical interview. Below are your temporary login credentials to access the assessment portal.</p>
+              
+              <div class="creds-box">
+                <p style="margin: 0;"><strong>Username:</strong> ${to}</p>
+                <p style="margin: 10px 0 0 0;"><strong>Password:</strong> <span style="font-family: monospace; font-size: 16px; background: #eee; padding: 2px 6px; border-radius: 4px;">${password}</span></p>
+              </div>
+
+              <div style="text-align: center;">
+                <a href="${loginLink}" class="button" style="color: white;">Login to Assessment</a>
+              </div>
+
+              <div class="warning">
+                <strong>🚨 IMPORTANT:</strong>
+                <ul style="margin: 10px 0; padding-left: 20px;">
+                  <li>These credentials are valid for <strong>2 hours</strong> only.</li>
+                  <li>Access will be disabled immediately after you complete the test.</li>
+                  <li>Do not share these credentials with anyone.</li>
+                </ul>
+              </div>
+
+              <p>Best regards,<br>Amanzi Recruitment Team</p>
+            </div>
+            <div class="footer">
+              <p>&copy; ${new Date().getFullYear()} Amanzi. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `
+        Temporary Interview Access - Amanzi ATS
+        
+        Dear ${name},
+        
+        You have been invited for a technical interview. Below are your temporary login credentials:
+        
+        Username: ${to}
+        Password: ${password}
+        
+        Login Link: ${loginLink}
+        
+        IMPORTANT:
+        - These credentials are valid for 2 hours only.
+        - Access will be disabled immediately after you complete the test.
+        
+        Best regards,
+        Amanzi Recruitment Team
+      `,
+    };
+
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('[EMAIL] Error sending interview credentials:', error);
+  }
+};

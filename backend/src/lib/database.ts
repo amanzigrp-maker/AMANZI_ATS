@@ -55,6 +55,19 @@ export const testConnection = async (): Promise<boolean> => {
 
     console.log('✅ Database connected successfully');
 
+    // Ensure interview_users table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS interview_users (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        expires_at TIMESTAMP NOT NULL,
+        interview_id TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Ensure interview_tokens table exists with new columns
     await pool.query(`
       CREATE TABLE IF NOT EXISTS interview_tokens (
@@ -78,29 +91,49 @@ export const testConnection = async (): Promise<boolean> => {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS interview_sessions (
         id SERIAL PRIMARY KEY,
+        interview_user_id INTEGER REFERENCES interview_users(id),
         token TEXT UNIQUE REFERENCES interview_tokens(token),
         candidate_email TEXT NOT NULL,
+        interview_id TEXT,
         role TEXT NOT NULL,
         experience_years INTEGER,
-        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        completed_at TIMESTAMP,
+        start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        end_time TIMESTAMP,
+        status VARCHAR(20) DEFAULT 'in_progress',
         is_submitted BOOLEAN DEFAULT FALSE,
         score INTEGER DEFAULT 0,
-        total_questions INTEGER DEFAULT 0
+        total_questions INTEGER DEFAULT 0,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP
       )
     `);
+
+    // Add new columns to interview_sessions if they don't exist
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS interview_user_id INTEGER REFERENCES interview_users(id)`);
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS end_time TIMESTAMP`);
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'in_progress'`);
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS interview_id TEXT`);
 
     // Ensure interview_questions table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS interview_questions (
         id SERIAL PRIMARY KEY,
         session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        interview_id TEXT,
         question TEXT NOT NULL,
-        options JSONB NOT NULL,
-        correct_answer TEXT NOT NULL,
+        question_text TEXT,
+        options JSONB,
+        correct_answer TEXT,
+        difficulty_level VARCHAR(20),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Add new columns to interview_questions if they don't exist
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS interview_id TEXT`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS question_text TEXT`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty_level VARCHAR(20)`);
 
     // Ensure interview_responses table exists
     await pool.query(`
@@ -108,11 +141,15 @@ export const testConnection = async (): Promise<boolean> => {
         id SERIAL PRIMARY KEY,
         session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
         question_id INTEGER REFERENCES interview_questions(id),
-        selected_answer TEXT NOT NULL,
+        selected_answer TEXT,
+        response TEXT,
         is_correct BOOLEAN,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Add new columns to interview_responses if they don't exist
+    await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS response TEXT`);
 
     // Ensure proctoring_logs table exists
     await pool.query(`
@@ -127,7 +164,7 @@ export const testConnection = async (): Promise<boolean> => {
       )
     `);
 
-    console.log('✅ AI Interview and Proctoring tables verified');
+    console.log('✅ Temporary Interview Access System tables verified');
 
     return true;
   } catch (error: any) {

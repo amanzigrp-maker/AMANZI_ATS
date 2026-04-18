@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Mail, Send, CheckCircle2, Loader2, X, User } from 'lucide-react';
+import { Search, Mail, Send, CheckCircle2, Loader2, X, User, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authenticatedFetch } from '@/lib/api';
@@ -121,6 +121,38 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     }
   };
 
+  const handleSendCredentials = async () => {
+    if (!candidate) return;
+    setSending(true);
+    try {
+      const response = await authenticatedFetch('/api/interview/invite-credentials', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email: candidate.email,
+          name: candidate.full_name,
+          jobRole: selectedRole,
+          interviewId: `INT-${Math.floor(Math.random() * 10000)}`
+        })
+      });
+      const data = await response.json();
+      if (data.success) {
+        setIsSuccess(true);
+        toast.success('Temporary interview credentials sent successfully');
+        setTimeout(() => {
+          onClose();
+          resetState();
+        }, 3000);
+      } else {
+        toast.error(data.error || 'Failed to send credentials');
+      }
+    } catch (err) {
+      toast.error('Failed to send credentials');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const resetState = () => {
     setEmail('');
     setCandidate(null);
@@ -136,8 +168,8 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
       <div className="relative w-full max-w-lg bg-card rounded-2xl shadow-2xl border border-border animate-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between p-6 border-b border-border">
           <div>
-            <h2 className="text-xl font-bold text-slate-900 font-outfit">Send Interview Link</h2>
-            <p className="text-sm text-slate-500">Search candidate and send secure 5-min link</p>
+            <h2 className="text-xl font-bold text-slate-900 font-outfit">Send Interview Invitation</h2>
+            <p className="text-sm text-slate-500">Search candidate and send secure access</p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
             <X className="w-5 h-5 text-slate-500" />
@@ -260,20 +292,37 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                         </span>
                       </div>
 
-                      <Button 
-                        onClick={handleSendLink} 
-                        disabled={sending}
-                        className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-blue-100 transition-all active:scale-[0.98]"
-                      >
-                        {sending ? (
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                        ) : (
-                          <>
-                            <Send className="w-5 h-5 mr-3" />
-                            Send Secure Interview Link
-                          </>
-                        )}
-                      </Button>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Button 
+                          onClick={handleSendLink} 
+                          disabled={sending}
+                          variant="outline"
+                          className="border-blue-200 text-blue-700 hover:bg-blue-50 font-bold py-6 rounded-xl transition-all"
+                        >
+                          {sending ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <>
+                              <Send className="w-4 h-4 mr-2" />
+                              Send Link
+                            </>
+                          )}
+                        </Button>
+                        <Button 
+                          onClick={handleSendCredentials} 
+                          disabled={sending}
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-blue-100 transition-all active:scale-[0.98]"
+                        >
+                          {sending ? (
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <>
+                              <Lock className="w-4 h-4 mr-2" />
+                              Send Credentials
+                            </>
+                          )}
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -284,8 +333,8 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
               <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-xl">
                 <CheckCircle2 className="w-10 h-10 text-green-500" />
               </div>
-              <h3 className="text-2xl font-bold text-slate-900 mb-2 font-outfit">Link Sent!</h3>
-              <p className="text-slate-500 max-w-sm">The secure interview link for <b>{selectedRole}</b> has been sent. It includes a <b>{validity}-minute</b> assessment window.</p>
+              <h3 className="text-2xl font-bold text-slate-900 mb-2 font-outfit">Invitation Sent!</h3>
+              <p className="text-slate-500 max-w-sm">The secure interview access for <b>{selectedRole}</b> has been sent successfully.</p>
             </div>
           )}
         </div>
