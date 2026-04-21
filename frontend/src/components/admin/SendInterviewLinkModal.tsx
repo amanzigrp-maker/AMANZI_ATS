@@ -1,10 +1,5 @@
-<<<<<<< Updated upstream
 import { useEffect, useState } from 'react';
-import { Search, Mail, Send, CheckCircle2, Loader2, X, User, Lock } from 'lucide-react';
-=======
-import { useState } from 'react';
 import { Search, Mail, Send, CheckCircle2, Loader2, X, User, Lock, Phone, MapPin, Building2, Award, Star, Calendar } from 'lucide-react';
->>>>>>> Stashed changes
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authenticatedFetch } from '@/lib/api';
@@ -148,10 +143,9 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
       return;
     }
 
-    const chosenBank = assessments.find((item) => String(item.assessment_id) === assessmentId);
     const ok = window.confirm(
       questionSource === 'bank'
-        ? `Send ${chosenBank?.title || 'selected question bank'} for ${selectedRole.trim()}?`
+        ? `Send the selected question bank for ${selectedRole.trim()}?`
         : `Generate AI questions for ${selectedRole.trim()} and send this test?`
     );
     if (!ok) return;
@@ -195,10 +189,9 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
       return;
     }
 
-    const chosenBank = assessments.find((item) => String(item.assessment_id) === assessmentId);
     const ok = window.confirm(
       questionSource === 'bank'
-        ? `Send credentials with ${chosenBank?.title || 'selected question bank'} for ${selectedRole.trim()}?`
+        ? `Send credentials with selected question bank for ${selectedRole.trim()}?`
         : `Send credentials and generate AI questions for ${selectedRole.trim()}?`
     );
     if (!ok) return;
@@ -345,26 +338,24 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                       <div className="space-y-4 mb-6 border-t border-slate-100 pt-5">
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Interview Role (Question Domain)</label>
-<<<<<<< Updated upstream
-                          <Input
-                            placeholder="Type role, e.g. Leadership Assessment"
+                          <select
                             value={selectedRole}
                             onChange={(e) => setSelectedRole(e.target.value)}
-                            className="bg-white border-blue-200 rounded-xl"
-                          />
-                          {!!candidate.applied_jobs?.length && (
-                            <div className="flex flex-wrap gap-2 pt-1">
-                              {candidate.applied_jobs.map(job => (
-                                <button
-                                  key={job.id}
-                                  type="button"
-                                  onClick={() => setSelectedRole(job.title)}
-                                  className="rounded-full border border-blue-100 bg-white px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
-                                >
-                                  {job.title}
-                                </button>
-                              ))}
-                            </div>
+                            className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem] bg-no-repeat bg-[right_1rem_center]"
+                          >
+                            <option value="">-- Select or type role --</option>
+                            {candidate.applied_jobs?.map(job => (
+                              <option key={job.id} value={job.title}>{job.title}</option>
+                            ))}
+                            <option value="Custom">Other (Type Below)</option>
+                          </select>
+                          {(!candidate.applied_jobs || candidate.applied_jobs.length === 0 || selectedRole === 'Custom') && (
+                            <Input
+                              placeholder="Type role manually..."
+                              value={selectedRole === 'Custom' ? '' : selectedRole}
+                              onChange={(e) => setSelectedRole(e.target.value)}
+                              className="mt-2 text-sm"
+                            />
                           )}
                         </div>
 
@@ -425,40 +416,11 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                             </select>
                             {!loadingAssessments && assessments.length === 0 && (
                               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                                No uploaded banks found for this role. Create one in Assessments first, then come back here.
+                                No uploaded banks found for this role. Create one in Assessments first.
                               </p>
                             )}
                           </div>
                         )}
-
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Test Duration (Minutes)</label>
-                          <div className="flex items-center gap-4">
-                            <input 
-                              type="range" 
-                              min="5" 
-                              max="60" 
-=======
-                          <select
-                            value={selectedRole}
-                            onChange={(e) => setSelectedRole(e.target.value)}
-                            className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem] bg-no-repeat bg-[right_1rem_center]"
-                          >
-                            <option value="">-- Select or type role --</option>
-                            {candidate.applied_jobs?.map(job => (
-                              <option key={job.id} value={job.title}>{job.title}</option>
-                            ))}
-                            <option value="Custom">Other (Type Below)</option>
-                          </select>
-                          {(!candidate.applied_jobs || candidate.applied_jobs.length === 0 || selectedRole === 'Custom') && (
-                            <Input
-                              placeholder="Type role manually..."
-                              value={selectedRole === 'Custom' ? '' : selectedRole}
-                              onChange={(e) => setSelectedRole(e.target.value)}
-                              className="mt-2 text-sm"
-                            />
-                          )}
-                        </div>
 
                         <div className="grid grid-cols-2 gap-6">
                           <div className="space-y-2">
@@ -469,7 +431,6 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                               type="range"
                               min="5"
                               max="60"
->>>>>>> Stashed changes
                               step="5"
                               value={validity}
                               onChange={(e) => setValidity(parseInt(e.target.value))}
@@ -549,15 +510,8 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                 <h3 className="text-2xl font-bold text-slate-900 mb-2 font-outfit">Invitation Sent!</h3>
                 <p className="text-slate-500 max-w-sm text-sm">The secure interview access for <b>{selectedRole}</b> has been sent successfully.</p>
               </div>
-<<<<<<< Updated upstream
-              <h3 className="text-2xl font-bold text-slate-900 mb-2 font-outfit">Invitation Sent!</h3>
-              <p className="text-slate-500 max-w-sm">The secure interview access for <b>{selectedRole.trim()}</b> has been sent successfully.</p>
-            </div>
-          )}
-=======
             )}
           </div>
->>>>>>> Stashed changes
         </div>
       </div>
     </div>
