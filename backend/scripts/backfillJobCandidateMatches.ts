@@ -1,6 +1,11 @@
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config({ override: true });
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.join(__dirname, '..', '..', '.env'), override: true });
 
 import pool, { closePool } from '../src/lib/database';
 import { computeAiCandidatesForJob } from '../src/controllers/job.controller';
