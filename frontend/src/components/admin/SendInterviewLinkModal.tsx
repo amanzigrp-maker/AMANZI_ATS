@@ -1,5 +1,10 @@
+<<<<<<< Updated upstream
 import { useEffect, useState } from 'react';
 import { Search, Mail, Send, CheckCircle2, Loader2, X, User, Lock } from 'lucide-react';
+=======
+import { useState } from 'react';
+import { Search, Mail, Send, CheckCircle2, Loader2, X, User, Lock, Phone, MapPin, Building2, Award, Star, Calendar } from 'lucide-react';
+>>>>>>> Stashed changes
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authenticatedFetch } from '@/lib/api';
@@ -9,6 +14,14 @@ interface CandidateInfo {
   candidate_id: number;
   full_name: string;
   email: string;
+  phone?: string;
+  location?: string;
+  current_company?: string;
+  current_designation?: string;
+  experience?: number | string;
+  skills?: string[];
+  created_at?: string;
+  uploaded_by?: string;
   applied_jobs?: { id: number; title: string }[];
 }
 
@@ -239,7 +252,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
       
-      <div className="relative w-full max-w-lg bg-card rounded-2xl shadow-2xl border border-border animate-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-2xl bg-card rounded-2xl shadow-2xl border border-border animate-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between p-6 border-b border-border">
           <div>
             <h2 className="text-xl font-bold text-slate-900 font-outfit">Send Interview Invitation</h2>
@@ -250,56 +263,89 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
           </button>
         </div>
 
-        <div className="p-6 space-y-6">
-          {!isSuccess ? (
-            <>
-              <div className="flex gap-2 relative">
-                <div className="relative flex-1">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    placeholder="Search by name or email..."
-                    value={email}
-                    onChange={handleInputChange}
-                    className="pl-10"
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    onFocus={() => email.length >= 2 && setShowSuggestions(true)}
-                  />
+        <div className="p-6 pb-4 border-b border-slate-100 bg-white sticky top-0 z-20">
+          {!isSuccess && (
+            <div className="flex gap-2 relative">
+              <div className="relative flex-1">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Input
+                  placeholder="Search by name or email..."
+                  value={email}
+                  onChange={handleInputChange}
+                  className="pl-10 h-11 transition-all focus:ring-2 focus:ring-blue-500/20"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                  onFocus={() => email.length >= 2 && setShowSuggestions(true)}
+                />
 
-                  {/* Suggestions Dropdown */}
-                  {showSuggestions && suggestions.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl border border-slate-200 shadow-2xl z-[100] max-h-60 overflow-y-auto no-scrollbar animate-in fade-in slide-in-from-top-2 duration-200">
-                      {suggestions.map((s) => (
-                        <button
-                          key={s.candidate_id}
-                          onClick={() => handleSelectCandidate(s)}
-                          className="w-full flex flex-col items-start px-4 py-3 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
-                        >
-                          <span className="font-bold text-slate-800 text-sm">{s.full_name}</span>
-                          <span className="text-slate-400 text-xs">{s.email}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <Button onClick={handleSearch} disabled={loading} className="font-semibold px-6 shadow-lg shadow-blue-100">
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
-                  Search
-                </Button>
+                {/* Suggestions Dropdown */}
+                {showSuggestions && suggestions.length > 0 && (
+                  <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-white rounded-xl border border-slate-200 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.1)] z-[100] max-h-60 overflow-y-auto no-scrollbar animate-in fade-in slide-in-from-top-2 duration-200">
+                    {suggestions.map((s) => (
+                      <button
+                        key={s.candidate_id}
+                        onClick={() => handleSelectCandidate(s)}
+                        className="w-full flex flex-col items-start px-4 py-3 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0"
+                      >
+                        <span className="font-bold text-slate-800 text-sm">{s.full_name}</span>
+                        <span className="text-slate-400 text-xs">{s.email}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+              <Button onClick={handleSearch} disabled={loading} className="h-11 font-semibold px-6 shadow-lg shadow-blue-200 flex-shrink-0 bg-blue-600 hover:bg-blue-700">
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4 mr-2" />}
+                Search
+              </Button>
+            </div>
+          )}
+        </div>
 
-              {candidate && (
-                <div className="p-5 bg-blue-50/50 rounded-xl border border-blue-100 animate-in slide-in-from-top-2 duration-300">
-                  <div className="flex items-start gap-4">
-                    <div className="p-3 bg-white rounded-full border border-blue-200 shadow-sm">
-                      <User className="w-6 h-6 text-blue-600" />
+        <div className="max-h-[60vh] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+          <div className="p-6">
+            {!isSuccess ? (
+              <>
+                {candidate && (
+                  <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden animate-in slide-in-from-top-2 duration-300">
+                    <div className="p-5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white relative">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-xl flex items-center justify-center border border-white/30 shadow-inner">
+                          <User className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                          <h4 className="text-xl font-bold font-outfit uppercase tracking-tight">{candidate.full_name}</h4>
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <h4 className="font-bold text-slate-800 text-lg mb-0.5">{candidate.full_name}</h4>
-                      <p className="text-blue-600 font-medium text-sm mb-4">{candidate.email}</p>
-                      
-                      <div className="space-y-4 mb-6">
+
+                    <div className="p-5">
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-5 mb-6">
+                        <DetailItem icon={<Mail className="w-3.5 h-3.5" />} label="Email" value={candidate.email} />
+                        <DetailItem icon={<Phone className="w-3.5 h-3.5" />} label="Phone" value={candidate.phone || '—'} />
+                        <DetailItem icon={<Star className="w-3.5 h-3.5" />} label="Experience" value={candidate.experience ? `${candidate.experience} years` : '—'} />
+                        <DetailItem icon={<Building2 className="w-3.5 h-3.5" />} label="Applied For" value={candidate.applied_jobs && candidate.applied_jobs.length > 0 ? candidate.applied_jobs[0].title : 'General Entry'} />
+                      </div>
+
+                      {candidate.skills && candidate.skills.length > 0 && (
+                        <div className="mb-6 border-t border-slate-100 pt-5">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest block mb-3">Skills & Keywords</label>
+                          <div className="flex flex-wrap gap-2">
+                            {candidate.skills.slice(0, 10).map((skill, index) => (
+                              <span key={index} className="px-2.5 py-1 bg-blue-50 text-blue-600 rounded-lg text-[11px] font-semibold lowercase border border-blue-100/50 hover:bg-blue-100 transition-colors">
+                                {skill}
+                              </span>
+                            ))}
+                            {candidate.skills.length > 10 && (
+                              <span className="px-2.5 py-1 bg-slate-50 text-slate-500 rounded-lg text-[11px] font-semibold">+{candidate.skills.length - 10} more</span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="space-y-4 mb-6 border-t border-slate-100 pt-5">
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Interview Role (Question Domain)</label>
+<<<<<<< Updated upstream
                           <Input
                             placeholder="Type role, e.g. Leadership Assessment"
                             value={selectedRole}
@@ -392,70 +438,100 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                               type="range" 
                               min="5" 
                               max="60" 
+=======
+                          <select
+                            value={selectedRole}
+                            onChange={(e) => setSelectedRole(e.target.value)}
+                            className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem] bg-no-repeat bg-[right_1rem_center]"
+                          >
+                            <option value="">-- Select or type role --</option>
+                            {candidate.applied_jobs?.map(job => (
+                              <option key={job.id} value={job.title}>{job.title}</option>
+                            ))}
+                            <option value="Custom">Other (Type Below)</option>
+                          </select>
+                          {(!candidate.applied_jobs || candidate.applied_jobs.length === 0 || selectedRole === 'Custom') && (
+                            <Input
+                              placeholder="Type role manually..."
+                              value={selectedRole === 'Custom' ? '' : selectedRole}
+                              onChange={(e) => setSelectedRole(e.target.value)}
+                              className="mt-2 text-sm"
+                            />
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6">
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex justify-between">
+                              Test Duration <span>{validity}m</span>
+                            </label>
+                            <input
+                              type="range"
+                              min="5"
+                              max="60"
+>>>>>>> Stashed changes
                               step="5"
                               value={validity}
                               onChange={(e) => setValidity(parseInt(e.target.value))}
-                              className="flex-1 h-2 bg-blue-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                              className="w-full h-1.5 bg-blue-100 rounded-lg appearance-none cursor-pointer accent-blue-600"
                             />
-                            <span className="text-sm font-bold text-blue-700 w-12">{validity}m</span>
                           </div>
-                        </div>
 
-                        <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Number of Questions</label>
-                          <div className="flex items-center gap-4">
-                            <input 
-                              type="range" 
-                              min="1" 
-                              max="50" 
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex justify-between">
+                              Questions <span>{questionCount}</span>
+                            </label>
+                            <input
+                              type="range"
+                              min="1"
+                              max="50"
                               step="1"
                               value={questionCount}
                               onChange={(e) => setQuestionCount(parseInt(e.target.value))}
-                              className="flex-1 h-2 bg-purple-100 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                              className="w-full h-1.5 bg-purple-100 rounded-lg appearance-none cursor-pointer accent-purple-600"
                             />
-                            <span className="text-sm font-bold text-purple-700 w-12">{questionCount}</span>
                           </div>
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-3 mb-5">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-700">
+                      <div className="flex flex-wrap gap-2 mb-6">
+                        <span className="inline-flex items-center px-3 py-1 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-100">
                           {validity} min validity
                         </span>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+                        <span className="inline-flex items-center px-3 py-1 rounded-lg text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100">
                           {questionCount} Questions
                         </span>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-purple-100 text-purple-700">
+                        <span className="inline-flex items-center px-3 py-1 rounded-lg text-[10px] font-bold bg-purple-50 text-purple-600 border border-purple-100">
                           Device Locked
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <Button 
-                          onClick={handleSendLink} 
+                      <div className="grid grid-cols-2 gap-4">
+                        <Button
+                          onClick={handleSendLink}
                           disabled={sending}
                           variant="outline"
-                          className="border-blue-200 text-blue-700 hover:bg-blue-50 font-bold py-6 rounded-xl transition-all"
+                          className="border-slate-200 text-slate-600 hover:bg-slate-50 font-bold py-5 rounded-xl text-sm transition-colors"
                         >
                           {sending ? (
-                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             <>
-                              <Send className="w-4 h-4 mr-2" />
+                              <Send className="w-3.5 h-3.5 mr-2" />
                               Send Link
                             </>
                           )}
                         </Button>
-                        <Button 
-                          onClick={handleSendCredentials} 
+                        <Button
+                          onClick={handleSendCredentials}
                           disabled={sending}
-                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-6 rounded-xl shadow-lg shadow-blue-100 transition-all active:scale-[0.98]"
+                          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-5 rounded-xl shadow-lg shadow-blue-200/50 text-sm active:scale-[0.98] transition-all"
                         >
                           {sending ? (
-                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             <>
-                              <Lock className="w-4 h-4 mr-2" />
+                              <Lock className="w-3.5 h-3.5 mr-2" />
                               Send Credentials
                             </>
                           )}
@@ -463,19 +539,40 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                       </div>
                     </div>
                   </div>
+                )}
+              </>
+            ) : (
+              <div className="py-20 flex flex-col items-center text-center animate-in zoom-in-95 duration-500">
+                <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-xl">
+                  <CheckCircle2 className="w-10 h-10 text-green-500" />
                 </div>
-              )}
-            </>
-          ) : (
-            <div className="py-8 flex flex-col items-center text-center animate-in zoom-in-95 duration-500">
-              <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mb-6 border-4 border-white shadow-xl">
-                <CheckCircle2 className="w-10 h-10 text-green-500" />
+                <h3 className="text-2xl font-bold text-slate-900 mb-2 font-outfit">Invitation Sent!</h3>
+                <p className="text-slate-500 max-w-sm text-sm">The secure interview access for <b>{selectedRole}</b> has been sent successfully.</p>
               </div>
+<<<<<<< Updated upstream
               <h3 className="text-2xl font-bold text-slate-900 mb-2 font-outfit">Invitation Sent!</h3>
               <p className="text-slate-500 max-w-sm">The secure interview access for <b>{selectedRole.trim()}</b> has been sent successfully.</p>
             </div>
           )}
+=======
+            )}
+          </div>
+>>>>>>> Stashed changes
         </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailItem({ icon, label, value }: { icon: React.ReactNode, label: string, value: string }) {
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{label}</label>
+      <div className="flex items-start gap-2.5">
+        <div className="mt-0.5 text-blue-500 bg-blue-50 p-1.5 rounded-lg border border-blue-100">
+          {icon}
+        </div>
+        <span className="text-sm font-bold text-slate-700 break-all leading-tight">{value}</span>
       </div>
     </div>
   );

@@ -142,7 +142,7 @@ export class AIWorkerService {
     });
   }
 
-  private async waitForService(retries = 60): Promise<void> {
+  private async waitForService(retries = 180): Promise<void> {
     for (let i = 0; i < retries; i++) {
       try {
         const r = await axios.get(`${this.baseUrl}/health`, {
@@ -153,10 +153,13 @@ export class AIWorkerService {
           return;
         }
       } catch {
+        if (i % 10 === 0 && i > 0) {
+          console.log(`⏳ Waiting for Python worker... (${i}/${retries})`);
+        }
         await new Promise(r => setTimeout(r, 1000));
       }
     }
-    throw new Error('Python worker did not become ready');
+    throw new Error(`Python worker did not become ready after ${retries} seconds`);
   }
 
   /* ------------------------------------------------------------------ */

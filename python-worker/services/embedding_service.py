@@ -26,40 +26,54 @@ class EmbeddingService:
         self.model = None
         self.model_name = getattr(settings, "embedding_model", "")
         self.device = "cpu"
-        try:
-            import torch
-
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        except Exception as e:
-            logger.warning(f"⚠️ Torch unavailable/incompatible (embeddings disabled): {e}")
         self.embedding_dim: int | None = None
-        
+
     async def load_models(self):
         """Load embedding model"""
+        logger.info("🔌 Detecting computation device...")
+        try:
+            import torch
+            if torch.cuda.is_available():
+                self.device = "cuda"
+                logger.info("✅ CUDA detected! Using GPU for embeddings.")
+            else:
+                self.device = "cpu"
+                logger.info("ℹ️ CUDA not available. Using CPU.")
+        except Exception as e:
+            self.device = "cpu"
+            logger.warning(f"⚠️ Torch unavailable/incompatible: {e}. Using CPU.")
+
+        logger.info(f"🧠 Loading embedding model: {self.model_name}...")
         try:
             from sentence_transformers import SentenceTransformer
             
             # Try loading with local_files_only first (offline mode)
             try:
+                logger.info("  -> Attempting offline load from cache...")
                 self.model = SentenceTransformer(
                     self.model_name,
                     cache_folder=str(settings.ml_model_cache_dir),
                     device=self.device,
                     local_files_only=True  # Work offline
                 )
+                logger.success("  -> Offline load successful")
             except Exception as e:
                 # Fallback to online mode if cache doesn't exist
+                logger.info(f"  -> Cache empty or error: {e}. Falling back to online mode...")
                 self.model = SentenceTransformer(
                     self.model_name,
                     cache_folder=str(settings.ml_model_cache_dir),
                     device=self.device
                 )
+                logger.success("  -> Online load successful")
 
             try:
                 self.embedding_dim = int(self.model.get_sentence_embedding_dimension())
+                logger.info(f"  -> Model dimension: {self.embedding_dim}")
             except Exception:
                 self.embedding_dim = None
             
+            logger.success(f"✅ Embedding model '{self.model_name}' ready")
         except Exception as e:
             logger.error(f"Failed to load embedding model: {e}")
             logger.warning("⚠️ Working without embeddings - semantic search will not work")

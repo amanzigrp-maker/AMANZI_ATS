@@ -99,28 +99,41 @@ export const searchCandidates = async (req: Request, res: Response) => {
   try {
     const { query, email } = req.query;
     const searchTerm = (query || email) as string;
+    const tokens = searchTerm.trim().split(/\s+/).filter(Boolean);
 
     if (!searchTerm) {
       return res.status(400).json({ success: false, error: 'Search term is required' });
     }
 
+    // Build prefix-compatible tsquery
+    const tsQuery = tokens.map(t => `${t.replace(/[^\w]/g, '')}:*`).join(' & ');
+
     const result = await pool.query(
-      `SELECT c.candidate_id, c.full_name, c.email,
-              json_agg(json_build_object('id', j.job_id, 'title', j.title)) FILTER (WHERE j.job_id IS NOT NULL) as applied_jobs
+      `SELECT c.candidate_id, c.full_name, c.email, c.phone, c.location, 
+              c.current_designation, c.current_company, c.total_experience as experience, 
+              c.skills, c.created_at,
+              (
+                SELECT coalesce(u.email, 'Unknown') || ' (' || coalesce(u.role, 'member') || ')'
+                FROM resumes r 
+                JOIN users u ON r.uploaded_by = u.userid 
+                WHERE r.candidate_id = c.candidate_id 
+                ORDER BY r.created_at DESC LIMIT 1
+              ) as uploaded_by,
+              json_agg(json_build_object('id', j.job_id, 'title', j.title)) FILTER (WHERE j.job_id IS NOT NULL) as applied_jobs,
+              ts_rank_cd(
+                to_tsvector('english', coalesce(c.full_name, '') || ' ' || coalesce(c.email, '') || ' ' || coalesce(c.current_designation, '')),
+                to_tsquery('english', $1)
+              ) as rank
        FROM candidates c
        LEFT JOIN applications a ON c.candidate_id = a.candidate_id
        LEFT JOIN jobs j ON a.job_id = j.job_id
-       WHERE c.email ILIKE $1 OR c.full_name ILIKE $1
+       WHERE 
+         c.email ILIKE $2 OR c.full_name ILIKE $2 OR
+         to_tsvector('english', coalesce(c.full_name, '') || ' ' || coalesce(c.email, '') || ' ' || coalesce(c.current_designation, '')) @@ to_tsquery('english', $1)
        GROUP BY c.candidate_id
-       ORDER BY 
-         CASE 
-           WHEN c.email = $2 THEN 1
-           WHEN c.email ILIKE $3 THEN 2
-           WHEN c.full_name ILIKE $3 THEN 3
-           ELSE 4
-         END
+       ORDER BY rank DESC, c.full_name ASC
        LIMIT 10`,
-      [`%${searchTerm}%`, searchTerm, `${searchTerm}%`]
+      [tsQuery, `%${searchTerm}%`]
     );
 
     res.json({ success: true, data: result.rows });
