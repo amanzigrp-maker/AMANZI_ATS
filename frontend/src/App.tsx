@@ -23,6 +23,7 @@ import CandidateProfile from "./pages/CandidateProfile";
 import Candidates from "./pages/Candidates";
 import TotalApplicantsList from "./pages/TotalApplicantsList";
 import Interviews from "./pages/Interviews";
+import Assessments from "./pages/Assessments";
 import InterviewScheduledList from "./pages/InterviewScheduledList";
 import Reports from "./pages/Reports";
 import PasswordReset from "./pages/PasswordReset";
@@ -93,6 +94,7 @@ const App: React.FC = () => {
                   <Route path="/jobs" element={<JobsList />} />
                   <Route path="/jobs/:id" element={<JobDetails />} />
                   <Route path="/candidates" element={<Candidates />} />
+                  <Route path="/assessments" element={<Assessments />} />
                   <Route path="/applicants/total" element={<TotalApplicantsList />} />
                   <Route path="/interviews" element={<Interviews />} />
                   <Route path="/interviews/scheduled" element={<InterviewScheduledList />} />

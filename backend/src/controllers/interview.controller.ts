@@ -7,6 +7,91 @@ import { generateAdaptiveSequence } from '../services/ai-interview.service';
 import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../middleware/auth.middleware';
 
+const validateSelectedAssessment = async (req: Request, assessmentId: number | null) => {
+  if (!assessmentId) {
+    throw new Error('Please choose a question bank before sending.');
+  }
+
+  const ownerId = Number((req as any).user?.userid ?? (req as any).user?.id ?? 0) || null;
+  const ownerRole = String((req as any).user?.role || '').toLowerCase();
+  const params: any[] = [assessmentId];
+  let ownerClause = '';
+
+  if (ownerId && ownerRole !== 'admin' && ownerRole !== 'lead') {
+    params.push(ownerId);
+    ownerClause = `AND a.created_by = $2`;
+  }
+
+  const assessmentCheck = await pool.query(
+    `
+    SELECT a.assessment_id, COUNT(q.question_id)::int AS question_count
+    FROM assessments a
+    JOIN question_sets qs ON qs.assessment_id = a.assessment_id
+    JOIN questions q ON q.question_set_id = qs.question_set_id
+    WHERE a.assessment_id = $1
+      ${ownerClause}
+    GROUP BY a.assessment_id
+    `,
+    params
+  );
+
+  if (!assessmentCheck.rows.length) {
+    throw new Error('Selected question bank was not found for this recruiter.');
+  }
+};
+
+const generateTemporaryPassword = () => {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let password = '';
+  for (let i = 0; i < 5; i += 1) {
+    password += alphabet[crypto.randomInt(0, alphabet.length)];
+  }
+  return password;
+};
+
+const shuffleRows = <T>(rows: T[]) => {
+  const shuffled = [...rows];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = crypto.randomInt(0, i + 1);
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+};
+
+const pickBalancedByDifficulty = <T extends { difficulty?: string }>(rows: T[], totalCount: number) => {
+  const wanted = Math.max(1, totalCount);
+  const byDifficulty = new Map<string, T[]>();
+
+  for (const row of shuffleRows(rows)) {
+    const key = String(row.difficulty || 'medium').toLowerCase();
+    if (!byDifficulty.has(key)) byDifficulty.set(key, []);
+    byDifficulty.get(key)!.push(row);
+  }
+
+  const preferredOrder = ['foundation', 'basic', 'developing', 'medium', 'advanced', 'expert'];
+  const levels = [
+    ...preferredOrder.filter((level) => byDifficulty.has(level)),
+    ...Array.from(byDifficulty.keys()).filter((level) => !preferredOrder.includes(level)),
+  ];
+
+  const selected: T[] = [];
+  while (selected.length < wanted && levels.length) {
+    let addedThisRound = false;
+    for (const level of levels) {
+      const bucket = byDifficulty.get(level);
+      const next = bucket?.shift();
+      if (next) {
+        selected.push(next);
+        addedThisRound = true;
+        if (selected.length >= wanted) break;
+      }
+    }
+    if (!addedThisRound) break;
+  }
+
+  return shuffleRows(selected);
+};
+
 /**
  * Search candidates by email or name (partial matching)
  */
@@ -50,7 +135,7 @@ export const searchCandidates = async (req: Request, res: Response) => {
  */
 export const generateAndSendLink = async (req: Request, res: Response) => {
   try {
-    const { email, jobRole, validityMins, questionCount } = req.body;
+    const { email, jobRole, validityMins, questionCount, questionSource, assessmentId } = req.body;
 
     if (!email) {
       return res.status(400).json({ success: false, error: 'Email is required' });
@@ -72,6 +157,8 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
 
     // 2. Generate secure token and password
     const token = crypto.randomBytes(32).toString('hex');
+    const plainPassword = generateTemporaryPassword();
+    const hashedPassword = await bcrypt.hash(plainPassword, 10);
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins to OPEN the link
     // The duration_mins is how long they have to COMPLETE the interview once started.
     // Actually, validityMins in the UI refers to the link expiration or the test duration?
@@ -82,12 +169,32 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     
     // Link expiration should probably also be configurable, but for now let's use duration_mins for the test.
 
+    const source = questionSource === 'bank' ? 'bank' : 'ai';
+    const selectedAssessmentId = source === 'bank' ? Number(assessmentId) : null;
+
+    if (source === 'bank') {
+      await validateSelectedAssessment(req, selectedAssessmentId);
+    }
+
     // 3. Save in DB
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [token, candidate.email, candidate.full_name, jobRole || null, duration, expiresAt, false, null]
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+      [
+        token,
+        candidate.email,
+        candidate.full_name,
+        jobRole || null,
+        duration,
+        expiresAt,
+        false,
+        null,
+        hashedPassword,
+        Number(questionCount) || 10,
+        source,
+        selectedAssessmentId,
+      ]
     );
 
     // 4. Generate link
@@ -96,12 +203,70 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     const loginUrl = `${frontendUrl}/interview`;
 
     // 5. Send email
-    await sendInterviewLink(candidate.email, candidate.full_name, loginUrl);
+    await sendInterviewLink(candidate.email, candidate.full_name, loginUrl, plainPassword);
 
     res.json({ success: true, message: 'Interview link sent successfully' });
   } catch (error) {
     console.error('❌ Generate and send link overall error:', error);
     res.status(500).json({ success: false, error: 'Internal system error' });
+  }
+};
+
+export const inviteCredentials = async (req: Request, res: Response) => {
+  try {
+    const { email, name, jobRole, validityMins, questionCount, questionSource, assessmentId } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'Email is required' });
+    }
+
+    const candidateResult = await pool.query(
+      'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',
+      [email]
+    );
+
+    if (candidateResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Candidate not found' });
+    }
+
+    const candidate = candidateResult.rows[0];
+    const token = crypto.randomBytes(32).toString('hex');
+    const plainPassword = generateTemporaryPassword();
+    const hashedPassword = await bcrypt.hash(plainPassword, 10);
+    const duration = Number(validityMins) || 15;
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    const source = questionSource === 'bank' ? 'bank' : 'ai';
+    const selectedAssessmentId = source === 'bank' ? Number(assessmentId) : null;
+
+    if (source === 'bank') {
+      await validateSelectedAssessment(req, selectedAssessmentId);
+    }
+
+    await pool.query(
+      `INSERT INTO interview_tokens 
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id) 
+       VALUES ($1, $2, $3, $4, $5, $6, false, null, $7, $8, $9, $10)`,
+      [
+        token,
+        candidate.email,
+        name || candidate.full_name,
+        jobRole || null,
+        duration,
+        expiresAt,
+        hashedPassword,
+        Number(questionCount) || 10,
+        source,
+        selectedAssessmentId,
+      ]
+    );
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    await sendInterviewLink(candidate.email, name || candidate.full_name, `${frontendUrl}/interview-login`, plainPassword);
+
+    return res.json({ success: true, message: 'Temporary interview credentials sent successfully' });
+  } catch (error: any) {
+    console.error('Invite credentials error:', error);
+    return res.status(400).json({ success: false, error: error.message || 'Failed to send credentials' });
   }
 };
 
@@ -183,6 +348,7 @@ export const candidateLogin = async (req: Request, res: Response) => {
         name: tokenData.candidate_name,
         role: tokenData.job_role,
         duration: tokenData.duration_mins,
+        total_questions: tokenData.total_questions || 10,
         session_id: tokenData.session_id,
         is_started: tokenData.is_used,
         token: tokenData.token,
@@ -289,8 +455,11 @@ export const generateQuestions = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
-    // 1. Fetch token data for question count
-    const tokenResult = await pool.query('SELECT total_questions, candidate_email FROM interview_tokens WHERE token = $1', [token]);
+    // 1. Fetch token data for question count and question source
+    const tokenResult = await pool.query(
+      'SELECT total_questions, candidate_email, question_source, assessment_id FROM interview_tokens WHERE token = $1',
+      [token]
+    );
     if (tokenResult.rows.length === 0) {
       return res.status(404).json({ success: false, error: 'Invalid session' });
     }
@@ -319,6 +488,47 @@ export const generateQuestions = async (req: Request, res: Response) => {
       );
       sessionId = result.rows[0].id;
       await pool.query('UPDATE interview_tokens SET is_used = true WHERE token = $1', [token]);
+    }
+
+    if (tokenData.question_source === 'bank' && tokenData.assessment_id) {
+      const bankQuestions = await pool.query(
+        `
+        SELECT
+          q.question_id,
+          q.question_text,
+          q.correct_option,
+          q.difficulty,
+          jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
+        FROM question_sets qs
+        JOIN questions q ON q.question_set_id = qs.question_set_id
+        JOIN question_options o ON o.question_id = q.question_id
+        WHERE qs.assessment_id = $1
+        GROUP BY q.question_id
+        ORDER BY q.question_id
+        `,
+        [Number(tokenData.assessment_id)]
+      );
+
+      if (!bankQuestions.rows.length) {
+        return res.status(500).json({ success: false, error: 'Selected question bank has no usable questions' });
+      }
+
+      const selectedBankQuestions = pickBalancedByDifficulty(bankQuestions.rows, totalQCount);
+
+      for (const q of selectedBankQuestions) {
+        const optionsObject = q.options || {};
+        const optionList = ['A', 'B', 'C', 'D'].map((key) => optionsObject[key]).filter(Boolean);
+        const correctAnswer = optionsObject[q.correct_option] || q.correct_option;
+
+        await pool.query(
+          `INSERT INTO interview_questions (session_id, question, options, correct_answer, difficulty) 
+           VALUES ($1, $2, $3, $4, $5)`,
+          [sessionId, q.question_text, JSON.stringify(optionList), correctAnswer, q.difficulty || 'medium']
+        );
+      }
+
+      await pool.query('UPDATE interview_sessions SET total_questions = $1 WHERE id = $2', [selectedBankQuestions.length, sessionId]);
+      return res.json({ success: true, session_id: sessionId });
     }
 
     // 3. Generate Sequence via Engine

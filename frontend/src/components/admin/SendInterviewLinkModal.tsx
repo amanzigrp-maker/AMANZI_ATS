@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Search, Mail, Send, CheckCircle2, Loader2, X, User, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,6 +10,14 @@ interface CandidateInfo {
   full_name: string;
   email: string;
   applied_jobs?: { id: number; title: string }[];
+}
+
+interface AssessmentOption {
+  assessment_id: number;
+  title: string;
+  role?: string;
+  question_count: number;
+  source_type?: string;
 }
 
 export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -24,6 +32,37 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
   const [selectedRole, setSelectedRole] = useState('');
   const [validity, setValidity] = useState(15); // Default 15 mins
   const [questionCount, setQuestionCount] = useState(10); // Default 10 questions
+  const [questionSource, setQuestionSource] = useState<'ai' | 'bank'>('ai');
+  const [assessmentId, setAssessmentId] = useState('');
+  const [assessments, setAssessments] = useState<AssessmentOption[]>([]);
+  const [loadingAssessments, setLoadingAssessments] = useState(false);
+
+  useEffect(() => {
+    if (!candidate || !selectedRole.trim()) {
+      setAssessments([]);
+      setAssessmentId('');
+      return;
+    }
+
+    const fetchAssessments = async () => {
+      setLoadingAssessments(true);
+      try {
+        const response = await authenticatedFetch(`/api/assessments?role=${encodeURIComponent(selectedRole.trim())}`);
+        const data = await response.json().catch(() => ({}));
+        const list = Array.isArray(data.data) ? data.data : [];
+        setAssessments(list);
+        if (questionSource === 'bank' && list.length === 0) {
+          setAssessmentId('');
+        }
+      } catch {
+        setAssessments([]);
+      } finally {
+        setLoadingAssessments(false);
+      }
+    };
+
+    fetchAssessments();
+  }, [candidate, selectedRole, questionSource]);
 
   const fetchSuggestions = async (val: string) => {
     if (val.length < 2) {
@@ -91,6 +130,19 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
 
   const handleSendLink = async () => {
     if (!candidate) return;
+    if (questionSource === 'bank' && !assessmentId) {
+      toast.error('Choose an uploaded question bank before sending');
+      return;
+    }
+
+    const chosenBank = assessments.find((item) => String(item.assessment_id) === assessmentId);
+    const ok = window.confirm(
+      questionSource === 'bank'
+        ? `Send ${chosenBank?.title || 'selected question bank'} for ${selectedRole.trim()}?`
+        : `Generate AI questions for ${selectedRole.trim()} and send this test?`
+    );
+    if (!ok) return;
+
     setSending(true);
     try {
       const response = await authenticatedFetch('/api/interview/send-link', {
@@ -98,9 +150,11 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           email: candidate.email,
-          jobRole: selectedRole,
+          jobRole: selectedRole.trim(),
           validityMins: validity,
-          questionCount: questionCount
+          questionCount: questionCount,
+          questionSource,
+          assessmentId: questionSource === 'bank' ? Number(assessmentId) : null
         })
       });
       const data = await response.json();
@@ -123,6 +177,19 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
 
   const handleSendCredentials = async () => {
     if (!candidate) return;
+    if (questionSource === 'bank' && !assessmentId) {
+      toast.error('Choose an uploaded question bank before sending');
+      return;
+    }
+
+    const chosenBank = assessments.find((item) => String(item.assessment_id) === assessmentId);
+    const ok = window.confirm(
+      questionSource === 'bank'
+        ? `Send credentials with ${chosenBank?.title || 'selected question bank'} for ${selectedRole.trim()}?`
+        : `Send credentials and generate AI questions for ${selectedRole.trim()}?`
+    );
+    if (!ok) return;
+
     setSending(true);
     try {
       const response = await authenticatedFetch('/api/interview/invite-credentials', {
@@ -131,7 +198,11 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
         body: JSON.stringify({ 
           email: candidate.email,
           name: candidate.full_name,
-          jobRole: selectedRole,
+          jobRole: selectedRole.trim(),
+          validityMins: validity,
+          questionCount,
+          questionSource,
+          assessmentId: questionSource === 'bank' ? Number(assessmentId) : null,
           interviewId: `INT-${Math.floor(Math.random() * 10000)}`
         })
       });
@@ -157,6 +228,9 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     setEmail('');
     setCandidate(null);
     setIsSuccess(false);
+    setQuestionSource('ai');
+    setAssessmentId('');
+    setAssessments([]);
   };
 
   if (!isOpen) return null;
@@ -226,26 +300,90 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                       <div className="space-y-4 mb-6">
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Interview Role (Question Domain)</label>
-                          <select 
+                          <Input
+                            placeholder="Type role, e.g. Leadership Assessment"
                             value={selectedRole}
                             onChange={(e) => setSelectedRole(e.target.value)}
-                            className="w-full bg-white border border-blue-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                          >
-                            <option value="">-- Select or type role --</option>
-                            {candidate.applied_jobs?.map(job => (
-                              <option key={job.id} value={job.title}>{job.title}</option>
-                            ))}
-                            <option value="Custom">Other (Type Below)</option>
-                          </select>
-                          {(!candidate.applied_jobs || candidate.applied_jobs.length === 0 || selectedRole === 'Custom') && (
-                            <Input 
-                              placeholder="Type role manually..."
-                              value={selectedRole === 'Custom' ? '' : selectedRole}
-                              onChange={(e) => setSelectedRole(e.target.value)}
-                              className="mt-2"
-                            />
+                            className="bg-white border-blue-200 rounded-xl"
+                          />
+                          {!!candidate.applied_jobs?.length && (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {candidate.applied_jobs.map(job => (
+                                <button
+                                  key={job.id}
+                                  type="button"
+                                  onClick={() => setSelectedRole(job.title)}
+                                  className="rounded-full border border-blue-100 bg-white px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50"
+                                >
+                                  {job.title}
+                                </button>
+                              ))}
+                            </div>
                           )}
                         </div>
+
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Question Source</label>
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setQuestionSource('ai');
+                                setAssessmentId('');
+                              }}
+                              className={`rounded-xl border px-3 py-2 text-sm font-bold transition-all ${
+                                questionSource === 'ai'
+                                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              Generate with AI
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setQuestionSource('bank')}
+                              className={`rounded-xl border px-3 py-2 text-sm font-bold transition-all ${
+                                questionSource === 'bank'
+                                  ? 'border-purple-500 bg-purple-50 text-purple-700'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              Uploaded Bank
+                            </button>
+                          </div>
+                        </div>
+
+                        {questionSource === 'bank' && (
+                          <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select Uploaded Question Bank</label>
+                            <select
+                              value={assessmentId}
+                              onChange={(e) => {
+                                const nextId = e.target.value;
+                                setAssessmentId(nextId);
+                                const selected = assessments.find((item) => String(item.assessment_id) === nextId);
+                                if (selected?.question_count) {
+                                  setQuestionCount(selected.question_count);
+                                }
+                              }}
+                              className="w-full bg-white border border-purple-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                            >
+                              <option value="">
+                                {loadingAssessments ? 'Loading banks...' : '-- Choose a named bank --'}
+                              </option>
+                              {assessments.map((assessment) => (
+                                <option key={assessment.assessment_id} value={assessment.assessment_id}>
+                                  {assessment.title} ({assessment.question_count} questions)
+                                </option>
+                              ))}
+                            </select>
+                            {!loadingAssessments && assessments.length === 0 && (
+                              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                                No uploaded banks found for this role. Create one in Assessments first, then come back here.
+                              </p>
+                            )}
+                          </div>
+                        )}
 
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Test Duration (Minutes)</label>
@@ -334,7 +472,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                 <CheckCircle2 className="w-10 h-10 text-green-500" />
               </div>
               <h3 className="text-2xl font-bold text-slate-900 mb-2 font-outfit">Invitation Sent!</h3>
-              <p className="text-slate-500 max-w-sm">The secure interview access for <b>{selectedRole}</b> has been sent successfully.</p>
+              <p className="text-slate-500 max-w-sm">The secure interview access for <b>{selectedRole.trim()}</b> has been sent successfully.</p>
             </div>
           )}
         </div>

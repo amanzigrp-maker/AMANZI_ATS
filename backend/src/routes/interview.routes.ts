@@ -4,6 +4,7 @@ import {
   generateAndSendLink, 
   validateLink, 
   candidateLogin,
+  inviteCredentials,
   generateQuestions,
   getQuestions,
   submitAnswers,
@@ -21,6 +22,7 @@ router.get('/candidates', verifyToken, searchCandidates);
 
 // Generate and send link (Admin only)
 router.post('/send-link', verifyToken, generateAndSendLink);
+router.post('/invite-credentials', verifyToken, inviteCredentials);
 
 // --- Public / Candidate Interview Routes ---
 

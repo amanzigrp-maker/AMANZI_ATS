@@ -247,6 +247,7 @@ export const sendPasswordChangeConfirmation = async (to: string, userName?: stri
  */
 export const sendInterviewLink = async (to: string, name: string, loginUrl: string, password?: string): Promise<void> => {
   try {
+    const displayPassword = password || 'Contact recruiter';
     const transporter = createTransporter();
 
     // If email is not configured, log to console for development
@@ -257,7 +258,7 @@ export const sendInterviewLink = async (to: string, name: string, loginUrl: stri
       console.log(`To: ${to}`);
       console.log(`Name: ${name}`);
       console.log(`Login URL: ${loginUrl}`);
-      console.log(`Password: ${password}`);
+      console.log(`Password: ${displayPassword}`);
       console.log(`Note: Login details valid for the test duration.`);
       console.log('==============================================\n');
       return;
@@ -294,7 +295,7 @@ export const sendInterviewLink = async (to: string, name: string, loginUrl: stri
               
               <div class="creds">
                 <p style="margin: 5px 0;"><strong>Email:</strong> ${to}</p>
-                <p style="margin: 5px 0;"><strong>Password:</strong> ${password}</p>
+                <p style="margin: 5px 0;"><strong>Password:</strong> ${displayPassword}</p>
               </div>
 
               <div style="text-align: center;">
@@ -330,7 +331,7 @@ export const sendInterviewLink = async (to: string, name: string, loginUrl: stri
         You have been invited for an interview. A temporary account has been created for your assessment.
         
         Email: ${to}
-        Password: ${password}
+        Password: ${displayPassword}
         
         Login URL: ${loginUrl}
         

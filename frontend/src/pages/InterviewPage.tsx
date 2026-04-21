@@ -344,11 +344,13 @@ export default function InterviewPage() {
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
                 <BrainCircuit className="text-blue-500 w-6 h-6" />
-                <span className="text-xs font-bold text-blue-500 uppercase tracking-widest">Amanzi AI Assessment</span>
+                <span className="text-xs font-bold text-blue-500 uppercase tracking-widest">
+                  {setupData.role ? `${setupData.role} Assessment` : 'Amanzi Assessment'}
+                </span>
               </div>
               <CardTitle className="text-white text-3xl font-bold">Welcome, {candidateInfo?.name}</CardTitle>
               <CardDescription className="text-slate-400">
-                Please confirm your details to generate your personalized technical assessment.
+                Please confirm your details to start your {setupData.role || 'assigned'} assessment.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -432,7 +434,9 @@ export default function InterviewPage() {
                         <BrainCircuit className="w-5 h-5 text-blue-500" />
                    </div>
                    <div>
-                       <h2 className="text-white font-bold leading-tight">AI Technical Assessment</h2>
+                      <h2 className="text-white font-bold leading-tight">
+                        {setupData.role ? `${setupData.role} Assessment` : 'Interview Assessment'}
+                      </h2>
                        <p className="text-xs text-slate-500 font-mono">ID: {sessionId}</p>
                    </div>
                 </div>

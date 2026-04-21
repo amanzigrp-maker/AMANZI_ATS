@@ -90,6 +90,9 @@ export const testConnection = async (): Promise<boolean> => {
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS job_role TEXT`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS duration_mins INTEGER DEFAULT 5`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS password TEXT`);
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS total_questions INTEGER DEFAULT 10`);
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS question_source TEXT DEFAULT 'ai'`);
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS assessment_id INTEGER`);
 
     // Ensure interview_sessions table exists
     await pool.query(`
@@ -171,6 +174,91 @@ export const testConnection = async (): Promise<boolean> => {
     // Add decision column for select/reject status
     await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS decision TEXT DEFAULT 'pending'`);
     await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS feedback TEXT`);
+
+    // Recruiter assessment/question bank tables
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS assessments (
+        assessment_id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        role TEXT,
+        duration_minutes INTEGER DEFAULT 30,
+        status TEXT DEFAULT 'draft',
+        created_by INTEGER,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS question_sets (
+        question_set_id SERIAL PRIMARY KEY,
+        assessment_id INTEGER NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
+        name TEXT NOT NULL DEFAULT 'Default section',
+        source_type TEXT NOT NULL CHECK (source_type IN ('ai', 'upload')),
+        source_file TEXT,
+        prompt TEXT,
+        review_status TEXT DEFAULT 'draft',
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_by INTEGER,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS questions (
+        question_id SERIAL PRIMARY KEY,
+        question_set_id INTEGER NOT NULL REFERENCES question_sets(question_set_id) ON DELETE CASCADE,
+        question_text TEXT NOT NULL,
+        difficulty TEXT DEFAULT 'medium',
+        topic TEXT,
+        explanation TEXT,
+        correct_option TEXT NOT NULL CHECK (correct_option IN ('A', 'B', 'C', 'D')),
+        review_status TEXT DEFAULT 'approved',
+        metadata JSONB DEFAULT '{}'::jsonb,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS question_options (
+        option_id SERIAL PRIMARY KEY,
+        question_id INTEGER NOT NULL REFERENCES questions(question_id) ON DELETE CASCADE,
+        option_key TEXT NOT NULL CHECK (option_key IN ('A', 'B', 'C', 'D')),
+        option_text TEXT NOT NULL,
+        UNIQUE(question_id, option_key)
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS candidate_attempts (
+        attempt_id SERIAL PRIMARY KEY,
+        assessment_id INTEGER NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
+        candidate_id INTEGER,
+        candidate_email TEXT,
+        status TEXT DEFAULT 'in_progress',
+        score NUMERIC(6,2) DEFAULT 0,
+        total_questions INTEGER DEFAULT 0,
+        started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        submitted_at TIMESTAMPTZ
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS candidate_answers (
+        answer_id SERIAL PRIMARY KEY,
+        attempt_id INTEGER NOT NULL REFERENCES candidate_attempts(attempt_id) ON DELETE CASCADE,
+        question_id INTEGER NOT NULL REFERENCES questions(question_id),
+        selected_option TEXT CHECK (selected_option IN ('A', 'B', 'C', 'D')),
+        is_correct BOOLEAN,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(attempt_id, question_id)
+      )
+    `);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_metadata_gin ON questions USING GIN (metadata)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions (topic)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_sets_assessment ON question_sets (assessment_id)`);
 
     return true;
   } catch (error: any) {
