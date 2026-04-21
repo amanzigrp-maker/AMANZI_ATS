@@ -1,10 +1,15 @@
 import { Pool } from 'pg';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // -----------------------------------------------------------------------------
 // ENV VALIDATION (ensure dotenv is loaded before proceeding)
 // -----------------------------------------------------------------------------
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '..', '..', '.env') });
 const {
   DATABASE_URL,
   DB_HOST,
