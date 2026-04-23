@@ -6,6 +6,7 @@ import {
   candidateLogin,
   inviteCredentials,
   generateQuestions,
+  submitAdaptiveAnswer,
   getQuestions,
   submitAnswers,
   submitFeedback,
@@ -34,6 +35,7 @@ router.post('/login', candidateLogin);
 
 // 2. Start session & generate questions (Authenticated Candidate)
 router.post('/generate', verifyToken, generateQuestions);
+router.post('/answer', verifyToken, submitAdaptiveAnswer);
 
 // 3. Get questions (Authenticated Candidate)
 router.get('/questions', verifyToken, getQuestions);

@@ -55,6 +55,7 @@ export default function InterviewPage() {
   const [totalQuestions, setTotalQuestions] = useState(10); // Dynamic total from Admin
   const [feedback, setFeedback] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [theta, setTheta] = useState<number | null>(null);
 
   // 1. Validate Token on Mount (Fallback for old flow)
   useEffect(() => {
@@ -157,6 +158,52 @@ export default function InterviewPage() {
     }
   }, [sessionId, answers, isSubmitting, jwtToken]);
 
+  const handleAdaptiveAnswer = async () => {
+    const currentQ = questions[currentQuestionIndex];
+    if (!currentQ || !sessionId || !answers[currentQ.id]) return;
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch("/api/interview/answer", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          question_id: currentQ.id,
+          selected_answer: answers[currentQ.id]
+        })
+      });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          toast.error(data.error || "Failed to save answer");
+          return;
+        }
+
+      if (typeof data.theta === "number") {
+        setTheta(data.theta);
+      }
+
+      if (data.isFinished) {
+        setScore(data.score);
+        setStatus("completed");
+        return;
+      }
+
+      if (data.question) {
+        setQuestions((prev) => [...prev, data.question]);
+        setCurrentQuestionIndex((prev) => prev + 1);
+      }
+    } catch (err) {
+      toast.error("Failed to save answer");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   // Handle stuck loading
   useEffect(() => {
     if (status === "loading") {
@@ -224,9 +271,14 @@ export default function InterviewPage() {
 
       if (data.success) {
         setSessionId(data.session_id);
-        await fetchQuestions(data.session_id);
+        if (data.question) {
+          setQuestions([data.question]);
+          if (typeof data.theta === "number") setTheta(data.theta);
+        } else {
+          await fetchQuestions(data.session_id);
+        }
         setStatus("interviewing");
-        toast.success("Questions generated! Good luck.");
+        toast.success("Adaptive assessment started. Good luck.");
       } else {
         toast.error("Failed to generate questions. Please try again.");
         setStatus("setup");
@@ -503,18 +555,13 @@ export default function InterviewPage() {
                                 </div>
 
                                 <CardFooter className="px-0 pt-12 flex justify-between">
-                                    <Button 
-                                        variant="ghost" 
-                                        className="text-slate-500 hover:text-white"
-                                        disabled={currentQuestionIndex === 0}
-                                        onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
-                                    >
-                                        Previous
-                                    </Button>
+                                    <div className="text-xs text-slate-500 font-mono">
+                                      {theta !== null ? `theta ${theta.toFixed(2)}` : 'adaptive mode'}
+                                    </div>
                                     
                                     {currentQuestionIndex === totalQuestions - 1 ? (
                                         <Button 
-                                            onClick={handleSubmit} 
+                                            onClick={handleAdaptiveAnswer} 
                                             disabled={isSubmitting || !answers[currentQ.id]}
                                             className="bg-blue-600 hover:bg-blue-500 text-white px-8 h-12 rounded-xl font-bold flex gap-2"
                                         >
@@ -523,11 +570,11 @@ export default function InterviewPage() {
                                         </Button>
                                     ) : (
                                         <Button 
-                                            disabled={!answers[currentQ.id]}
-                                            onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
+                                            disabled={isSubmitting || !answers[currentQ.id]}
+                                            onClick={handleAdaptiveAnswer}
                                             className="bg-white hover:bg-slate-200 text-black px-8 h-12 rounded-xl font-bold flex gap-2"
                                         >
-                                            Next Question
+                                            {isSubmitting ? 'Saving...' : 'Next Question'}
                                             <ChevronRight className="w-4 h-4" />
                                         </Button>
                                     )}

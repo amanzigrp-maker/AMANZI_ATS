@@ -40,7 +40,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
   const [selectedRole, setSelectedRole] = useState('');
   const [validity, setValidity] = useState(15); // Default 15 mins
   const [questionCount, setQuestionCount] = useState(10); // Default 10 questions
-  const [questionSource, setQuestionSource] = useState<'ai' | 'bank'>('ai');
+  const [questionSource, setQuestionSource] = useState<'ai' | 'bank' | 'hybrid'>('ai');
   const [assessmentId, setAssessmentId] = useState('');
   const [assessments, setAssessments] = useState<AssessmentOption[]>([]);
   const [loadingAssessments, setLoadingAssessments] = useState(false);
@@ -59,7 +59,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
         const data = await response.json().catch(() => ({}));
         const list = Array.isArray(data.data) ? data.data : [];
         setAssessments(list);
-        if (questionSource === 'bank' && list.length === 0) {
+    if ((questionSource === 'bank' || questionSource === 'hybrid') && list.length === 0) {
           setAssessmentId('');
         }
       } catch {
@@ -138,15 +138,17 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
 
   const handleSendLink = async () => {
     if (!candidate) return;
-    if (questionSource === 'bank' && !assessmentId) {
+    if ((questionSource === 'bank' || questionSource === 'hybrid') && !assessmentId) {
       toast.error('Choose an uploaded question bank before sending');
       return;
     }
 
     const ok = window.confirm(
       questionSource === 'bank'
-        ? `Send the selected question bank for ${selectedRole.trim()}?`
-        : `Generate AI questions for ${selectedRole.trim()} and send this test?`
+        ? `Send document-only test for ${selectedRole.trim()}?`
+        : questionSource === 'hybrid'
+          ? `Send mixed test from uploaded bank plus candidate skills for ${selectedRole.trim()}?`
+          : `Generate AI questions for ${selectedRole.trim()} and send this test?`
     );
     if (!ok) return;
 
@@ -161,7 +163,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
           validityMins: validity,
           questionCount: questionCount,
           questionSource,
-          assessmentId: questionSource === 'bank' ? Number(assessmentId) : null
+          assessmentId: questionSource === 'bank' || questionSource === 'hybrid' ? Number(assessmentId) : null
         })
       });
       const data = await response.json();
@@ -184,15 +186,17 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
 
   const handleSendCredentials = async () => {
     if (!candidate) return;
-    if (questionSource === 'bank' && !assessmentId) {
+    if ((questionSource === 'bank' || questionSource === 'hybrid') && !assessmentId) {
       toast.error('Choose an uploaded question bank before sending');
       return;
     }
 
     const ok = window.confirm(
       questionSource === 'bank'
-        ? `Send credentials with selected question bank for ${selectedRole.trim()}?`
-        : `Send credentials and generate AI questions for ${selectedRole.trim()}?`
+        ? `Send credentials with document-only test for ${selectedRole.trim()}?`
+        : questionSource === 'hybrid'
+          ? `Send credentials with uploaded bank plus candidate skills for ${selectedRole.trim()}?`
+          : `Send credentials and generate AI questions for ${selectedRole.trim()}?`
     );
     if (!ok) return;
 
@@ -208,7 +212,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
           validityMins: validity,
           questionCount,
           questionSource,
-          assessmentId: questionSource === 'bank' ? Number(assessmentId) : null,
+          assessmentId: questionSource === 'bank' || questionSource === 'hybrid' ? Number(assessmentId) : null,
           interviewId: `INT-${Math.floor(Math.random() * 10000)}`
         })
       });
@@ -338,30 +342,31 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                       <div className="space-y-4 mb-6 border-t border-slate-100 pt-5">
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Interview Role (Question Domain)</label>
-                          <select
+                          <Input
+                            placeholder="Type role, for example Software Engineer"
                             value={selectedRole}
                             onChange={(e) => setSelectedRole(e.target.value)}
-                            className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%2F%3E%3C%2Fsvg%3E')] bg-[length:1rem] bg-no-repeat bg-[right_1rem_center]"
-                          >
-                            <option value="">-- Select or type role --</option>
-                            {candidate.applied_jobs?.map(job => (
-                              <option key={job.id} value={job.title}>{job.title}</option>
-                            ))}
-                            <option value="Custom">Other (Type Below)</option>
-                          </select>
-                          {(!candidate.applied_jobs || candidate.applied_jobs.length === 0 || selectedRole === 'Custom') && (
-                            <Input
-                              placeholder="Type role manually..."
-                              value={selectedRole === 'Custom' ? '' : selectedRole}
-                              onChange={(e) => setSelectedRole(e.target.value)}
-                              className="mt-2 text-sm"
-                            />
+                            className="text-sm"
+                          />
+                          {candidate.applied_jobs && candidate.applied_jobs.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {candidate.applied_jobs.map((job) => (
+                                <button
+                                  key={job.id}
+                                  type="button"
+                                  onClick={() => setSelectedRole(job.title)}
+                                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                                >
+                                  {job.title}
+                                </button>
+                              ))}
+                            </div>
                           )}
                         </div>
 
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Question Source</label>
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-3 gap-2">
                             <button
                               type="button"
                               onClick={() => {
@@ -385,12 +390,23 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                                   : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                               }`}
                             >
-                              Uploaded Bank
+                              Doc Only
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setQuestionSource('hybrid')}
+                              className={`rounded-xl border px-3 py-2 text-sm font-bold transition-all ${
+                                questionSource === 'hybrid'
+                                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              Bank + Skills
                             </button>
                           </div>
                         </div>
 
-                        {questionSource === 'bank' && (
+                        {(questionSource === 'bank' || questionSource === 'hybrid') && (
                           <div className="space-y-2">
                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select Uploaded Question Bank</label>
                             <select

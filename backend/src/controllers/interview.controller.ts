@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import bcrypt from 'bcrypt';
 import { pool } from '../lib/database';
 import { sendInterviewLink, sendInterviewResults, sendSelectionEmail } from '../services/email.service';
-import { generateAdaptiveSequence } from '../services/ai-interview.service';
+import { generateAdaptiveQuestionAtDifficulty } from '../services/ai-interview.service';
 import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../middleware/auth.middleware';
 
@@ -90,6 +90,252 @@ const pickBalancedByDifficulty = <T extends { difficulty?: string }>(rows: T[], 
   }
 
   return shuffleRows(selected);
+};
+
+const clamp = (value: number, min = 0.05, max = 0.95) => Math.min(max, Math.max(min, value));
+
+const normalizeDifficulty = (difficulty: any) => {
+  const raw = String(difficulty || 'medium').toLowerCase();
+  if (raw.includes('foundation') || raw.includes('basic') || raw.includes('easy')) return 'basic';
+  if (raw.includes('developing') || raw.includes('medium')) return 'medium';
+  if (raw.includes('advanced') || raw.includes('expert') || raw.includes('hard')) return 'advanced';
+  return 'medium';
+};
+
+const difficultyScore = (difficulty: any) => {
+  const raw = String(difficulty || 'medium').toLowerCase();
+  if (raw.includes('foundation') || raw.includes('basic') || raw.includes('easy')) return 0.3;
+  if (raw.includes('developing') || raw.includes('medium')) return 0.5;
+  if (raw.includes('advanced')) return 0.72;
+  if (raw.includes('expert') || raw.includes('hard')) return 0.88;
+  return 0.5;
+};
+
+const difficultyForTheta = (theta: number): 'basic' | 'medium' | 'advanced' => {
+  if (theta < 0.42) return 'basic';
+  if (theta > 0.68) return 'advanced';
+  return 'medium';
+};
+
+const selectionThetaAfterAnswer = (thetaAfter: number, itemDifficulty: number, isCorrect: boolean) => {
+  if (isCorrect) {
+    if (itemDifficulty >= 0.68) return Math.max(thetaAfter, 0.78);
+    if (itemDifficulty >= 0.42) return Math.max(thetaAfter, 0.72);
+    return Math.max(thetaAfter, 0.5);
+  }
+
+  if (itemDifficulty <= 0.42) return Math.min(thetaAfter, 0.3);
+  if (itemDifficulty <= 0.68) return Math.min(thetaAfter, 0.36);
+  return Math.min(thetaAfter, 0.5);
+};
+
+const initialThetaFromExperience = (experience: any) => {
+  const years = Number(experience);
+  if (!Number.isFinite(years) || years < 1) return 0.35;
+  if (years < 3) return 0.45;
+  if (years < 6) return 0.55;
+  return 0.65;
+};
+
+const expectedProbability = (theta: number, itemDifficulty: number) => {
+  const scale = 8;
+  return 1 / (1 + Math.exp(-scale * (theta - itemDifficulty)));
+};
+
+const updateThetaElo = (theta: number, itemDifficulty: number, isCorrect: boolean) => {
+  const expected = expectedProbability(theta, itemDifficulty);
+  const k = 0.12;
+  return clamp(theta + k * ((isCorrect ? 1 : 0) - expected));
+};
+
+const parseCandidateSkills = (skillsValue: any) => {
+  if (Array.isArray(skillsValue)) {
+    return skillsValue.map((skill) => String(skill).trim()).filter(Boolean);
+  }
+
+  return String(skillsValue || '')
+    .replace(/[{}"]/g, '')
+    .split(/[,;|]/)
+    .map((skill) => skill.trim())
+    .filter(Boolean);
+};
+
+const getCandidateSkillFocus = async (email: string, sessionId: number, aiQuestionCount: number, role: string) => {
+  const result = await pool.query(
+    `
+    SELECT skills, current_designation, total_experience
+    FROM candidates
+    WHERE email ILIKE $1
+    LIMIT 1
+    `,
+    [email]
+  );
+
+  const row = result.rows[0] || {};
+  const skills = Array.from(new Set(parseCandidateSkills(row.skills)));
+
+  if (skills.length > 0) {
+    const startOffset = sessionId % skills.length;
+    return skills[(startOffset + aiQuestionCount) % skills.length];
+  }
+
+  return row.current_designation || role || 'General';
+};
+
+const sendCompletionReport = async (sessionId: number) => {
+  try {
+    const sessionResult = await pool.query(
+      `SELECT s.*, t.candidate_name, t.job_role, t.duration_mins, t.candidate_email
+       FROM interview_sessions s
+       JOIN interview_tokens t ON s.token = t.token
+       WHERE s.id = $1`,
+      [sessionId]
+    );
+
+    if (!sessionResult.rows.length) return;
+    const sess = sessionResult.rows[0];
+
+    const breakdownResult = await pool.query(
+      `SELECT q.difficulty,
+              COUNT(*) as total,
+              SUM(CASE WHEN r.is_correct THEN 1 ELSE 0 END) as correct
+       FROM interview_questions q
+       JOIN interview_responses r ON q.id = r.question_id
+       WHERE q.session_id = $1
+       GROUP BY q.difficulty`,
+      [sessionId]
+    );
+
+    const breakdownMap: Record<string, { total: number, correct: number }> = {
+      foundation: { total: 0, correct: 0 },
+      basic: { total: 0, correct: 0 },
+      developing: { total: 0, correct: 0 },
+      medium: { total: 0, correct: 0 },
+      advanced: { total: 0, correct: 0 },
+      expert: { total: 0, correct: 0 },
+    };
+
+    breakdownResult.rows.forEach((row: any) => {
+      const key = String(row.difficulty || 'medium').toLowerCase();
+      breakdownMap[key] = {
+        total: parseInt(row.total, 10) || 0,
+        correct: parseInt(row.correct, 10) || 0,
+      };
+    });
+
+    const startedAt = sess.started_at ? new Date(sess.started_at) : null;
+    const completedAt = sess.completed_at ? new Date(sess.completed_at) : new Date();
+    const timeTakenMins = startedAt ? Math.round((completedAt.getTime() - startedAt.getTime()) / 60000) : null;
+
+    await sendInterviewResults(
+      sess.candidate_email,
+      sess.candidate_name,
+      Number(sess.score) || 0,
+      Number(sess.total_questions) || 0,
+      sess.role || sess.job_role,
+      timeTakenMins,
+      breakdownMap
+    );
+  } catch (emailErr) {
+    console.error('Failed to send completion report email:', emailErr);
+  }
+};
+
+const formatQuestionForClient = (row: any) => ({
+  id: Number(row.id),
+  question: String(row.question || ''),
+  options: Array.isArray(row.options) ? row.options : Object.values(row.options || {}),
+  difficulty: row.difficulty || 'medium',
+  theta: row.theta !== undefined ? Number(row.theta) : undefined,
+});
+
+const createNextAdaptiveQuestion = async (
+  client: any,
+  sessionId: number,
+  tokenData: any,
+  role: string,
+  experience: number,
+  theta: number
+) => {
+  const targetDifficulty = difficultyForTheta(theta);
+  const generatedCountResult = await client.query(
+    `SELECT COUNT(*)::int AS count FROM interview_questions WHERE session_id = $1`,
+    [sessionId]
+  );
+  const generatedCount = Number(generatedCountResult.rows[0]?.count) || 0;
+  const aiCountResult = await client.query(
+    `SELECT COUNT(*)::int AS count FROM interview_questions WHERE session_id = $1 AND source_question_id IS NULL`,
+    [sessionId]
+  );
+  const aiQuestionCount = Number(aiCountResult.rows[0]?.count) || 0;
+  const skillFocus = await getCandidateSkillFocus(tokenData.candidate_email, sessionId, aiQuestionCount, role);
+  const shouldUseSkillAi = tokenData.question_source === 'hybrid' && generatedCount % 2 === 1;
+
+  if (!shouldUseSkillAi && (tokenData.question_source === 'bank' || tokenData.question_source === 'hybrid') && tokenData.assessment_id) {
+    const candidates = await client.query(
+      `
+      SELECT
+        q.question_id,
+        q.question_text,
+        q.correct_option,
+        q.difficulty,
+        q.difficulty_score,
+        jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
+      FROM question_sets qs
+      JOIN questions q ON q.question_set_id = qs.question_set_id
+      JOIN question_options o ON o.question_id = q.question_id
+      WHERE qs.assessment_id = $1
+        AND q.question_id NOT IN (
+          SELECT COALESCE(source_question_id, -1)
+          FROM interview_questions
+          WHERE session_id = $2
+        )
+      GROUP BY q.question_id
+      ORDER BY ABS(COALESCE(q.difficulty_score::float8, $3) - $3), RANDOM()
+      LIMIT 25
+      `,
+      [Number(tokenData.assessment_id), sessionId, theta]
+    );
+
+    const selected = (shuffleRows(candidates.rows) as any[]).sort((a: any, b: any) => {
+      const da = Math.abs((Number(a.difficulty_score) || difficultyScore(a.difficulty)) - theta);
+      const db = Math.abs((Number(b.difficulty_score) || difficultyScore(b.difficulty)) - theta);
+      return da - db;
+    })[0] as any;
+
+    if (!selected && tokenData.question_source === 'bank') return null;
+    if (!selected) {
+      // Hybrid assessments can continue with role + focused-skill AI if the chosen bank is exhausted.
+    } else {
+      const optionsObject = selected.options || {};
+      const optionList = ['A', 'B', 'C', 'D'].map((key) => optionsObject[key]).filter(Boolean);
+      const correctAnswer = optionsObject[selected.correct_option] || selected.correct_option;
+      const itemDifficulty = Number(selected.difficulty_score) || difficultyScore(selected.difficulty);
+
+      const inserted = await client.query(
+        `
+        INSERT INTO interview_questions (session_id, question, options, correct_answer, difficulty, source_question_id, difficulty_score)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, question, options, difficulty, difficulty_score
+        `,
+        [sessionId, selected.question_text, JSON.stringify(optionList), correctAnswer, selected.difficulty || targetDifficulty, selected.question_id, itemDifficulty]
+      );
+
+      return { ...inserted.rows[0], theta };
+    }
+  }
+
+  const aiQuestion = await generateAdaptiveQuestionAtDifficulty(role, experience || 0, skillFocus, targetDifficulty);
+  const inserted = await client.query(
+    `
+    INSERT INTO interview_questions (session_id, question, options, correct_answer, difficulty, difficulty_score)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    RETURNING id, question, options, difficulty, difficulty_score
+    `,
+    [sessionId, aiQuestion.question, JSON.stringify(aiQuestion.options), aiQuestion.correct_answer, targetDifficulty, difficultyScore(targetDifficulty)]
+  );
+
+  return { ...inserted.rows[0], theta };
 };
 
 /**
@@ -182,10 +428,10 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     
     // Link expiration should probably also be configurable, but for now let's use duration_mins for the test.
 
-    const source = questionSource === 'bank' ? 'bank' : 'ai';
-    const selectedAssessmentId = source === 'bank' ? Number(assessmentId) : null;
+    const source = questionSource === 'bank' || questionSource === 'hybrid' ? questionSource : 'ai';
+    const selectedAssessmentId = source === 'bank' || source === 'hybrid' ? Number(assessmentId) : null;
 
-    if (source === 'bank') {
+    if (source === 'bank' || source === 'hybrid') {
       await validateSelectedAssessment(req, selectedAssessmentId);
     }
 
@@ -248,10 +494,10 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     const hashedPassword = await bcrypt.hash(plainPassword, 10);
     const duration = Number(validityMins) || 15;
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
-    const source = questionSource === 'bank' ? 'bank' : 'ai';
-    const selectedAssessmentId = source === 'bank' ? Number(assessmentId) : null;
+    const source = questionSource === 'bank' || questionSource === 'hybrid' ? questionSource : 'ai';
+    const selectedAssessmentId = source === 'bank' || source === 'hybrid' ? Number(assessmentId) : null;
 
-    if (source === 'bank') {
+    if (source === 'bank' || source === 'hybrid') {
       await validateSelectedAssessment(req, selectedAssessmentId);
     }
 
@@ -274,7 +520,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     );
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-    await sendInterviewLink(candidate.email, name || candidate.full_name, `${frontendUrl}/interview-login`, plainPassword);
+    await sendInterviewLink(candidate.email, name || candidate.full_name, `${frontendUrl}/interview`, plainPassword);
 
     return res.json({ success: true, message: 'Temporary interview credentials sent successfully' });
   } catch (error: any) {
@@ -461,6 +707,7 @@ export const validateLink = async (req: Request, res: Response) => {
  * Generate Questions for Interview (Adaptive Sequence Engine)
  */
 export const generateQuestions = async (req: Request, res: Response) => {
+  const client = await pool.connect();
   try {
     const { token, experience, role } = req.body;
 
@@ -469,7 +716,7 @@ export const generateQuestions = async (req: Request, res: Response) => {
     }
 
     // 1. Fetch token data for question count and question source
-    const tokenResult = await pool.query(
+    const tokenResult = await client.query(
       'SELECT total_questions, candidate_email, question_source, assessment_id FROM interview_tokens WHERE token = $1',
       [token]
     );
@@ -480,7 +727,7 @@ export const generateQuestions = async (req: Request, res: Response) => {
     const totalQCount = tokenData.total_questions || 10;
 
     // 2. Check if session already exists
-    const sessionCheck = await pool.query(
+    const sessionCheck = await client.query(
       'SELECT id FROM interview_sessions WHERE token = $1',
       [token]
     );
@@ -488,84 +735,165 @@ export const generateQuestions = async (req: Request, res: Response) => {
     let sessionId;
     if (sessionCheck.rows.length > 0) {
       sessionId = sessionCheck.rows[0].id;
-      const questionsCheck = await pool.query('SELECT id FROM interview_questions WHERE session_id = $1', [sessionId]);
+      const questionsCheck = await client.query('SELECT id, question, options, difficulty, difficulty_score FROM interview_questions WHERE session_id = $1 ORDER BY id ASC LIMIT 1', [sessionId]);
       if (questionsCheck.rows.length > 0) {
-        return res.json({ success: true, session_id: sessionId });
+        return res.json({
+          success: true,
+          session_id: sessionId,
+          question: formatQuestionForClient(questionsCheck.rows[0]),
+        });
       }
     } else {
+      const initialTheta = initialThetaFromExperience(experience);
       // Create new session
-      const result = await pool.query(
-        `INSERT INTO interview_sessions (token, candidate_email, role, experience_years) 
-         VALUES ($1, $2, $3, $4) RETURNING id`,
-        [token, tokenData.candidate_email, role, experience || 0]
+      const result = await client.query(
+        `INSERT INTO interview_sessions (token, candidate_email, role, experience_years, current_theta, target_questions, total_questions) 
+         VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id`,
+        [token, tokenData.candidate_email, role, experience || 0, initialTheta, totalQCount]
       );
       sessionId = result.rows[0].id;
-      await pool.query('UPDATE interview_tokens SET is_used = true WHERE token = $1', [token]);
+      await client.query('UPDATE interview_tokens SET is_used = true WHERE token = $1', [token]);
     }
 
-    if (tokenData.question_source === 'bank' && tokenData.assessment_id) {
-      const bankQuestions = await pool.query(
-        `
-        SELECT
-          q.question_id,
-          q.question_text,
-          q.correct_option,
-          q.difficulty,
-          jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
-        FROM question_sets qs
-        JOIN questions q ON q.question_set_id = qs.question_set_id
-        JOIN question_options o ON o.question_id = q.question_id
-        WHERE qs.assessment_id = $1
-        GROUP BY q.question_id
-        ORDER BY q.question_id
-        `,
-        [Number(tokenData.assessment_id)]
-      );
+    const session = await client.query('SELECT current_theta FROM interview_sessions WHERE id = $1', [sessionId]);
+    const theta = Number(session.rows[0]?.current_theta) || initialThetaFromExperience(experience);
+    const firstQuestion = await createNextAdaptiveQuestion(client, sessionId, tokenData, role, Number(experience) || 0, theta);
 
-      if (!bankQuestions.rows.length) {
-        return res.status(500).json({ success: false, error: 'Selected question bank has no usable questions' });
-      }
-
-      const selectedBankQuestions = pickBalancedByDifficulty(bankQuestions.rows, totalQCount);
-
-      for (const q of selectedBankQuestions) {
-        const optionsObject = q.options || {};
-        const optionList = ['A', 'B', 'C', 'D'].map((key) => optionsObject[key]).filter(Boolean);
-        const correctAnswer = optionsObject[q.correct_option] || q.correct_option;
-
-        await pool.query(
-          `INSERT INTO interview_questions (session_id, question, options, correct_answer, difficulty) 
-           VALUES ($1, $2, $3, $4, $5)`,
-          [sessionId, q.question_text, JSON.stringify(optionList), correctAnswer, q.difficulty || 'medium']
-        );
-      }
-
-      await pool.query('UPDATE interview_sessions SET total_questions = $1 WHERE id = $2', [selectedBankQuestions.length, sessionId]);
-      return res.json({ success: true, session_id: sessionId });
+    if (!firstQuestion) {
+      return res.status(500).json({ success: false, error: 'No matching questions found for this adaptive level' });
     }
 
-    // 3. Generate Sequence via Engine
-    const sequenceData = await generateAdaptiveSequence(role, experience || 0, "General", totalQCount);
-
-    if (!sequenceData || !sequenceData.questions || sequenceData.questions.length === 0) {
-      return res.status(500).json({ success: false, error: 'AI failed to generate questions' });
-    }
-
-    // 4. Save entire sequence to DB
-    for (const q of sequenceData.questions) {
-      await pool.query(
-        `INSERT INTO interview_questions (session_id, question, options, correct_answer, difficulty) 
-         VALUES ($1, $2, $3, $4, $5)`,
-        [sessionId, q.question, JSON.stringify(q.options), q.correct_answer, q.difficulty || 'medium']
-      );
-    }
-
-    await pool.query('UPDATE interview_sessions SET total_questions = $1 WHERE id = $2', [sequenceData.questions.length, sessionId]);
-
-    res.json({ success: true, session_id: sessionId });
+    res.json({
+      success: true,
+      session_id: sessionId,
+      question: formatQuestionForClient(firstQuestion),
+      theta,
+      target_questions: totalQCount,
+    });
   } catch (error) {
     console.error('Generate sequence error:', error);
     res.status(500).json({ success: false, error: 'AI sequence generation failed' });
+  } finally {
+    client.release();
+  }
+};
+
+export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
+  const client = await pool.connect();
+  try {
+    const { session_id, question_id, selected_answer } = req.body;
+    if (!session_id || !question_id || !selected_answer) {
+      return res.status(400).json({ success: false, error: 'session_id, question_id and selected_answer are required' });
+    }
+
+    await client.query('BEGIN');
+
+    const sessionResult = await client.query(
+      `
+      SELECT s.*, t.total_questions, t.question_source, t.assessment_id
+      FROM interview_sessions s
+      JOIN interview_tokens t ON t.token = s.token
+      WHERE s.id = $1
+      FOR UPDATE
+      `,
+      [Number(session_id)]
+    );
+
+    if (!sessionResult.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+
+    const session = sessionResult.rows[0];
+    const questionResult = await client.query(
+      `SELECT id, correct_answer, difficulty_score FROM interview_questions WHERE id = $1 AND session_id = $2`,
+      [Number(question_id), Number(session_id)]
+    );
+
+    if (!questionResult.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Question not found' });
+    }
+
+    const question = questionResult.rows[0];
+    const thetaBefore = Number(session.current_theta) || 0.5;
+    const itemDifficulty = Number(question.difficulty_score) || 0.5;
+    const isCorrect = String(question.correct_answer) === String(selected_answer);
+    const thetaAfter = updateThetaElo(thetaBefore, itemDifficulty, isCorrect);
+
+    const existingResponse = await client.query(
+      `SELECT id FROM interview_responses WHERE session_id = $1 AND question_id = $2 LIMIT 1`,
+      [Number(session_id), Number(question_id)]
+    );
+
+    if (!existingResponse.rows.length) {
+      await client.query(
+        `
+        INSERT INTO interview_responses (session_id, question_id, selected_answer, is_correct, theta_before, theta_after)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        `,
+        [Number(session_id), Number(question_id), selected_answer, isCorrect, thetaBefore, thetaAfter]
+      );
+    }
+
+    const answeredCountResult = await client.query(
+      `SELECT COUNT(*)::int AS count, SUM(CASE WHEN is_correct THEN 1 ELSE 0 END)::int AS score FROM interview_responses WHERE session_id = $1`,
+      [Number(session_id)]
+    );
+    const answeredCount = Number(answeredCountResult.rows[0]?.count) || 0;
+    const score = Number(answeredCountResult.rows[0]?.score) || 0;
+    const targetCount = Number(session.total_questions || session.target_questions) || 10;
+
+    await client.query(
+      `UPDATE interview_sessions SET current_theta = $1, score = $2 WHERE id = $3`,
+      [thetaAfter, score, Number(session_id)]
+    );
+
+    if (answeredCount >= targetCount) {
+      await client.query(
+        `UPDATE interview_sessions SET is_submitted = true, completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
+        [answeredCount, score, Number(session_id)]
+      );
+      await client.query('COMMIT');
+      void sendCompletionReport(Number(session_id));
+      return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: answeredCount });
+    }
+
+    const nextQuestion = await createNextAdaptiveQuestion(
+      client,
+      Number(session_id),
+      session,
+      session.role || 'General',
+      Number(session.experience_years) || 0,
+      selectionThetaAfterAnswer(thetaAfter, itemDifficulty, isCorrect)
+    );
+
+    if (!nextQuestion) {
+      await client.query(
+        `UPDATE interview_sessions SET is_submitted = true, completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
+        [answeredCount, score, Number(session_id)]
+      );
+      await client.query('COMMIT');
+      void sendCompletionReport(Number(session_id));
+      return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: answeredCount });
+    }
+
+    await client.query('COMMIT');
+    return res.json({
+      success: true,
+      isFinished: false,
+      isCorrect,
+      theta: thetaAfter,
+      answered: answeredCount,
+      total: targetCount,
+      question: formatQuestionForClient(nextQuestion),
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Adaptive answer error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to process adaptive answer' });
+  } finally {
+    client.release();
   }
 };
 
@@ -605,7 +933,6 @@ export const submitAnswers = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Invalid submission format' });
     }
 
-    let score = 0;
     for (const ans of answers) {
       const qResult = await client.query(
         'SELECT correct_answer FROM interview_questions WHERE id = $1',
@@ -613,20 +940,32 @@ export const submitAnswers = async (req: Request, res: Response) => {
       );
 
       const isCorrect = qResult.rows[0]?.correct_answer === ans.selected_answer;
-      if (isCorrect) score++;
-
-      await client.query(
-        `INSERT INTO interview_responses (session_id, question_id, selected_answer, is_correct) 
-         VALUES ($1, $2, $3, $4)`,
-        [session_id, ans.question_id, ans.selected_answer, isCorrect]
+      const exists = await client.query(
+        `SELECT id FROM interview_responses WHERE session_id = $1 AND question_id = $2 LIMIT 1`,
+        [session_id, ans.question_id]
       );
+
+      if (!exists.rows.length) {
+        await client.query(
+          `INSERT INTO interview_responses (session_id, question_id, selected_answer, is_correct) 
+           VALUES ($1, $2, $3, $4)`,
+          [session_id, ans.question_id, ans.selected_answer, isCorrect]
+        );
+      }
     }
+
+    const scoreResult = await client.query(
+      `SELECT COUNT(*)::int AS total, SUM(CASE WHEN is_correct THEN 1 ELSE 0 END)::int AS score FROM interview_responses WHERE session_id = $1`,
+      [session_id]
+    );
+    const score = Number(scoreResult.rows[0]?.score) || 0;
+    const totalAnswered = Number(scoreResult.rows[0]?.total) || answers.length;
 
     await client.query(
       `UPDATE interview_sessions 
-       SET is_submitted = true, score = $1, completed_at = CURRENT_TIMESTAMP 
-       WHERE id = $2`,
-      [score, session_id]
+       SET is_submitted = true, score = $1, total_questions = $2, completed_at = CURRENT_TIMESTAMP 
+       WHERE id = $3`,
+      [score, totalAnswered, session_id]
     );
 
     await client.query('COMMIT');
@@ -782,6 +1121,67 @@ export const getInterviewReport = async (req: Request, res: Response) => {
       completed_at: r.completed_at ? new Date(r.completed_at).toISOString() : null,
       decision: r.decision || 'pending',
     }));
+
+    const sessionIds = data.map((row: any) => Number(row.session_id)).filter(Boolean);
+    if (sessionIds.length) {
+      const detailResult = await pool.query(
+        `
+        WITH response_rows AS (
+          SELECT
+            r.session_id,
+            r.question_id,
+            r.selected_answer,
+            r.is_correct,
+            r.theta_before,
+            r.theta_after,
+            r.created_at,
+            q.question,
+            q.options,
+            q.correct_answer,
+            q.difficulty,
+            q.difficulty_score,
+            s.started_at,
+            LAG(r.created_at) OVER (PARTITION BY r.session_id ORDER BY r.created_at) AS prev_answered_at
+          FROM interview_responses r
+          JOIN interview_questions q ON q.id = r.question_id
+          JOIN interview_sessions s ON s.id = r.session_id
+          WHERE r.session_id = ANY($1::int[])
+        )
+        SELECT
+          *,
+          GREATEST(
+            0,
+            EXTRACT(EPOCH FROM (created_at - COALESCE(prev_answered_at, started_at)))
+          )::int AS time_spent_seconds
+        FROM response_rows
+        ORDER BY session_id, created_at ASC
+        `,
+        [sessionIds]
+      );
+
+      const bySession = new Map<number, any[]>();
+      detailResult.rows.forEach((row: any) => {
+        const sid = Number(row.session_id);
+        if (!bySession.has(sid)) bySession.set(sid, []);
+        bySession.get(sid)!.push({
+          question_id: row.question_id,
+          question: row.question,
+          options: row.options,
+          selected_answer: row.selected_answer,
+          correct_answer: row.correct_answer,
+          is_correct: Boolean(row.is_correct),
+          difficulty: row.difficulty,
+          difficulty_score: Number(row.difficulty_score) || 0,
+          theta_before: row.theta_before != null ? Number(row.theta_before) : null,
+          theta_after: row.theta_after != null ? Number(row.theta_after) : null,
+          time_spent_seconds: Number(row.time_spent_seconds) || 0,
+        });
+      });
+
+      data.forEach((row: any) => {
+        row.details = bySession.get(Number(row.session_id)) || [];
+      });
+    }
 
     res.json({ success: true, data });
   } catch (error) {

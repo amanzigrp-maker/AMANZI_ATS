@@ -47,6 +47,7 @@ const Reports: React.FC = () => {
 
   const [interviewReportLoading, setInterviewReportLoading] = useState(true);
   const [interviewReport, setInterviewReport] = useState<any[]>([]);
+  const [expandedInterviewId, setExpandedInterviewId] = useState<number | null>(null);
 
   const [activeReportTab, setActiveReportTab] = useState<'uploads' | 'activity' | 'interviews'>('uploads');
 
@@ -604,7 +605,7 @@ const Reports: React.FC = () => {
                 variant="outline"
                 size="sm"
                 className="gap-1 text-xs h-9 border-gray-200"
-                onClick={activeReportTab === 'uploads' ? handleResumeExport : handleStatusExport}
+                onClick={activeReportTab === 'uploads' ? handleResumeExport : activeReportTab === 'activity' ? handleStatusExport : undefined}
               >
                 Export CSV
               </Button>
@@ -657,7 +658,7 @@ const Reports: React.FC = () => {
                   </div>
                 )}
               </div>
-            ) : (
+            ) : activeReportTab === 'activity' ? (
               <div className="space-y-4">
                 {statusUpdatesLoading && (
                   <p className="text-sm text-gray-400 py-8 text-center">Loading activity data...</p>
@@ -706,7 +707,7 @@ const Reports: React.FC = () => {
                   </div>
                 )}
               </div>
-            )}
+            ) : null}
 
             {activeReportTab === 'interviews' && (
               <div className="space-y-4">
@@ -736,97 +737,134 @@ const Reports: React.FC = () => {
                           const perfColor = pct >= 80 ? '#10B981' : pct >= 60 ? '#3B82F6' : pct >= 40 ? '#F59E0B' : '#EF4444';
                           const perfLabel = pct >= 80 ? 'Excellent' : pct >= 60 ? 'Good' : pct >= 40 ? 'Average' : 'Poor';
                           return (
-                            <tr key={`interview-${r.session_id}-${idx}`} className="hover:bg-muted/20 transition-colors">
-                              <td className="px-4 py-3">
-                                <div className="text-foreground font-semibold">{r.candidate_name || '-'}</div>
-                                <div className="text-[10px] text-muted-foreground font-mono">{r.candidate_email}</div>
-                              </td>
-                              <td className="px-4 py-3 text-muted-foreground text-xs">{r.job_role || '-'}</td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <Trophy className="w-3.5 h-3.5" style={{ color: perfColor }} />
-                                  <span className="font-bold text-foreground tabular-nums">{r.score}/{r.total_questions}</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
-                                    <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: perfColor }} />
-                                  </div>
-                                  <span className="text-xs font-bold tabular-nums" style={{ color: perfColor }}>{pct}%</span>
-                                </div>
-                                <div className="text-[10px] mt-0.5" style={{ color: perfColor }}>{perfLabel}</div>
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center gap-1.5 text-muted-foreground">
-                                  <Clock className="w-3.5 h-3.5" />
-                                  <span className="text-xs tabular-nums">{r.time_taken_mins != null ? `${r.time_taken_mins} min` : '-'}</span>
-                                </div>
-                              </td>
-                              <td className="px-4 py-3 text-muted-foreground tabular-nums text-xs">
-                                {r.completed_at ? dayjs(r.completed_at).format('DD MMM, HH:mm') : '-'}
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center justify-center gap-1">
+                            <React.Fragment key={`interview-${r.session_id}-${idx}`}>
+                              <tr className="hover:bg-muted/20 transition-colors">
+                                <td className="px-4 py-3">
+                                  <div className="text-foreground font-semibold">{r.candidate_name || '-'}</div>
+                                  <div className="text-[10px] text-muted-foreground font-mono">{r.candidate_email}</div>
+                                </td>
+                                <td className="px-4 py-3 text-muted-foreground text-xs">{r.job_role || '-'}</td>
+                                <td className="px-4 py-3">
                                   <button
-                                    onClick={async () => {
-                                      const newDecision = r.decision === 'selected' ? 'pending' : 'selected';
-                                      try {
-                                        await authenticatedFetch('/api/interview/decision', {
-                                          method: 'POST',
-                                          headers: { 'Content-Type': 'application/json' },
-                                          body: JSON.stringify({ session_id: r.session_id, decision: newDecision }),
-                                        });
-                                        setInterviewReport(prev => prev.map(item =>
-                                          item.session_id === r.session_id ? { ...item, decision: newDecision } : item
-                                        ));
-                                      } catch (e) { console.error(e); }
-                                    }}
-                                    className={cn(
-                                      'p-1.5 rounded-lg border transition-all duration-200',
-                                      r.decision === 'selected'
-                                        ? 'bg-emerald-50 border-emerald-300 text-emerald-600 shadow-sm shadow-emerald-100'
-                                        : 'bg-white border-gray-200 text-gray-400 hover:border-emerald-300 hover:text-emerald-500'
-                                    )}
-                                    title="Select"
+                                    type="button"
+                                    onClick={() => setExpandedInterviewId(expandedInterviewId === r.session_id ? null : r.session_id)}
+                                    className="flex items-center gap-2 rounded-lg border border-transparent px-2 py-1 hover:border-blue-200 hover:bg-blue-50"
                                   >
-                                    <CheckCircle2 className="w-4 h-4" />
+                                    <Trophy className="w-3.5 h-3.5" style={{ color: perfColor }} />
+                                    <span className="font-bold text-foreground tabular-nums">{r.score}/{r.total_questions}</span>
+                                    <ChevronDown className={cn("h-3.5 w-3.5 text-slate-400 transition-transform", expandedInterviewId === r.session_id && "rotate-180")} />
                                   </button>
-                                  <button
-                                    onClick={async () => {
-                                      const newDecision = r.decision === 'rejected' ? 'pending' : 'rejected';
-                                      try {
-                                        await authenticatedFetch('/api/interview/decision', {
-                                          method: 'POST',
-                                          headers: { 'Content-Type': 'application/json' },
-                                          body: JSON.stringify({ session_id: r.session_id, decision: newDecision }),
-                                        });
-                                        setInterviewReport(prev => prev.map(item =>
-                                          item.session_id === r.session_id ? { ...item, decision: newDecision } : item
-                                        ));
-                                      } catch (e) { console.error(e); }
-                                    }}
-                                    className={cn(
-                                      'p-1.5 rounded-lg border transition-all duration-200',
-                                      r.decision === 'rejected'
-                                        ? 'bg-red-50 border-red-300 text-red-600 shadow-sm shadow-red-100'
-                                        : 'bg-white border-gray-200 text-gray-400 hover:border-red-300 hover:text-red-500'
-                                    )}
-                                    title="Reject"
-                                  >
-                                    <XCircle className="w-4 h-4" />
-                                  </button>
-                                </div>
-                                {r.decision && r.decision !== 'pending' && (
-                                  <div className={cn(
-                                    'text-center text-[10px] font-bold uppercase mt-1 tracking-wider',
-                                    r.decision === 'selected' ? 'text-emerald-600' : 'text-red-600'
-                                  )}>
-                                    {r.decision}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                                      <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: perfColor }} />
+                                    </div>
+                                    <span className="text-xs font-bold tabular-nums" style={{ color: perfColor }}>{pct}%</span>
                                   </div>
-                                )}
-                              </td>
-                            </tr>
+                                  <div className="text-[10px] mt-0.5" style={{ color: perfColor }}>{perfLabel}</div>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-1.5 text-muted-foreground">
+                                    <Clock className="w-3.5 h-3.5" />
+                                    <span className="text-xs tabular-nums">{r.time_taken_mins != null ? `${r.time_taken_mins} min` : '-'}</span>
+                                  </div>
+                                </td>
+                                <td className="px-4 py-3 text-muted-foreground tabular-nums text-xs">
+                                  {r.completed_at ? dayjs(r.completed_at).format('DD MMM, HH:mm') : '-'}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <button
+                                      onClick={async () => {
+                                        const newDecision = r.decision === 'selected' ? 'pending' : 'selected';
+                                        try {
+                                          await authenticatedFetch('/api/interview/decision', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ session_id: r.session_id, decision: newDecision }),
+                                          });
+                                          setInterviewReport(prev => prev.map(item =>
+                                            item.session_id === r.session_id ? { ...item, decision: newDecision } : item
+                                          ));
+                                        } catch (e) { console.error(e); }
+                                      }}
+                                      className={cn(
+                                        'p-1.5 rounded-lg border transition-all duration-200',
+                                        r.decision === 'selected'
+                                          ? 'bg-emerald-50 border-emerald-300 text-emerald-600 shadow-sm shadow-emerald-100'
+                                          : 'bg-white border-gray-200 text-gray-400 hover:border-emerald-300 hover:text-emerald-500'
+                                      )}
+                                      title="Select"
+                                    >
+                                      <CheckCircle2 className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={async () => {
+                                        const newDecision = r.decision === 'rejected' ? 'pending' : 'rejected';
+                                        try {
+                                          await authenticatedFetch('/api/interview/decision', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ session_id: r.session_id, decision: newDecision }),
+                                          });
+                                          setInterviewReport(prev => prev.map(item =>
+                                            item.session_id === r.session_id ? { ...item, decision: newDecision } : item
+                                          ));
+                                        } catch (e) { console.error(e); }
+                                      }}
+                                      className={cn(
+                                        'p-1.5 rounded-lg border transition-all duration-200',
+                                        r.decision === 'rejected'
+                                          ? 'bg-red-50 border-red-300 text-red-600 shadow-sm shadow-red-100'
+                                          : 'bg-white border-gray-200 text-gray-400 hover:border-red-300 hover:text-red-500'
+                                      )}
+                                      title="Reject"
+                                    >
+                                      <XCircle className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                  {r.decision && r.decision !== 'pending' && (
+                                    <div className={cn(
+                                      'text-center text-[10px] font-bold uppercase mt-1 tracking-wider',
+                                      r.decision === 'selected' ? 'text-emerald-600' : 'text-red-600'
+                                    )}>
+                                      {r.decision}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                              {expandedInterviewId === r.session_id && (
+                                <tr>
+                                  <td colSpan={7} className="bg-slate-50 px-6 py-4">
+                                    <div className="space-y-3">
+                                      {(r.details || []).map((d: any, detailIdx: number) => (
+                                        <div key={`${r.session_id}-${d.question_id}`} className="rounded-lg border border-slate-200 bg-white p-4">
+                                          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                            <div>
+                                              <div className="text-xs font-bold uppercase text-slate-400">Question {detailIdx + 1} - {d.difficulty}</div>
+                                              <div className="mt-1 font-medium text-slate-900">{d.question}</div>
+                                            </div>
+                                            <span className={cn("rounded-full px-2 py-1 text-xs font-bold", d.is_correct ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700")}>
+                                              {d.is_correct ? "Correct" : "Wrong"}
+                                            </span>
+                                          </div>
+                                          <div className="mt-3 grid gap-2 text-xs md:grid-cols-4">
+                                            <div><b>Selected:</b> {d.selected_answer || '-'}</div>
+                                            <div><b>Correct:</b> {d.correct_answer || '-'}</div>
+                                            <div><b>Time:</b> {d.time_spent_seconds || 0}s</div>
+                                            <div><b>Theta:</b> {d.theta_before?.toFixed?.(2) ?? '-'} to {d.theta_after?.toFixed?.(2) ?? '-'}</div>
+                                          </div>
+                                        </div>
+                                      ))}
+                                      {(!r.details || r.details.length === 0) && (
+                                        <p className="text-sm text-slate-500">No question-level details recorded for this session.</p>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
                           );
                         })}
                       </tbody>

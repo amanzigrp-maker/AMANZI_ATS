@@ -126,6 +126,8 @@ export const testConnection = async (): Promise<boolean> => {
     await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS end_time TIMESTAMP`);
     await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'in_progress'`);
     await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS interview_id TEXT`);
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS current_theta NUMERIC(6,4) DEFAULT 0.5`);
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS target_questions INTEGER DEFAULT 10`);
 
     // Ensure interview_questions table exists
     await pool.query(`
@@ -144,6 +146,8 @@ export const testConnection = async (): Promise<boolean> => {
     // Add difficulty column if it doesn't exist
     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'medium'`);
     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS options JSONB`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS source_question_id INTEGER`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(6,4) DEFAULT 0.5`);
 
     // Ensure interview_responses table exists
     await pool.query(`
@@ -160,6 +164,8 @@ export const testConnection = async (): Promise<boolean> => {
 
     // Add new columns to interview_responses if they don't exist
     await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS response TEXT`);
+    await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS theta_before NUMERIC(6,4)`);
+    await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS theta_after NUMERIC(6,4)`);
 
     // Ensure proctoring_logs table exists
     await pool.query(`
@@ -264,6 +270,7 @@ export const testConnection = async (): Promise<boolean> => {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_metadata_gin ON questions USING GIN (metadata)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions (topic)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_sets_assessment ON question_sets (assessment_id)`);
+    await pool.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(6,4) DEFAULT 0.5`);
 
     // --- IRT (Item Response Theory) TABLES ---
     

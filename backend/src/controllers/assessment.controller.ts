@@ -55,6 +55,15 @@ const normalizeCorrectOption = (value: unknown): "A" | "B" | "C" | "D" => {
   throw new Error("Each question needs correct_option as A, B, C, or D.");
 };
 
+const difficultyScore = (difficulty: unknown) => {
+  const raw = String(difficulty || "medium").toLowerCase();
+  if (raw.includes("foundation") || raw.includes("basic") || raw.includes("easy")) return 0.3;
+  if (raw.includes("developing") || raw.includes("medium")) return 0.5;
+  if (raw.includes("advanced")) return 0.72;
+  if (raw.includes("expert") || raw.includes("hard")) return 0.88;
+  return 0.5;
+};
+
 const validateQuestion = (question: any): NormalizedQuestion => {
   const normalized: NormalizedQuestion = {
     question_text: String(question.question_text || question.question || "").trim(),
@@ -368,9 +377,9 @@ const createAssessmentWithQuestions = async (
         `
         INSERT INTO questions (
           question_set_id, question_text, difficulty, topic, explanation,
-          correct_option, review_status, metadata
+          correct_option, review_status, metadata, difficulty_score
         )
-        VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7)
+        VALUES ($1, $2, $3, $4, $5, $6, 'approved', $7, $8)
         RETURNING question_id
         `,
         [
@@ -381,6 +390,7 @@ const createAssessmentWithQuestions = async (
           question.explanation || null,
           question.correct_option,
           JSON.stringify(question.metadata || {}),
+          difficultyScore(question.difficulty || "medium"),
         ]
       );
 
