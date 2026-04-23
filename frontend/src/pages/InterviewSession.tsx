@@ -25,8 +25,8 @@ import { toast } from "sonner";
 import Proctoring from "@/components/proctoring/Proctoring";
 
 interface Question {
-  id: number;
-  question: string;
+  question_id: number;
+  question_text: string;
   options: string[];
 }
 
@@ -52,25 +52,23 @@ export default function InterviewSession() {
     const storedToken = localStorage.getItem("interviewToken");
     const storedUser = localStorage.getItem("interviewUser");
 
-    if (!storedToken || !storedUser) {
+    if (!storedToken || !storedUser || storedUser === "undefined") {
       navigate("/interview-login");
       return;
     }
 
-    setToken(storedToken);
-    const parsedUser = JSON.parse(storedUser);
-    setUser(parsedUser);
+    try {
+      setToken(storedToken);
+      const parsedUser = JSON.parse(storedUser);
+      setUser(parsedUser);
 
-    // Calculate time left based on user.expiresAt
-    const expiry = new Date(parsedUser.expiresAt).getTime();
-    const now = new Date().getTime();
-    const remaining = Math.floor((expiry - now) / 1000);
-
-    if (remaining <= 0) {
-      setStatus("error");
-    } else {
-      setTimeLeft(remaining);
+      // Set time left and status
+      const durationSeconds = (parsedUser.duration || 60) * 60;
+      setTimeLeft(durationSeconds);
       setStatus("setup");
+    } catch (err) {
+      console.error("Local storage parse error:", err);
+      navigate("/interview-login");
     }
   }, [navigate]);
 
@@ -129,31 +127,31 @@ export default function InterviewSession() {
   const handleStartInterview = async () => {
     setStatus("loading");
     try {
-      // 1. Start Session
-      const sessionRes = await authFetch("/api/interview/session/start", {
-        method: "POST"
+      // 1. Start Adaptive IRT Session
+      const sessionRes = await authFetch("/api/interview/adaptive/start", {
+        method: "POST",
+        body: JSON.stringify({
+          email: user?.email,
+          skill: user?.role || "General",
+          experienceYears: 0 // Can be expanded to use actual user experience
+        })
       });
       const sessionData = await sessionRes.json();
 
       if (sessionData.success) {
         setSessionId(sessionData.sessionId);
         
-        // 2. Fetch Questions (Reusing existing logic or new logic)
-        // For now, let's assume we can fetch questions linked to the session
-        const qRes = await authFetch(`/api/interview/questions?session_id=${sessionData.sessionId}`);
-        const qData = await qRes.json();
-
-        if (qData.success && qData.data.length > 0) {
-          setQuestions(qData.data);
+        // 2. Adaptive engine returns the first question immediately
+        if (sessionData.question) {
+          setQuestions([sessionData.question]);
+          setCurrentQuestionIndex(0);
           setStatus("interviewing");
         } else {
-          // If no questions exist, we might need to generate them
-          // Here we'll just show an error or use a placeholder
-          toast.error("No questions assigned to this interview yet.");
+          toast.error("Low question bank: No matching questions found for your level.");
           setStatus("setup");
         }
       } else {
-        toast.error(sessionData.error || "Failed to start session");
+        toast.error(sessionData.error || "Failed to start adaptive session");
         setStatus("setup");
       }
     } catch (err) {
@@ -166,9 +164,9 @@ export default function InterviewSession() {
   const handleAnswerChange = async (questionId: number, answer: string) => {
     setAnswers({ ...answers, [questionId]: answer });
     
-    // Save response immediately to backend as per requirements
+    // Save response and get next adaptive question
     try {
-      await authFetch("/api/interview/session/response", {
+      const res = await authFetch("/api/interview/adaptive/submit", {
         method: "POST",
         body: JSON.stringify({
           sessionId,
@@ -176,8 +174,23 @@ export default function InterviewSession() {
           selectedAnswer: answer
         })
       });
+      
+      const data = await res.json();
+      
+      if (data.success) {
+        if (data.isFinished) {
+          setStatus("completed");
+          localStorage.removeItem("interviewToken");
+          localStorage.removeItem("interviewUser");
+        } else if (data.question) {
+          // Add the next question to our list and move to it
+          setQuestions(prev => [...prev, data.question]);
+          setCurrentQuestionIndex(prev => prev + 1);
+        }
+      }
     } catch (err) {
-      console.error("Save response error:", err);
+      console.error("Adaptive submit error:", err);
+      toast.error("Failed to save response");
     }
   };
 
@@ -327,16 +340,16 @@ export default function InterviewSession() {
                     Question {currentQuestionIndex + 1} of {questions.length}
                   </span>
                   <h3 className="text-2xl md:text-3xl font-bold text-white mb-10 leading-snug relative z-10">
-                    {currentQ.question}
+                    {currentQ.question_text}
                   </h3>
 
                   <div className="grid grid-cols-1 gap-4 relative z-10">
-                    {currentQ.options.map((option, idx) => {
-                      const isSelected = answers[currentQ.id] === option;
+                    {Object.entries(currentQ.options || {}).map(([key, value], idx) => {
+                      const isSelected = answers[currentQ.question_id] === key;
                       return (
                         <button
                           key={idx}
-                          onClick={() => handleAnswerChange(currentQ.id, option)}
+                          onClick={() => handleAnswerChange(currentQ.question_id, key)}
                           className={`group relative text-left p-6 rounded-2xl border transition-all duration-300 ${
                             isSelected 
                             ? 'bg-blue-600/10 border-blue-500/50 text-white' 
@@ -344,7 +357,7 @@ export default function InterviewSession() {
                           }`}
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-lg font-medium">{option}</span>
+                            <span className="text-lg font-medium">{key}: {value as string}</span>
                             <div className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
                               isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-700'
                             }`}>

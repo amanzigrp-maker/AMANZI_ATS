@@ -265,6 +265,57 @@ export const testConnection = async (): Promise<boolean> => {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions (topic)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_sets_assessment ON question_sets (assessment_id)`);
 
+    // --- IRT (Item Response Theory) TABLES ---
+    
+    // 1. Update questions table with IRT parameters
+    await pool.query(`
+      ALTER TABLE questions 
+      ADD COLUMN IF NOT EXISTS skill_tag TEXT,
+      ADD COLUMN IF NOT EXISTS difficulty_b FLOAT DEFAULT 0,
+      ADD COLUMN IF NOT EXISTS discrimination_a FLOAT DEFAULT 1,
+      ADD COLUMN IF NOT EXISTS guessing_c FLOAT DEFAULT 0.25,
+      ADD COLUMN IF NOT EXISTS source TEXT DEFAULT 'MANUAL'
+    `);
+
+    // 2. Candidate Ability Tracking (Theta)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS candidate_skill_theta (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER,
+        candidate_email TEXT,
+        skill TEXT NOT NULL,
+        theta FLOAT DEFAULT 0,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(candidate_email, skill)
+      )
+    `);
+
+    // Ensure candidate_email column exists for older table versions
+    await pool.query(`
+      ALTER TABLE candidate_skill_theta ADD COLUMN IF NOT EXISTS candidate_email TEXT;
+      ALTER TABLE candidate_skill_theta ALTER COLUMN candidate_id DROP NOT NULL;
+    `).catch(() => {});
+
+    // 3. Normalized IRT Responses for Calibration
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS irt_responses (
+        id SERIAL PRIMARY KEY,
+        candidate_id INTEGER,
+        candidate_email TEXT,
+        question_id INTEGER REFERENCES questions(question_id),
+        is_correct BOOLEAN NOT NULL,
+        response_time_ms INTEGER,
+        theta_before FLOAT,
+        theta_after FLOAT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      ALTER TABLE irt_responses ADD COLUMN IF NOT EXISTS candidate_email TEXT;
+      ALTER TABLE irt_responses ALTER COLUMN candidate_id DROP NOT NULL;
+    `).catch(() => {});
+
     return true;
   } catch (error: any) {
     console.error('❌ Database connection failed');

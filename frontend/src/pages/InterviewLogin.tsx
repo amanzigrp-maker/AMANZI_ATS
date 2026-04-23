@@ -43,9 +43,9 @@ export default function InterviewLogin() {
       const data = await res.json();
 
       if (data.success) {
-        // Store JWT in local storage for session handling
-        localStorage.setItem("interviewToken", data.token);
-        localStorage.setItem("interviewUser", JSON.stringify(data.user));
+        // Store JWT and User info from the nested 'data' property
+        localStorage.setItem("interviewToken", data.data.jwt);
+        localStorage.setItem("interviewUser", JSON.stringify(data.data));
         
         toast.success("Login successful! Welcome to your interview.");
         navigate("/interview-session");

@@ -45,6 +45,7 @@ import notificationRoutes from "./src/routes/notification.routes";
 import searchRoutes from "./src/routes/search.routes";
 import recommendationRoutes from "./src/routes/recommendation.routes";
 import interviewRoutes from "./src/routes/interview.routes";
+import adaptiveInterviewRoutes from "./src/routes/adaptiveInterview.routes";
 import assessmentRoutes from "./src/routes/assessment.routes";
 
 // -----------------------------------------------------------------------------
@@ -88,6 +89,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/recommendations", recommendationRoutes);
 app.use("/api/interview", interviewRoutes);
+app.use("/api/interview/adaptive", adaptiveInterviewRoutes);
 app.use("/api/assessments", assessmentRoutes);
 
 // Setup Socket.io Handlers
