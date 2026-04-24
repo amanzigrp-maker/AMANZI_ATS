@@ -774,6 +774,18 @@ router.delete('/clients/:id', async (req: AuthenticatedRequest, res) => {
   }
 
   try {
+    // Check if client has active jobs
+    const { rows: jobRows } = await pool.query(
+      'SELECT job_id FROM jobs WHERE client_id = $1 LIMIT 1',
+      [id]
+    );
+
+    if (jobRows.length > 0) {
+      return res.status(409).json({ 
+        message: 'Cannot delete client because it has associated jobs. Please delete or reassign the jobs first.' 
+      });
+    }
+
     const { rowCount } = await pool.query(
       'DELETE FROM clients WHERE client_id = $1',
       [id]
@@ -785,8 +797,16 @@ router.delete('/clients/:id', async (req: AuthenticatedRequest, res) => {
 
     await logAudit(loggedInUserId, req, true, 'CLIENT_DELETED');
     res.json({ message: 'Client deleted successfully' });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[ADMIN] Error deleting client:', error);
+
+    // Backup check for foreign key constraint
+    if (error.code === '23503') {
+      return res.status(409).json({ 
+        message: 'Cannot delete client: it is still referenced by other records (jobs).' 
+      });
+    }
+
     await logAudit(loggedInUserId || null, req, false, 'CLIENT_DELETE_FAILED');
     res.status(500).json({ message: 'Internal server error' });
   }

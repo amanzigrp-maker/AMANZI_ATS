@@ -181,4 +181,35 @@ const startServer = async () => {
   }
 };
 
-startServer();
+const bootstrapServer = async () => {
+  try {
+    console.log("Testing database connection...");
+
+    const connected = await testConnection();
+
+    if (!connected) {
+      console.error("Database connection failed.");
+      process.exit(1);
+    }
+
+    httpServer.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Accessible at http://<YOUR-EC2-IP>:${PORT}`);
+      console.log("ATS Monolithic Application ready with Socket.io!");
+    });
+
+    console.log("Initializing AI Worker in background...");
+    void aiWorkerService.initialize()
+      .then(() => {
+        console.log("AI Worker warmup complete");
+      })
+      .catch((err) => {
+        console.error("AI Worker failed to initialize:", err);
+      });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+};
+
+bootstrapServer();

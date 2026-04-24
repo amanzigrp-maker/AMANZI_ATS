@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { authenticatedFetch } from '@/lib/api';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -704,6 +704,8 @@ const getConsistentAvatar = (name: string, gender?: string) => {
 export default function JobDetails() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const initialTab = searchParams.get('tab') || 'applicants';
 
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
@@ -912,39 +914,10 @@ export default function JobDetails() {
               <h1 className="text-xl font-bold text-foreground">Job Details</h1>
             </div>
             <div className="flex items-center space-x-2">
-              <Button variant="outline" size="sm" onClick={() => navigate(`/admin/jobs/${job.job_id}/recommendations`)}>
-                <Users className="h-4 w-4 mr-2" />
-                Recommendations
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleShareJob}>
-                <Share2 className="h-4 w-4 mr-2" />
-                Share
-              </Button>
               <Button variant="outline" size="sm" onClick={handleEditJob}>
                 <Edit className="h-4 w-4 mr-2" />
                 Edit
               </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={handleCloseJob} disabled={job.status === 'closed'}>
-                    {job.status === 'closed' ? 'Job Closed' : 'Close Job'}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleDuplicateJob}>
-                    Duplicate Job
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="text-red-600"
-                    onClick={() => setShowDeleteConfirm(true)}
-                  >
-                    Delete Job
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
             </div>
           </div>
         </div>
@@ -992,7 +965,7 @@ export default function JobDetails() {
 
           {/* Job Details Tabs */}
           <Card>
-            <Tabs defaultValue="description" className="w-full">
+            <Tabs defaultValue={initialTab} className="w-full">
               <CardHeader>
                 <TabsList className="w-full justify-start">
                   <TabsTrigger value="description">Description</TabsTrigger>

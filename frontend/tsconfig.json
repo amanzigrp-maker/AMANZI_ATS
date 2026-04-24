@@ -4,7 +4,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "lucide-react": ["./src/lib/icons.tsx"]
     },
     "noImplicitAny": false,
     "noUnusedParameters": false,

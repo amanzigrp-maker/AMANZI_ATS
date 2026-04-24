@@ -93,7 +93,7 @@ export class AIWorkerService {
     const venvWin = path.join(rootDir, '.venv', 'Scripts', 'python.exe');
     const venvLin = path.join(rootDir, '.venv', 'bin', 'python');
     const venvLocalLin = path.join(this.pythonWorkerPath, 'venv', 'bin', 'python');
-    
+
     let pythonCmd = isWin ? 'python' : 'python3';
 
     const exists = async (p: string) => {
@@ -138,7 +138,7 @@ export class AIWorkerService {
       );
 
       this.pythonProcess.on('error', reject);
-      setTimeout(resolve, 3000);
+      setTimeout(resolve, 500);
     });
   }
 

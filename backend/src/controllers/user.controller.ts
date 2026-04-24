@@ -15,7 +15,7 @@ export const getUsers = async (req: Request, res: Response) => {
     const loggedInUserId = loggedInUser?.userid || loggedInUser?.id;
     const loggedInUserRole = loggedInUser?.role?.toLowerCase();
 
-    let query = 'SELECT userid, name, email, role, status, created_at FROM users WHERE 1=1';
+    let query = 'SELECT userid, name, email, role, status, createdat FROM users WHERE 1=1';
     const params: any[] = [];
     let paramCount = 0;
 
@@ -120,7 +120,7 @@ export const getUserById = async (req: Request, res: Response) => {
     const loggedInUserId = loggedInUser?.userid || loggedInUser?.id;
     const loggedInUserRole = loggedInUser?.role?.toLowerCase();
 
-    let query = 'SELECT userid, name, email, role, status, created_at FROM users WHERE userid = $1';
+    let query = 'SELECT userid, name, email, role, status, createdat FROM users WHERE userid = $1';
     const params = [parseInt(id)];
 
     if (loggedInUserRole === 'lead') {

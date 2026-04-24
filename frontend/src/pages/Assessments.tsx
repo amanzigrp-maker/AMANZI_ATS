@@ -276,17 +276,6 @@ export default function Assessments() {
                           }
                         }}
                       />
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-                        PDF format should use numbered questions with A/B/C/D options and an answer line, for example:
-                        <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-slate-700">
-{`1. Which hook memoizes an expensive value?
-A) useMemo
-B) useEffect
-C) useRef
-D) useReducer
-Answer: A`}
-                        </pre>
-                      </div>
                     </div>
                     <Button type="submit" disabled={saving} className="w-full">
                       {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}

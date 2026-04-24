@@ -79,6 +79,9 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import DashboardResumeUploader from '@/components/DashboardResumeUploader';
 
+const DASHBOARD_REFRESH_INTERVAL_MS = 120_000;
+const AUTH_STATUS_REFRESH_INTERVAL_MS = 60_000;
+
 interface UserProfile {
   id: number;
   email: string;
@@ -327,7 +330,7 @@ export default function Dashboard() {
       fetchNotifications();
       fetchRecentApplications();
       fetchPipelineActivity(pipelineTimeframeRef.current);
-    }, 30000); // 30 seconds
+    }, DASHBOARD_REFRESH_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [location.pathname]);
@@ -408,7 +411,7 @@ export default function Dashboard() {
     setAuthOk(isAuthenticated());
     const id = setInterval(() => {
       setAuthOk(isAuthenticated());
-    }, 10000);
+    }, AUTH_STATUS_REFRESH_INTERVAL_MS);
     return () => clearInterval(id);
   }, []);
 

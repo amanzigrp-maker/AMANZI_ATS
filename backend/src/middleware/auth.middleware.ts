@@ -10,8 +10,9 @@ export type AuthenticatedRequest = Request & {
   };
 };
 
+
 // -----------------------------------------------------------------------------
-// INTERNAL HELPER — SAFE SECRET ACCESS
+// INTERNAL HELPER - SAFE SECRET ACCESS
 // -----------------------------------------------------------------------------
 export const getJwtSecret = (): string => {
   const secret = process.env.JWT_SECRET;
@@ -36,13 +37,11 @@ export const verifyToken = (
 ) => {
   let token: string | undefined;
 
-  // 1️⃣ Authorization header
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith("Bearer ")) {
     token = authHeader.split(" ")[1];
   }
 
-  // 2️⃣ Query param fallback (for downloads)
   if (!token && typeof req.query.token === "string") {
     token = req.query.token;
   }
@@ -69,10 +68,9 @@ export const verifyToken = (
       role: roleNorm,
     };
 
-    console.log("🟢 JWT VERIFIED →", req.user);
     next();
   } catch (err) {
-    console.error("❌ JWT verification failed:", err);
+    console.error("JWT verification failed:", err);
     return res.status(401).json({
       message: "Invalid or expired token.",
     });
@@ -125,5 +123,4 @@ export const isLead = (
   });
 };
 
-export const isLeadOrAdmin = isLead; // Alias for clarity if needed
-
+export const isLeadOrAdmin = isLead;

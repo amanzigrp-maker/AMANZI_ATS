@@ -13,6 +13,8 @@ interface AdminStats {
   activeSessions: number;
 }
 
+const ADMIN_DASHBOARD_REFRESH_INTERVAL_MS = 120_000;
+
 export default function AdminDashboard() {
   const navigate = useNavigate();
   const [stats, setStats] = useState<AdminStats | null>(null);
@@ -62,7 +64,7 @@ export default function AdminDashboard() {
     }
 
     // 🔁 Refresh every 30 seconds
-    const interval = setInterval(fetchStats, 30000);
+    const interval = setInterval(fetchStats, ADMIN_DASHBOARD_REFRESH_INTERVAL_MS);
 
     // 🧹 Clean up on component unmount
     return () => clearInterval(interval);

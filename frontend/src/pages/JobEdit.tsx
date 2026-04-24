@@ -195,8 +195,18 @@ export default function JobEdit() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!job.title || !job.company || !job.description) {
-      toast.error('Please fill in all required fields');
+    if (!job.title || !job.company || !job.description || !job.location) {
+      toast.error('Please fill in all required fields (Title, Company, Location, Description)');
+      return;
+    }
+
+    if (job.requirements.length === 0) {
+      toast.error('Please add at least one job requirement');
+      return;
+    }
+
+    if (job.skills.length === 0) {
+      toast.error('Please add at least one required skill');
       return;
     }
 
@@ -345,12 +355,13 @@ export default function JobEdit() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
-                  <Label htmlFor="location">Location</Label>
+                  <Label htmlFor="location">Location *</Label>
                   <Input
                     id="location"
                     value={job.location}
                     onChange={(e) => handleInputChange('location', e.target.value)}
                     placeholder="e.g. New York, NY"
+                    required
                   />
                 </div>
                 <div>
@@ -437,7 +448,7 @@ export default function JobEdit() {
           {/* Requirements */}
           <Card>
             <CardHeader>
-              <CardTitle>Requirements</CardTitle>
+              <CardTitle>Requirements *</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">
@@ -468,7 +479,7 @@ export default function JobEdit() {
           {/* Skills */}
           <Card>
             <CardHeader>
-              <CardTitle>Required Skills</CardTitle>
+              <CardTitle>Required Skills *</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex gap-2">

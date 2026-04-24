@@ -238,7 +238,7 @@ const JobsList: React.FC = () => {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => navigate(`/jobs/${job.job_id ?? job.id}`)}
+                            onClick={() => navigate(`/jobs/${job.job_id ?? job.id}?tab=applicants`)}
                           >
                             View
                           </Button>

@@ -7,6 +7,8 @@ interface AuthStatusProps {
   onAuthRequired?: () => void;
 }
 
+const AUTH_STATUS_CHECK_INTERVAL_MS = 60_000;
+
 export const AuthStatus: React.FC<AuthStatusProps> = ({ onAuthRequired }) => {
   const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'unauthenticated'>('checking');
 
@@ -23,7 +25,7 @@ export const AuthStatus: React.FC<AuthStatusProps> = ({ onAuthRequired }) => {
     checkAuth();
     
     // Check auth status periodically
-    const interval = setInterval(checkAuth, 30000); // Check every 30 seconds
+    const interval = setInterval(checkAuth, AUTH_STATUS_CHECK_INTERVAL_MS);
     
     return () => clearInterval(interval);
   }, [onAuthRequired]);

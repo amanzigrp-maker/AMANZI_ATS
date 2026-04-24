@@ -57,6 +57,12 @@ SERVICE_STATUS = {
     "matching": False,
 }
 
+STARTUP_STATE = {
+    "phase": "booting",
+    "ready": False,
+    "errors": [],
+}
+
 # ---------------------------------------------------------------------
 # Services
 # ---------------------------------------------------------------------
@@ -79,6 +85,71 @@ job_text_cleaner = JobTextCleaner(
 )
 
 ocr_service = OCRResumeParser()
+
+
+async def warmup_services() -> None:
+    STARTUP_STATE["phase"] = "warming"
+    STARTUP_STATE["ready"] = False
+    STARTUP_STATE["errors"] = []
+
+    try:
+        SERVICE_STATUS["ocr"] = ocr_service.ocr_enabled
+        if ocr_service.ocr_enabled:
+            logger.success("OCR: READY")
+        else:
+            logger.warning("OCR: DISABLED (Tesseract not installed)")
+    except Exception as e:
+        STARTUP_STATE["errors"].append(f"ocr: {e}")
+        logger.error(f"OCR init failed: {e}")
+
+    load_tasks = {
+        "nlp": asyncio.create_task(parser_service.load_models()),
+        "embeddings": asyncio.create_task(embedding_service.load_models()),
+    }
+
+    results = await asyncio.gather(*load_tasks.values(), return_exceptions=True)
+
+    for service_name, result in zip(load_tasks.keys(), results):
+        if isinstance(result, Exception):
+            STARTUP_STATE["errors"].append(f"{service_name}: {result}")
+            logger.error(f"{service_name.upper()} load failed: {result}")
+            continue
+
+        if service_name == "nlp":
+            SERVICE_STATUS["nlp"] = True
+            logger.success("NLP Models loaded")
+        elif service_name == "embeddings":
+            SERVICE_STATUS["embeddings"] = embedding_service.is_loaded()
+            if SERVICE_STATUS["embeddings"]:
+                logger.success("Embedding model loaded")
+            else:
+                logger.warning("Embedding model not loaded")
+
+    try:
+        await enhanced_matcher.load_models()
+        SERVICE_STATUS["matching"] = True
+        logger.success("Enhanced Matching Service loaded")
+    except Exception as e:
+        STARTUP_STATE["errors"].append(f"matching: {e}")
+        logger.error(f"Enhanced Matcher load failed: {e}")
+
+    STARTUP_STATE["ready"] = (
+        SERVICE_STATUS["db"]
+        and SERVICE_STATUS["nlp"]
+        and SERVICE_STATUS["embeddings"]
+        and SERVICE_STATUS["matching"]
+    )
+    STARTUP_STATE["phase"] = "ready" if STARTUP_STATE["ready"] else "degraded"
+
+    logger.info("===================================")
+    logger.info("ATS WORKER STATUS SUMMARY")
+    logger.info(f"DB         : {'READY' if SERVICE_STATUS['db'] else 'DOWN'}")
+    logger.info(f"OCR        : {'READY' if SERVICE_STATUS['ocr'] else 'DISABLED'}")
+    logger.info(f"NLP        : {'READY' if SERVICE_STATUS['nlp'] else 'DOWN'}")
+    logger.info(f"EMBEDDINGS : {'READY' if SERVICE_STATUS['embeddings'] else 'DOWN'}")
+    logger.info(f"MATCHING   : {'READY' if SERVICE_STATUS['matching'] else 'DOWN'}")
+    logger.info(f"WORKER     : {STARTUP_STATE['phase'].upper()}")
+    logger.info("===================================")
 
 
 # ---------------------------------------------------------------------
@@ -158,13 +229,46 @@ async def lifespan(app: FastAPI):
 
 
 # ---------------------------------------------------------------------
+# Alternate FastAPI Lifespan (non-blocking warmup)
+# ---------------------------------------------------------------------
+@asynccontextmanager
+async def fast_lifespan(app: FastAPI):
+    logger.info("Starting ATS AI Worker...")
+
+    try:
+        await db.connect()
+        SERVICE_STATUS["db"] = True
+        logger.success("Database connected")
+    except Exception as e:
+        STARTUP_STATE["phase"] = "degraded"
+        STARTUP_STATE["errors"].append(f"db: {e}")
+        logger.error(f"Database connection failed: {e}")
+
+    app.state.warmup_task = asyncio.create_task(warmup_services())
+
+    yield
+
+    warmup_task = getattr(app.state, "warmup_task", None)
+    if warmup_task and not warmup_task.done():
+        warmup_task.cancel()
+
+    try:
+        await db.disconnect()
+        logger.info("Database disconnected")
+    except Exception:
+        pass
+
+    logger.info("ATS AI Worker stopped")
+
+
+# ---------------------------------------------------------------------
 # FastAPI App
 # ---------------------------------------------------------------------
 app = FastAPI(
     title="ATS AI Worker",
     description="Pure parsing + embeddings worker",
     version="3.0.0",
-    lifespan=lifespan,
+    lifespan=fast_lifespan,
 )
 
 app.add_middleware(
@@ -248,7 +352,7 @@ async def process_resume_task(resume_id: int, file_path: str, filename: str, is_
 
         sections = resume_text_cleaner.build_embedding_sections(parsed)
 
-        if sections and embedding_service.is_loaded():
+        if sections and SERVICE_STATUS["embeddings"]:
             await embedding_service.batch_encode([s.get("content", "") for s in sections])
 
         if is_bulk:
@@ -269,7 +373,12 @@ async def process_resume_task(resume_id: int, file_path: str, filename: str, is_
 @app.get("/health")
 async def health():
     return {
-        "status": "ok",
+        "status": "ok" if SERVICE_STATUS["db"] else "degraded",
+        "worker": {
+            "phase": STARTUP_STATE["phase"],
+            "ready": STARTUP_STATE["ready"],
+            "errors": STARTUP_STATE["errors"],
+        },
         "services": {
             "database": "ready" if SERVICE_STATUS["db"] else "down",
             "ocr": "ready" if SERVICE_STATUS["ocr"] else "disabled",
@@ -345,7 +454,7 @@ async def embed_job(request: Request):
     if not isinstance(job_id, int):
         raise HTTPException(400, "job_id must be an integer")
 
-    if not embedding_service.is_loaded():
+    if not SERVICE_STATUS["embeddings"]:
         raise HTTPException(503, "Embedding model not loaded")
 
     job = await db.get_job_data(job_id)
@@ -452,7 +561,7 @@ async def parse_resume(request: Request, background_tasks: BackgroundTasks):
             # 🔹 Section embeddings
             sections = resume_text_cleaner.build_embedding_sections(parsed)
 
-            if sections and embedding_service.is_loaded():
+            if sections and SERVICE_STATUS["embeddings"]:
                 logger.info(f"🧠 Generating embeddings for {len(sections)} sections")
                 texts = [s.get("content") for s in sections if s.get("content")]
                 embeddings = await embedding_service.batch_encode(texts)
@@ -519,6 +628,9 @@ async def search_talent_pool(request: Request):
     if not isinstance(job_id, int):
         raise HTTPException(400, "job_id must be an integer")
 
+    if not SERVICE_STATUS["matching"]:
+        raise HTTPException(503, "Matching service is still warming up")
+
     # Get job data
     job = await db.get_job_data(job_id)
     if not job:
@@ -555,6 +667,9 @@ async def generate_recommendations(request: Request, background_tasks: Backgroun
 
     if not isinstance(job_id, int):
         raise HTTPException(400, "job_id must be an integer")
+
+    if not SERVICE_STATUS["matching"]:
+        raise HTTPException(503, "Matching service is still warming up")
 
     # Get job data
     job = await db.get_job_data(job_id)

@@ -292,8 +292,11 @@ export default function Jobs() {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
+    if (!formData.title || !formData.description || !formData.location || !formData.client_id || !formData.requirements || !formData.skills) {
+      alert('Please fill in all mandatory fields (Title, Client, Location, Description, Requirements, and Skills)');
+      setIsSubmitting(false);
+      return;
+    }
 
     try {
       const token = localStorage.getItem('accessToken');
@@ -466,6 +469,7 @@ export default function Jobs() {
                     <Select
                       value={formData.client_id}
                       onValueChange={(value) => handleSelectChange('client_id', value)}
+                      required
                     >
                       <SelectTrigger>
                         <SelectValue placeholder="Choose client" />
@@ -481,13 +485,14 @@ export default function Jobs() {
                   </div>
 
                   <div>
-                    <Label htmlFor="location">Location</Label>
+                    <Label htmlFor="location">Location *</Label>
                     <Input
                       id="location"
                       name="location"
                       value={formData.location}
                       onChange={handleInputChange}
                       placeholder="e.g., San Francisco, CA"
+                      required
                     />
                   </div>
 
@@ -505,7 +510,7 @@ export default function Jobs() {
                   </div>
 
                   <div className="col-span-2">
-                    <Label htmlFor="requirements">Requirements</Label>
+                    <Label htmlFor="requirements">Requirements *</Label>
                     <Textarea
                       id="requirements"
                       name="requirements"
@@ -513,17 +518,19 @@ export default function Jobs() {
                       onChange={handleInputChange}
                       placeholder="List the key requirements and qualifications..."
                       rows={3}
+                      required
                     />
                   </div>
 
                   <div className="col-span-2">
-                    <Label htmlFor="skills">Required Skills (comma-separated)</Label>
+                    <Label htmlFor="skills">Required Skills (comma-separated) *</Label>
                     <Input
                       id="skills"
                       name="skills"
                       value={formData.skills}
                       onChange={handleInputChange}
                       placeholder="e.g., React, TypeScript, Node.js"
+                      required
                     />
                   </div>
 
@@ -885,7 +892,7 @@ export default function Jobs() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => navigate(`/jobs/${job.job_id}`)}
+                        onClick={() => navigate(`/jobs/${job.job_id}?tab=applicants`)}
                         className="font-medium shadow-sm hover:shadow-md hover:bg-slate-50 h-8 px-3 rounded-lg border-slate-200 transition-all text-slate-700 text-xs"
                       >
                         <Eye className="h-3.5 w-3.5 mr-1 text-slate-500" />
