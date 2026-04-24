@@ -11,9 +11,7 @@ import { authenticatedFetch } from "@/lib/api";
 
 const Settings: React.FC = () => {
   const navigate = useNavigate();
-  const [darkMode, setDarkMode] = useState(false);
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [compactMode, setCompactMode] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   const [profileLoading, setProfileLoading] = useState(true);
   const [selectedAvatar, setSelectedAvatar] = useState<string>("/avatars/default.png");
@@ -122,9 +120,11 @@ const Settings: React.FC = () => {
                     (e.currentTarget as HTMLImageElement).src = '/avatars/default.png';
                   }}
                 />
-                <div className="text-xs text-muted-foreground">
-                  {profileLoading ? 'Loading…' : (selectedAvatar || '/avatars/default.png')}
-                </div>
+                {profileLoading && (
+                  <div className="text-xs text-muted-foreground">
+                    Loading…
+                  </div>
+                )}
               </div>
 
               <AvatarPicker
@@ -145,60 +145,22 @@ const Settings: React.FC = () => {
                 </Button>
               </div>
             </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-sm font-medium">Dark mode (UI only)</Label>
-                <p className="text-xs text-muted-foreground">
-                  Toggle a dark theme preview for the interface.
-                </p>
-              </div>
-              <Switch
-                checked={darkMode}
-                onCheckedChange={setDarkMode}
-              />
-            </div>
-
-            <Separator />
-
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-sm font-medium">Compact layout</Label>
-                <p className="text-xs text-muted-foreground">
-                  Use a denser layout for tables and lists.
-                </p>
-              </div>
-              <Switch
-                checked={compactMode}
-                onCheckedChange={setCompactMode}
-              />
-            </div>
           </CardContent>
         </Card>
 
         <Card className="border-border/80 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base">Notifications</CardTitle>
-            <CardDescription className="text-xs">
-              Basic notification preferences for this account.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-sm font-medium">Email updates</Label>
-                <p className="text-xs text-muted-foreground">
-                  Receive occasional summary emails about activity.
-                </p>
-              </div>
-              <Switch
-                checked={emailNotifications}
-                onCheckedChange={setEmailNotifications}
-              />
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
+            <div className="space-y-1">
+              <CardTitle className="text-base">Notifications</CardTitle>
+              <CardDescription className="text-xs">
+                Basic notification preferences for this account.
+              </CardDescription>
             </div>
-          </CardContent>
+            <Switch
+              checked={notificationsEnabled}
+              onCheckedChange={setNotificationsEnabled}
+            />
+          </CardHeader>
         </Card>
       </div>
     </div>
