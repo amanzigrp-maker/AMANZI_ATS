@@ -37,6 +37,7 @@ import {
   MdFolderOpen,
   MdGpsFixed,
   MdGppBad,
+  MdFingerprint,
   MdHomeWork,
   MdInsertChart,
   MdInsertDriveFile,
@@ -174,6 +175,7 @@ export const FileText = alias(MdDescription);
 export const FileUp = alias(MdUploadFile);
 export const FileWarning = alias(MdDescription);
 export const Filter = alias(MdFilterAlt);
+export const Fingerprint = alias(MdFingerprint);
 export const FolderUp = alias(MdFolderOpen);
 export const Github = alias(FaGithub);
 export const Globe = alias(MdLanguage);
@@ -188,6 +190,7 @@ export const LogIn = alias(MdLogin);
 export const Mail = alias(MdMail);
 export const MapPin = alias(MdPlace);
 export const Maximize = alias(MdOpenInFull);
+export const Megaphone = alias(MdCampaign);
 export const Menu = alias(MdMenu);
 export const MessageSquare = alias(MdMail);
 export const MicOff = alias(MdVideocamOff);
@@ -203,6 +206,7 @@ export const Save = alias(MdSave);
 export const ScrollText = alias(MdNoteAlt);
 export const Search = alias(MdSearch);
 export const Send = alias(MdSend);
+export const SendHorizontal = alias(MdSend);
 export const Settings = alias(MdSettings);
 export const Share2 = alias(MdShare);
 export const Shield = alias(MdShield);

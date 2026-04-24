@@ -43,7 +43,7 @@ export default function InterviewPage() {
   const [interviewToken, setInterviewToken] = useState<string | null>(token);
   const [candidateInfo, setCandidateInfo] = useState<{ name: string; email: string } | null>(null);
   const [setupData, setSetupData] = useState({ experience: 0, role: "" });
-  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [sessionId, setSessionId] = useState<string | number | null>(null);
   const [jwtToken, setJwtToken] = useState<string | null>(null);
   
   const [questions, setQuestions] = useState<Question[]>([]);
@@ -242,7 +242,7 @@ export default function InterviewPage() {
     return () => clearInterval(timer);
   }, [status, timeLeft, handleSubmit]);
 
-  const fetchQuestions = async (sId: number, jwt: string | null = jwtToken) => {
+  const fetchQuestions = async (sId: string | number, jwt: string | null = jwtToken) => {
     const res = await fetch(`/api/interview/questions?session_id=${sId}`, {
       headers: {
         "Authorization": `Bearer ${jwt}`
@@ -277,27 +277,18 @@ export default function InterviewPage() {
       const data = await res.json();
 
       if (data.success) {
-<<<<<<< Updated upstream
-        setSessionId(data.session_id);
-        if (data.question) {
-          setQuestions([data.question]);
-          if (typeof data.theta === "number") setTheta(data.theta);
-        } else {
-          await fetchQuestions(data.session_id);
-        }
-        setStatus("interviewing");
-        toast.success("Adaptive assessment started. Good luck.");
-=======
         setSessionId(data.sessionId);
-        setQuestions([{
-          id: data.question.question_id,
-          question: data.question.question_text,
-          options: Object.values(data.question.options) as string[]
-        }]);
+        if (data.question) {
+          setQuestions([{
+            id: data.question.question_id,
+            question: data.question.question_text,
+            options: Object.values(data.question.options) as string[]
+          }]);
+          if (typeof data.theta === "number") setTheta(data.theta);
+        }
         setCurrentQuestionIndex(0);
         setStatus("interviewing");
-        toast.success("Adaptive session started! Good luck.");
->>>>>>> Stashed changes
+        toast.success("Adaptive assessment started. Good luck.");
       } else {
         toast.error("Failed to start session. Please try again.");
         setStatus("setup");
@@ -578,27 +569,6 @@ export default function InterviewPage() {
                                       {theta !== null ? `theta ${theta.toFixed(2)}` : 'adaptive mode'}
                                     </div>
                                     
-<<<<<<< Updated upstream
-                                    {currentQuestionIndex === totalQuestions - 1 ? (
-                                        <Button 
-                                            onClick={handleAdaptiveAnswer} 
-                                            disabled={isSubmitting || !answers[currentQ.id]}
-                                            className="bg-blue-600 hover:bg-blue-500 text-white px-8 h-12 rounded-xl font-bold flex gap-2"
-                                        >
-                                            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                                            Complete Interview
-                                        </Button>
-                                    ) : (
-                                        <Button 
-                                            disabled={isSubmitting || !answers[currentQ.id]}
-                                            onClick={handleAdaptiveAnswer}
-                                            className="bg-white hover:bg-slate-200 text-black px-8 h-12 rounded-xl font-bold flex gap-2"
-                                        >
-                                            {isSubmitting ? 'Saving...' : 'Next Question'}
-                                            <ChevronRight className="w-4 h-4" />
-                                        </Button>
-                                    )}
-=======
                                     <Button 
                                         disabled={!answers[currentQ.id] || isSubmitting}
                                         onClick={() => handleAnswerSubmit(answers[currentQ.id])}
@@ -608,7 +578,6 @@ export default function InterviewPage() {
                                         Confirm & Next
                                         <ChevronRight className="w-4 h-4" />
                                     </Button>
->>>>>>> Stashed changes
                                 </CardFooter>
                             </Card>
                         ) : (
