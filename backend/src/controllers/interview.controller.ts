@@ -459,7 +459,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     // 4. Generate link
     // Use environment variable for frontend URL, fallback to localhost if not set
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-    const loginUrl = `${frontendUrl}/interview`;
+    const loginUrl = `${frontendUrl}/interview-login`;
 
     // 5. Send email
     await sendInterviewLink(candidate.email, candidate.full_name, loginUrl, plainPassword);

@@ -34,24 +34,24 @@ router.post('/login', async (req, res) => {
 
     const user = await findUserByEmail(email);
     if (!user) {
-      await logAudit(null, req, false, 'LOGIN_FAILED');
+      await logAudit(null, req, false, 'LOGIN_FAILED', email);
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
 
     const status = String(user.status || '').toLowerCase();
     if (status === 'disabled') {
-      await logAudit(user.userid, req, false, 'LOGIN_DISABLED');
+      await logAudit(user.userid, req, false, 'LOGIN_DISABLED', email);
       return res.status(403).json({ message: 'Your account has been disabled.' });
     }
 
     if (status === 'blocked' || status === 'locked') {
-      await logAudit(user.userid, req, false, 'LOGIN_BLOCKED');
+      await logAudit(user.userid, req, false, 'LOGIN_BLOCKED', email);
       return res.status(403).json({ message: 'Your account has been locked.' });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.passwordhash);
     if (!isPasswordValid) {
-      await logAudit(user.userid, req, false, 'LOGIN_FAILED');
+      await logAudit(user.userid, req, false, 'LOGIN_FAILED', email);
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
 
@@ -83,7 +83,7 @@ router.post('/login', async (req, res) => {
       [user.userid]
     );
 
-    await logAudit(user.userid, req, true, 'LOGIN');
+    await logAudit(user.userid, req, true, 'LOGIN', email);
 
     res.json({
       message: 'Login successful',

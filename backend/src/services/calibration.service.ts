@@ -50,20 +50,58 @@ export class CalibrationService {
   }
 
   /**
-   * Helper to normalize AI-generated question parameters
+   * Inject an AI-generated question into the bank
    */
   public static async injectAIQuestion(data: {
     text: string;
-    options: any;
+    options: { [key: string]: string };
     correct: string;
     skill: string;
-    aiEstimateDifficulty: number; // -3 to 3
+    aiEstimateDifficulty: number;
   }) {
-    return await pool.query(
+    // 1. Ensure System Assessment & Set exist
+    let assessmentId: number;
+    let setId: number;
+
+    const assessResult = await pool.query("SELECT assessment_id FROM assessments WHERE title = 'System AI Adaptive Bank'");
+    if (assessResult.rows.length === 0) {
+      const newAssess = await pool.query(
+        "INSERT INTO assessments (title, description, role, status) VALUES ('System AI Adaptive Bank', 'Auto-generated questions from adaptive engine', 'System', 'active') RETURNING assessment_id"
+      );
+      assessmentId = newAssess.rows[0].assessment_id;
+    } else {
+      assessmentId = assessResult.rows[0].assessment_id;
+    }
+
+    const setResult = await pool.query("SELECT question_set_id FROM question_sets WHERE assessment_id = $1 AND name = 'Adaptive General'", [assessmentId]);
+    if (setResult.rows.length === 0) {
+      const newSet = await pool.query(
+        "INSERT INTO question_sets (assessment_id, name, source_type) VALUES ($1, 'Adaptive General', 'ai') RETURNING question_set_id",
+        [assessmentId]
+      );
+      setId = newSet.rows[0].question_set_id;
+    } else {
+      setId = setResult.rows[0].question_set_id;
+    }
+
+    // 2. Insert Question
+    const qResult = await pool.query(
       `INSERT INTO questions 
-       (question_text, metadata, correct_option, skill_tag, difficulty_b, source) 
+       (question_set_id, question_text, correct_option, skill_tag, difficulty_b, source) 
        VALUES ($1, $2, $3, $4, $5, 'AI') RETURNING *`,
-      [data.text, data.options, data.correct, data.skill, data.aiEstimateDifficulty]
+      [setId, data.text, data.correct, data.skill, data.aiEstimateDifficulty]
     );
+
+    const questionId = qResult.rows[0].question_id;
+
+    // 3. Insert Options
+    for (const [key, text] of Object.entries(data.options)) {
+      await pool.query(
+        "INSERT INTO question_options (question_id, option_key, option_text) VALUES ($1, $2, $3)",
+        [questionId, key, text]
+      );
+    }
+
+    return qResult;
   }
 }

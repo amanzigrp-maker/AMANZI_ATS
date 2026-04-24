@@ -123,40 +123,46 @@ export default function InterviewPage() {
   };
 
   // Timer Effect
-  const handleSubmit = useCallback(async () => {
+  const handleAnswerSubmit = useCallback(async (selectedAnswer: string) => {
     if (isSubmitting || !sessionId) return;
     setIsSubmitting(true);
     
     try {
-      const submission = {
-        session_id: sessionId,
-        answers: Object.entries(answers).map(([qId, val]) => ({
-          question_id: parseInt(qId),
-          selected_answer: val
-        }))
-      };
-
-      const res = await fetch("/api/interview/submit", {
+      const currentQ = questions[currentQuestionIndex];
+      const res = await fetch("/api/interview/adaptive/submit", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${jwtToken}`
         },
-        body: JSON.stringify(submission)
+        body: JSON.stringify({
+          sessionId: sessionId,
+          questionId: currentQ.id,
+          selectedAnswer
+        })
       });
       const data = await res.json();
 
       if (data.success) {
-        setScore(data.score);
-        setStatus("completed");
+        if (data.isFinished) {
+          setStatus("completed");
+        } else {
+          // Add next adaptive question
+          setQuestions(prev => [...prev, {
+            id: data.question.question_id,
+            question: data.question.question_text,
+            options: Object.values(data.question.options) as string[]
+          }]);
+          setCurrentQuestionIndex(prev => prev + 1);
+        }
       }
     } catch (err) {
-      console.error("Submission error:", err);
-      toast.error("Failed to submit. Retrying...");
+      console.error("Adaptive submission error:", err);
+      toast.error("Failed to submit answer. Retrying...");
     } finally {
       setIsSubmitting(false);
     }
-  }, [sessionId, answers, isSubmitting, jwtToken]);
+  }, [sessionId, questions, currentQuestionIndex, isSubmitting, jwtToken]);
 
   const handleAdaptiveAnswer = async () => {
     const currentQ = questions[currentQuestionIndex];
@@ -225,7 +231,8 @@ export default function InterviewPage() {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          handleSubmit();
+          // When time runs out, try to submit current answer if selected, or just finish
+          handleAnswerSubmit(answers[questions[currentQuestionIndex].id] || "");
           return 0;
         }
         return prev - 1;
@@ -249,27 +256,28 @@ export default function InterviewPage() {
 
   const handleStartInterview = async () => {
     if (!setupData.role) {
-      toast.error("Please specify the role you are applying for.");
+      toast.error("Please specify the skill/role you are applying for.");
       return;
     }
 
     setStatus("loading");
     try {
-      const res = await fetch("/api/interview/generate", {
+      const res = await fetch("/api/interview/adaptive/start", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${jwtToken}`
         },
         body: JSON.stringify({
-          token: interviewToken,
-          experience: setupData.experience,
-          role: setupData.role
+          email: candidateInfo?.email,
+          skill: setupData.role,
+          experienceYears: setupData.experience
         })
       });
       const data = await res.json();
 
       if (data.success) {
+<<<<<<< Updated upstream
         setSessionId(data.session_id);
         if (data.question) {
           setQuestions([data.question]);
@@ -279,8 +287,19 @@ export default function InterviewPage() {
         }
         setStatus("interviewing");
         toast.success("Adaptive assessment started. Good luck.");
+=======
+        setSessionId(data.sessionId);
+        setQuestions([{
+          id: data.question.question_id,
+          question: data.question.question_text,
+          options: Object.values(data.question.options) as string[]
+        }]);
+        setCurrentQuestionIndex(0);
+        setStatus("interviewing");
+        toast.success("Adaptive session started! Good luck.");
+>>>>>>> Stashed changes
       } else {
-        toast.error("Failed to generate questions. Please try again.");
+        toast.error("Failed to start session. Please try again.");
         setStatus("setup");
       }
     } catch (err) {
@@ -559,6 +578,7 @@ export default function InterviewPage() {
                                       {theta !== null ? `theta ${theta.toFixed(2)}` : 'adaptive mode'}
                                     </div>
                                     
+<<<<<<< Updated upstream
                                     {currentQuestionIndex === totalQuestions - 1 ? (
                                         <Button 
                                             onClick={handleAdaptiveAnswer} 
@@ -578,6 +598,17 @@ export default function InterviewPage() {
                                             <ChevronRight className="w-4 h-4" />
                                         </Button>
                                     )}
+=======
+                                    <Button 
+                                        disabled={!answers[currentQ.id] || isSubmitting}
+                                        onClick={() => handleAnswerSubmit(answers[currentQ.id])}
+                                        className="bg-white hover:bg-slate-200 text-black px-8 h-12 rounded-xl font-bold flex gap-2"
+                                    >
+                                        {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : null}
+                                        Confirm & Next
+                                        <ChevronRight className="w-4 h-4" />
+                                    </Button>
+>>>>>>> Stashed changes
                                 </CardFooter>
                             </Card>
                         ) : (

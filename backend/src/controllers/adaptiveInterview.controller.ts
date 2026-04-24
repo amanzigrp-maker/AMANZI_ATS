@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { AdaptiveEngineService, AdaptiveSessionState } from '../services/adaptiveEngine.service';
+import { sendInterviewResults } from '../services/email.service';
 
 // Use a simple in-memory session store for this demo. 
 // In production, use Redis or a sessions table.
@@ -59,11 +60,30 @@ export const submitAnswer = async (req: Request, res: Response) => {
     const { newTheta, isFinished } = await AdaptiveEngineService.submitAnswer(session, questionId, isCorrect);
 
     if (isFinished) {
+      // Send completion email (simplified score calculation for legacy compatibility)
+      const proficiency = Math.round((1 / (1 + Math.exp(-1.702 * newTheta))) * 100);
+      
+      try {
+        await sendInterviewResults(
+          session.candidateEmail,
+          session.candidateEmail.split('@')[0], // Fallback name
+          proficiency,
+          100, // Total possible scale
+          session.skill,
+          null, // Time taken optional
+          {} // Breakdown optional
+        );
+        console.log(`\x1b[32m✅ Adaptive Results email sent to ${session.candidateEmail} (Proficiency: ${proficiency}%)\x1b[0m`);
+      } catch (e) {
+        console.error('Failed to send adaptive email:', e);
+      }
+
       sessionStore.delete(sessionId);
       return res.json({
         success: true,
         isFinished: true,
         finalTheta: newTheta,
+        proficiency,
         message: 'Interview completed successfully'
       });
     }

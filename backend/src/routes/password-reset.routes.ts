@@ -51,11 +51,11 @@ router.post('/request-reset', async (req, res) => {
     const { email } = validation.data;
     const result = await requestPasswordReset(email);
 
-    await logAudit(null, req, true, 'PASSWORD_RESET_REQUESTED');
+    await logAudit(null, req, true, 'PASSWORD_RESET_REQUESTED', email);
     res.json(result);
   } catch (error) {
     console.error('[ROUTE] Error requesting password reset:', error);
-    await logAudit(null, req, false, 'PASSWORD_RESET_REQUEST_FAILED');
+    await logAudit(null, req, false, 'PASSWORD_RESET_REQUEST_FAILED', req.body.email);
     res.status(500).json({
       message: error instanceof Error ? error.message : 'Failed to process password reset request.',
     });
@@ -80,11 +80,11 @@ router.post('/verify-otp', async (req, res) => {
     const { email, otp } = validation.data;
     const result = await verifyPasswordResetOTP(email, otp);
 
-    await logAudit(null, req, true, 'PASSWORD_RESET_OTP_VERIFIED');
+    await logAudit(null, req, true, 'PASSWORD_RESET_OTP_VERIFIED', email);
     res.json(result);
   } catch (error) {
     console.error('[ROUTE] Error verifying OTP:', error);
-    await logAudit(null, req, false, 'PASSWORD_RESET_OTP_VERIFICATION_FAILED');
+    await logAudit(null, req, false, 'PASSWORD_RESET_OTP_VERIFICATION_FAILED', req.body.email);
     res.status(400).json({
       message: error instanceof Error ? error.message : 'Failed to verify OTP.',
     });
@@ -116,11 +116,11 @@ router.post('/reset-password', async (req, res) => {
       console.warn('[ROUTE] Failed to send confirmation email:', emailError);
     }
 
-    await logAudit(null, req, true, 'PASSWORD_RESET_COMPLETED');
+    await logAudit(null, req, true, 'PASSWORD_RESET_COMPLETED', email);
     res.json(result);
   } catch (error) {
     console.error('[ROUTE] Error resetting password:', error);
-    await logAudit(null, req, false, 'PASSWORD_RESET_FAILED');
+    await logAudit(null, req, false, 'PASSWORD_RESET_FAILED', req.body.email);
     res.status(400).json({
       message: error instanceof Error ? error.message : 'Failed to reset password.',
     });
