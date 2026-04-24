@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { authenticatedFetch } from '@/lib/api';
 import { logout } from '@/lib/auth';
 import { Link } from 'react-router-dom';
-import { Shield, Activity, UserPlus, Settings, AlertTriangle, Briefcase, Building2, Sparkles, FolderUp, ArrowLeft } from 'lucide-react';
+import { Shield, Fingerprint, UserPlus, Users, AlertTriangle, Briefcase, Building2, Megaphone, Zap, ArrowRight, ArrowLeft, SendHorizontal, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { jwtDecode } from 'jwt-decode';
 import SendInterviewLinkModal from '@/components/admin/SendInterviewLinkModal';
@@ -38,8 +38,10 @@ export default function AdminDashboard() {
         const failedData = await failed.json();
         const sessionsData = await sessions.json();
 
+        const failedCount = failedData.reduce((acc: number, curr: any) => acc + Number(curr.failed_attempts || 0), 0);
+
         setStats({
-          failedLoginAttempts: failedData.length,
+          failedLoginAttempts: failedCount,
           activeSessions: sessionsData.length,
         });
       } catch (err) {
@@ -172,23 +174,25 @@ export default function AdminDashboard() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto p-8">
+      <div className="max-w-7xl mx-auto px-8 pt-4 pb-8">
 
         {/* Desktop Back Button */}
-        <div className="mb-4 hidden md:block">
-          <Button variant="ghost" onClick={() => navigate('/dashboard')} className="text-muted-foreground -ml-4">
+        <div className="mb-3 hidden md:block">
+          <Button variant="ghost" onClick={() => navigate('/dashboard')} className="text-slate-500 -ml-4 font-outfit font-semibold hover:bg-slate-50 transition-all flex items-center">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to User Dashboard
           </Button>
         </div>
 
         {/* Desktop Header */}
-        <div className="mb-8 hidden md:block">
-          <div className="flex items-center gap-3 mb-2">
-            <Shield className="w-8 h-8 text-blue-600" />
-            <h1 className="text-4xl font-bold text-slate-800">Security Dashboard</h1>
+        <div className="mb-5 hidden md:block">
+          <div className="flex items-center gap-2.5 mb-1">
+            <div className="p-1.5 bg-blue-50 rounded-lg">
+              <Shield className="w-7 h-7 text-blue-600" />
+            </div>
+            <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight font-outfit">Security Dashboard</h1>
           </div>
-          <p className="text-muted-foreground ml-11">Monitor and manage your application's security</p>
+          <p className="text-slate-500 text-sm font-medium ml-11 font-outfit max-w-2xl">Monitor and manage your application's security architecture and access audit logs.</p>
         </div>
 
         {error && (
@@ -198,156 +202,139 @@ export default function AdminDashboard() {
         )}
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
 
           {/* Failed Logins */}
-          <Link to="/admin/logins/failed" className="group">
-            <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-red-300 hover:-translate-y-1">
+          <Link to="/admin/logins/failed" className="group h-full">
+            <div className="bg-card rounded-2xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-xl hover:border-red-200 hover:-translate-y-1 flex flex-col h-full">
               <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-red-50 rounded-lg group-hover:bg-red-100 transition-colors">
+                <div className="p-3 bg-red-50 rounded-xl group-hover:bg-red-100 transition-colors">
                   <AlertTriangle className="w-6 h-6 text-red-600" />
                 </div>
-                <span className="text-xs font-semibold text-red-600 bg-red-50 px-2 py-1 rounded-full">24h</span>
+                <span className="text-[10px] font-bold text-red-600 bg-red-50 px-2.5 py-1 rounded-full border border-red-100 uppercase tracking-wider">Last 24h</span>
               </div>
-              <h3 className="text-muted-foreground text-sm font-medium mb-2">Suspicious Failed Logins</h3>
-              <p className="text-4xl font-bold text-slate-800 mb-3">
+              <h3 className="text-slate-500 text-[10px] font-semibold uppercase tracking-widest mb-1 font-outfit">Suspicious Failed Logins</h3>
+              <p className="text-4xl font-extrabold text-slate-800 mb-4 font-outfit tracking-tight">
                 {stats ? stats.failedLoginAttempts : <span className="animate-pulse">...</span>}
               </p>
-              <div className="flex items-center text-sm text-red-600 font-medium group-hover:gap-2 transition-all">
-                <span>View Details</span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+              <div className="mt-auto flex items-center text-xs text-red-600 font-bold group-hover:gap-2 transition-all">
+                <span>VIEW SECURITY LOGS</span>
+                <span className="opacity-0 group-hover:opacity-100 transition-all font-serif">→</span>
               </div>
             </div>
           </Link>
 
           {/* Active Sessions */}
-          <Link to="/admin/sessions/active" className="group">
-            <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-blue-300 hover:-translate-y-1">
+          <Link to="/admin/sessions/active" className="group h-full">
+            <div className="bg-card rounded-2xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-xl hover:border-blue-200 hover:-translate-y-1 flex flex-col h-full">
               <div className="flex items-start justify-between mb-4">
-                <div className="p-3 bg-blue-50 rounded-lg group-hover:bg-blue-100 transition-colors">
+                <div className="p-3 bg-blue-50 rounded-xl group-hover:bg-blue-100 transition-colors">
                   <Activity className="w-6 h-6 text-blue-600" />
                 </div>
-                <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded-full">Live</span>
+                <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full border border-blue-100 uppercase tracking-wider">Live Monitoring</span>
               </div>
-              <h3 className="text-muted-foreground text-sm font-medium mb-2">Multiple Active Sessions</h3>
-              <p className="text-4xl font-bold text-slate-800 mb-3">
+              <h3 className="text-slate-500 text-[10px] font-semibold uppercase tracking-widest mb-1 font-outfit">Multiple Active Sessions</h3>
+              <p className="text-4xl font-extrabold text-slate-800 mb-4 font-outfit tracking-tight">
                 {stats ? stats.activeSessions : <span className="animate-pulse">...</span>}
               </p>
-              <div className="flex items-center text-sm text-blue-600 font-medium group-hover:gap-2 transition-all">
-                <span>View Details</span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+              <div className="mt-auto flex items-center text-xs text-blue-600 font-bold group-hover:gap-2 transition-all">
+                <span>VIEW ACTIVE SESSIONS</span>
+                <span className="opacity-0 group-hover:opacity-100 transition-all font-serif">→</span>
               </div>
             </div>
           </Link>
         </div>
 
         {/* Action Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 cards-container">
 
           {/* Recent Logins */}
-          <Link to="/admin/logins/recent" className="group">
-            <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-slate-300 hover:-translate-y-1 h-full">
-              <div className="p-3 bg-background rounded-lg w-fit mb-4 group-hover:bg-slate-100 transition-colors">
-                <Activity className="w-6 h-6 text-slate-700" />
+          <Link to="/admin/logins/recent" className="group h-full">
+            <div className="bg-card rounded-2xl shadow-sm border border-slate-200 p-6 transition-all duration-500 hover:shadow-2xl hover:border-slate-400 hover:-translate-y-1 h-full flex flex-col items-center text-center group-hover:bg-slate-50/50">
+              <div className="p-4 bg-slate-100 rounded-2xl mb-4 group-hover:bg-white group-hover:scale-105 transition-all duration-500 shadow-sm">
+                <Fingerprint className="w-7 h-7 text-slate-700" strokeWidth={2.5} />
               </div>
-              <h3 className="text-lg font-semibold text-slate-800 mb-2">Recent Login Activity</h3>
-              <p className="text-muted-foreground text-sm mb-4">View a live feed of all login attempts and track user access patterns.</p>
-              <div className="flex items-center text-sm text-slate-700 font-medium group-hover:gap-2 transition-all">
-                <span>View Logs</span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+              <h3 className="text-lg font-extrabold text-slate-800 mb-2 font-outfit tracking-tight">Login Activity</h3>
+              <p className="text-slate-500 text-xs leading-relaxed mb-6 flex-grow max-w-[180px]">Track all successful and failed user access patterns across the platform.</p>
+              <div className="flex items-center gap-2 text-[10px] text-slate-800 font-black tracking-widest uppercase py-2.5 px-5 bg-slate-100 rounded-full group-hover:bg-slate-800 group-hover:text-white transition-all duration-300">
+                <span>Explore logs</span>
+                <ArrowRight className="w-3 h-3" />
               </div>
             </div>
           </Link>
 
           {/* Create User */}
-          <Link to="/admin/users/create" className="group">
-            <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-green-300 hover:-translate-y-1 h-full">
-              <div className="p-3 bg-green-50 rounded-lg w-fit mb-4 group-hover:bg-green-100 transition-colors">
-                <UserPlus className="w-6 h-6 text-green-600" />
+          <Link to="/admin/users/create" className="group h-full">
+            <div className="bg-card rounded-2xl shadow-sm border border-slate-200 p-6 transition-all duration-500 hover:shadow-2xl hover:border-green-400 hover:-translate-y-1 h-full flex flex-col items-center text-center group-hover:bg-green-50/30">
+              <div className="p-4 bg-green-50 rounded-2xl mb-4 group-hover:bg-white group-hover:scale-105 transition-all duration-500 shadow-sm">
+                <UserPlus className="w-7 h-7 text-green-600" strokeWidth={2.5} />
               </div>
-              <h3 className="text-lg font-semibold text-slate-800 mb-2">Create New User</h3>
-              <p className="text-muted-foreground text-sm mb-4">Create a new user account and assign appropriate roles and permissions.</p>
-              <div className="flex items-center text-sm text-green-600 font-medium group-hover:gap-2 transition-all">
+              <h3 className="text-lg font-extrabold text-slate-800 mb-2 font-outfit tracking-tight">Onboard User</h3>
+              <p className="text-slate-500 text-xs leading-relaxed mb-6 flex-grow max-w-[180px]">Provision new recruiter or vendor access with specific roles.</p>
+              <div className="flex items-center gap-2 text-[10px] text-green-700 font-black tracking-widest uppercase py-2.5 px-5 bg-green-50 rounded-full group-hover:bg-green-600 group-hover:text-white transition-all duration-300">
                 <span>Create User</span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+                <ArrowRight className="w-3 h-3" />
               </div>
             </div>
           </Link>
 
           {/* Manage Users */}
-          <Link to="/admin/users/manage" className="group">
-            <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-purple-300 hover:-translate-y-1 h-full">
-              <div className="p-3 bg-purple-50 rounded-lg w-fit mb-4 group-hover:bg-purple-100 transition-colors">
-                <Settings className="w-6 h-6 text-purple-600" />
+          <Link to="/admin/users/manage" className="group h-full">
+            <div className="bg-card rounded-2xl shadow-sm border border-slate-200 p-6 transition-all duration-500 hover:shadow-2xl hover:border-purple-400 hover:-translate-y-1 h-full flex flex-col items-center text-center group-hover:bg-purple-50/30">
+              <div className="p-4 bg-purple-50 rounded-2xl mb-4 group-hover:bg-white group-hover:scale-105 transition-all duration-500 shadow-sm">
+                <Users className="w-7 h-7 text-purple-600" strokeWidth={2.5} />
               </div>
-              <h3 className="text-lg font-semibold text-slate-800 mb-2">Manage Users</h3>
-              <p className="text-muted-foreground text-sm mb-4">Update user roles, modify permissions, or disable user accounts.</p>
-              <div className="flex items-center text-sm text-purple-600 font-medium group-hover:gap-2 transition-all">
-                <span>Manage Users</span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+              <h3 className="text-lg font-extrabold text-slate-800 mb-2 font-outfit tracking-tight">Manage Team</h3>
+              <p className="text-slate-500 text-xs leading-relaxed mb-6 flex-grow max-w-[180px]">Audit and update user accounts and system access privileges.</p>
+              <div className="flex items-center gap-2 text-[10px] text-purple-700 font-black tracking-widest uppercase py-2.5 px-5 bg-purple-50 rounded-full group-hover:bg-purple-600 group-hover:text-white transition-all duration-300">
+                <span>Team Directory</span>
+                <ArrowRight className="w-3 h-3" />
               </div>
             </div>
           </Link>
 
           {/* Manage Clients */}
-          <Link to="/admin/clients" className="group">
-            <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-orange-300 hover:-translate-y-1 h-full">
-              <div className="p-3 bg-orange-50 rounded-lg w-fit mb-4 group-hover:bg-orange-100 transition-colors">
-                <Building2 className="w-6 h-6 text-orange-600" />
+          <Link to="/admin/clients" className="group h-full">
+            <div className="bg-card rounded-2xl shadow-sm border border-slate-200 p-6 transition-all duration-500 hover:shadow-2xl hover:border-orange-400 hover:-translate-y-1 h-full flex flex-col items-center text-center group-hover:bg-orange-50/30">
+              <div className="p-4 bg-orange-50 rounded-2xl mb-4 group-hover:bg-white group-hover:scale-105 transition-all duration-500 shadow-sm">
+                <Building2 className="w-7 h-7 text-orange-600" strokeWidth={2.5} />
               </div>
-              <h3 className="text-lg font-semibold text-slate-800 mb-2">Manage Clients</h3>
-              <p className="text-muted-foreground text-sm mb-4">Create and manage client companies in the recruitment system.</p>
-              <div className="flex items-center text-sm text-orange-600 font-medium group-hover:gap-2 transition-all">
-                <span>Manage Clients</span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+              <h3 className="text-lg font-extrabold text-slate-800 mb-2 font-outfit tracking-tight">Client Hub</h3>
+              <p className="text-slate-500 text-xs leading-relaxed mb-6 flex-grow max-w-[180px]">Register and manage hiring organizations and brands.</p>
+              <div className="flex items-center gap-2 text-[10px] text-orange-700 font-black tracking-widest uppercase py-2.5 px-5 bg-orange-50 rounded-full group-hover:bg-orange-600 group-hover:text-white transition-all duration-300">
+                <span>View clients</span>
+                <ArrowRight className="w-3 h-3" />
               </div>
             </div>
           </Link>
 
           {/* Manage Jobs */}
-          <Link to="/admin/jobs" className="group">
-            <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-cyan-300 hover:-translate-y-1 h-full">
-              <div className="p-3 bg-cyan-50 rounded-lg w-fit mb-4 group-hover:bg-cyan-100 transition-colors">
-                <Briefcase className="w-6 h-6 text-cyan-600" />
+          <Link to="/admin/jobs" className="group h-full">
+            <div className="bg-card rounded-2xl shadow-sm border border-slate-200 p-6 transition-all duration-500 hover:shadow-2xl hover:border-cyan-400 hover:-translate-y-1 h-full flex flex-col items-center text-center group-hover:bg-cyan-50/30">
+              <div className="p-4 bg-cyan-50 rounded-2xl mb-4 group-hover:bg-white group-hover:scale-105 transition-all duration-500 shadow-sm">
+                <Briefcase className="w-7 h-7 text-cyan-600" strokeWidth={2.5} />
               </div>
-              <h3 className="text-lg font-semibold text-slate-800 mb-2">Manage Jobs</h3>
-              <p className="text-muted-foreground text-sm mb-4">Create and manage job openings for your clients.</p>
-              <div className="flex items-center text-sm text-cyan-600 font-medium group-hover:gap-2 transition-all">
-                <span>Manage Jobs</span>
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+              <h3 className="text-lg font-extrabold text-slate-800 mb-2 font-outfit tracking-tight">Job Board</h3>
+              <p className="text-slate-500 text-xs leading-relaxed mb-6 flex-grow max-w-[180px]">Track active job openings across client portfolios.</p>
+              <div className="flex items-center gap-2 text-[10px] text-cyan-700 font-black tracking-widest uppercase py-2.5 px-5 bg-cyan-50 rounded-full group-hover:bg-cyan-600 group-hover:text-white transition-all duration-300">
+                <span>View Jobs</span>
+                <ArrowRight className="w-3 h-3" />
               </div>
             </div>
           </Link>
 
-          {/* AI Upload */}
-          {!isLead && (
-            <Link to="/admin/resumes/upload" className="group">
-              <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-indigo-300 hover:-translate-y-1 h-full">
-                <div className="p-3 bg-indigo-50 rounded-lg w-fit mb-4 group-hover:bg-indigo-100 transition-colors">
-                  <Sparkles className="w-6 h-6 text-indigo-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-slate-800 mb-2">Single Resume Upload</h3>
-                <p className="text-muted-foreground text-sm mb-4">Upload one resume for AI-powered parsing and semantic matching.</p>
-                <div className="flex items-center text-sm text-indigo-600 font-medium group-hover:gap-2 transition-all">
-                  <span>Single Upload</span>
-                  <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
-                </div>
-              </div>
-            </Link>
-          )}
-
           {/* Bulk Upload */}
           {!isLead && (
-            <Link to="/admin/resumes/bulk-upload" className="group">
-              <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-violet-300 hover:-translate-y-1 h-full">
-                <div className="p-3 bg-violet-50 rounded-lg w-fit mb-4 group-hover:bg-violet-100 transition-colors">
-                  <FolderUp className="w-6 h-6 text-violet-600" />
+            <Link to="/admin/resumes/bulk-upload" className="group h-full">
+              <div className="bg-card rounded-2xl shadow-sm border border-slate-200 p-6 transition-all duration-500 hover:shadow-2xl hover:border-violet-400 hover:-translate-y-1 h-full flex flex-col items-center text-center group-hover:bg-violet-50/30">
+                <div className="p-4 bg-violet-50 rounded-2xl mb-4 group-hover:bg-white group-hover:scale-105 transition-all duration-500 shadow-sm">
+                  <Zap className="w-7 h-7 text-violet-600" strokeWidth={2.5} />
                 </div>
-                <h3 className="text-lg font-semibold text-slate-800 mb-2">Bulk Resume Upload</h3>
-                <p className="text-muted-foreground text-sm mb-4">Upload up to 1000 resumes with parallel AI processing.</p>
-                <div className="flex items-center text-sm text-violet-600 font-medium group-hover:gap-2 transition-all">
-                  <span>Bulk Upload</span>
-                  <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+                <h3 className="text-lg font-extrabold text-slate-800 mb-2 font-outfit tracking-tight">Bulk Parsing</h3>
+                <p className="text-slate-500 text-xs leading-relaxed mb-6 flex-grow max-w-[180px]">Process up to 1000 resumes with high-accuracy AI extraction.</p>
+                <div className="flex items-center gap-2 text-[10px] text-violet-700 font-black tracking-widest uppercase py-2.5 px-5 bg-violet-50 rounded-full group-hover:bg-violet-600 group-hover:text-white transition-all duration-300">
+                  <span>Start Batch</span>
+                  <ArrowRight className="w-3 h-3" />
                 </div>
               </div>
             </Link>
@@ -355,16 +342,16 @@ export default function AdminDashboard() {
 
           {/* Send Notification */}
           {!isLead && (
-            <Link to="/admin/notifications" className="group">
-              <div className="bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-rose-300 hover:-translate-y-1 h-full">
-                <div className="p-3 bg-rose-50 rounded-lg w-fit mb-4 group-hover:bg-rose-100 transition-colors">
-                  <Sparkles className="w-6 h-6 text-rose-600" />
+            <Link to="/admin/notifications" className="group h-full">
+              <div className="bg-card rounded-2xl shadow-sm border border-slate-200 p-6 transition-all duration-500 hover:shadow-2xl hover:border-rose-400 hover:-translate-y-1 h-full flex flex-col items-center text-center group-hover:bg-rose-50/30">
+                <div className="p-4 bg-rose-50 rounded-2xl mb-4 group-hover:bg-white group-hover:scale-105 transition-all duration-500 shadow-sm">
+                  <Megaphone className="w-7 h-7 text-rose-600" strokeWidth={2.5} />
                 </div>
-                <h3 className="text-lg font-semibold text-slate-800 mb-2">Send Notification</h3>
-                <p className="text-muted-foreground text-sm mb-4">Broadcast important updates to all vendors and recruiters from a single place.</p>
-                <div className="flex items-center text-sm text-rose-600 font-medium group-hover:gap-2 transition-all">
-                  <span>Open Notification Center</span>
-                  <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+                <h3 className="text-lg font-extrabold text-slate-800 mb-2 font-outfit tracking-tight">Broadcast</h3>
+                <p className="text-slate-500 text-xs leading-relaxed mb-6 flex-grow max-w-[180px]">Dispatch important platform updates to all internal teams.</p>
+                <div className="flex items-center gap-2 text-[10px] text-rose-700 font-black tracking-widest uppercase py-2.5 px-5 bg-rose-50 rounded-full group-hover:bg-rose-600 group-hover:text-white transition-all duration-300">
+                  <span>Send Alert</span>
+                  <ArrowRight className="w-3 h-3" />
                 </div>
               </div>
             </Link>
@@ -373,16 +360,16 @@ export default function AdminDashboard() {
           {/* Send Secure Interview Link */}
           <div 
             onClick={() => setIsInterviewModalOpen(true)}
-            className="group cursor-pointer bg-card rounded-xl shadow-sm border border-border p-6 transition-all duration-300 hover:shadow-lg hover:border-blue-400 hover:-translate-y-1 h-full"
+            className="group cursor-pointer bg-card rounded-2xl shadow-sm border border-slate-200 p-6 transition-all duration-500 hover:shadow-2xl hover:border-blue-400 hover:-translate-y-1 h-full flex flex-col items-center text-center group-hover:bg-blue-50/30"
           >
-            <div className="p-3 bg-blue-50 rounded-lg w-fit mb-4 group-hover:bg-blue-100 transition-colors">
-              <Shield className="w-6 h-6 text-blue-600" />
+            <div className="p-4 bg-blue-50 rounded-2xl mb-4 group-hover:bg-white group-hover:scale-105 transition-all duration-500 shadow-sm">
+              <SendHorizontal className="w-7 h-7 text-blue-600" strokeWidth={2.5} />
             </div>
-            <h3 className="text-lg font-semibold text-slate-800 mb-2 font-outfit">Send Interview Link</h3>
-            <p className="text-muted-foreground text-sm mb-4">Search candidate and send a secure, one-time interview link.</p>
-            <div className="flex items-center text-sm text-blue-600 font-medium group-hover:gap-2 transition-all">
-              <span>Send Link</span>
-              <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
+            <h3 className="text-lg font-extrabold text-slate-800 mb-2 font-outfit tracking-tight">Secure Invite</h3>
+            <p className="text-slate-500 text-xs leading-relaxed mb-6 flex-grow max-w-[180px]">Generate and dispatch secure assessment links to candidates.</p>
+            <div className="flex items-center gap-2 text-[10px] text-blue-700 font-black tracking-widest uppercase py-2.5 px-5 bg-blue-50 rounded-full group-hover:bg-blue-600 group-hover:text-white transition-all duration-300">
+              <span>Send link</span>
+              <ArrowRight className="w-3 h-3" />
             </div>
           </div>
 

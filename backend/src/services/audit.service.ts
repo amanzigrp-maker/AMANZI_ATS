@@ -45,15 +45,16 @@ export type { AuditAction };
  * @param req - The Express request object to extract IP address and user agent.
  * @param success - Whether the action was successful.
  * @param action - The type of action being logged.
+ * @param attemptedEmail - The email address used in the login attempt (optional).
  */
-export const logAudit = async (userId: number | null, req: Request, success: boolean, action: AuditAction) => {
+export const logAudit = async (userId: number | null, req: Request, success: boolean, action: AuditAction, attemptedEmail?: string) => {
   try {
     const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
 
     await pool.query(
-      'INSERT INTO loginaudit (userid, ipaddress, deviceinfo, loginstatus) VALUES ($1, $2, $3, $4)',
-      [userId, ip, userAgent, success ? 'success' : 'failed']
+      'INSERT INTO loginaudit (userid, ipaddress, deviceinfo, loginstatus, attempted_email) VALUES ($1, $2, $3, $4, $5)',
+      [userId, ip, userAgent, success ? 'success' : 'failed', attemptedEmail || null]
     );
   } catch (error) {
     console.error('Failed to write to audit log:', error);

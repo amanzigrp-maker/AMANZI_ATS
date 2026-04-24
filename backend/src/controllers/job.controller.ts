@@ -161,15 +161,11 @@ export const AI_CANDIDATES_FOR_JOB_SQL = `
       GROUP BY cand.candidate_id, cand.full_name, cand.email, cand.phone, cand.total_experience_years, cand.current_designation, cand.skills, r.parsed_json, j.job_id, j.skills
 
       HAVING
-          -- For now, just require that candidates have at least one embedding
-          -- This allows AI semantic matching to work
-          (
-            COALESCE(BOOL_OR(c_skill.embedding IS NOT NULL), FALSE) = TRUE
-            OR COALESCE(BOOL_OR(c_exp.embedding IS NOT NULL), FALSE) = TRUE
-          )
+          -- Allow all candidates to be ranked, prioritize those with embeddings via scoring.
+          TRUE
 
       ORDER BY final_score DESC
-      LIMIT 5;
+      LIMIT 25;
       `;
 
 export async function computeAiCandidatesForJob(jobId: number) {
@@ -194,7 +190,7 @@ export async function computeAiCandidatesForJob(jobId: number) {
     skills_score: Number(r.skills_score) || 0,
     final_score: Number(r.final_score) || 0,
     fit_label: r.fit_label ? String(r.fit_label) : "",
-  }));
+  })).slice(0, 10); // Return top 10
 }
 
 /**
@@ -660,7 +656,7 @@ export const getAiCandidatesForJob = async (req: Request, res: Response) => {
           });
 
           if (geminiResponse.ok) {
-            const geminiResult = await geminiResponse.json();
+            const geminiResult: any = await geminiResponse.json();
             if (geminiResult.success && geminiResult.ranked_candidates) {
               console.log('[GEMINI-RANKING] Successfully re-ranked with Gemini');
               data = geminiResult.ranked_candidates;
@@ -670,7 +666,8 @@ export const getAiCandidatesForJob = async (req: Request, res: Response) => {
           }
         }
       } catch (geminiError) {
-        console.log('[GEMINI-RANKING] Gemini ranking failed, using embedding scores:', geminiError);
+        console.error('[GEMINI-RANKING] Gemini re-ranking step failed:', geminiError);
+        // Continue with original data
       }
     }
 
@@ -690,98 +687,106 @@ export const getAiCandidatesForJob = async (req: Request, res: Response) => {
       }
 
       if (candidateIds.length) {
-        // Insert into job_candidate_matches (legacy table)
-        await pool.query(
-          `
-          INSERT INTO job_candidate_matches (
-            organization_id,
-            job_id,
-            candidate_id,
-            experience_score,
-            skills_score,
-            education_score,
-            projects_score,
-            final_score,
-            model_version,
-            match_source,
-            matched_at
-          )
-          SELECT
-            j.organization_id,
-            $1::int AS job_id,
-            m.candidate_id,
-            m.experience_score,
-            m.skills_score,
-            NULL::double precision AS education_score,
-            NULL::double precision AS projects_score,
-            m.final_score,
-            'ai-candidates-v1'::text AS model_version,
-            'manual'::text AS match_source,
-            NOW() AS matched_at
-          FROM jobs j
-          JOIN (
+        try {
+          // Insert into job_candidate_matches (legacy table)
+          await pool.query(
+            `
+            INSERT INTO job_candidate_matches (
+              organization_id,
+              job_id,
+              candidate_id,
+              experience_score,
+              skills_score,
+              education_score,
+              projects_score,
+              final_score,
+              model_version,
+              match_source,
+              matched_at
+            )
             SELECT
-              *
+              j.organization_id,
+              $1::int AS job_id,
+              m.candidate_id,
+              m.experience_score,
+              m.skills_score,
+              NULL::double precision AS education_score,
+              NULL::double precision AS projects_score,
+              m.final_score,
+              'ai-candidates-v1'::text AS model_version,
+              'manual'::text AS match_source,
+              NOW() AS matched_at
+            FROM jobs j
+            JOIN (
+              SELECT
+                *
+              FROM unnest(
+                $2::int[],
+                $3::double precision[],
+                $4::double precision[],
+                $5::double precision[]
+              ) AS u(candidate_id, experience_score, skills_score, final_score)
+            ) m ON TRUE
+            WHERE j.job_id = $1
+            ON CONFLICT (job_id, candidate_id)
+            DO UPDATE SET
+              final_score = EXCLUDED.final_score,
+              matched_at = NOW();
+            `,
+            [jobId, candidateIds, experienceScores, skillsScores, finalScores]
+          );
+        } catch (matchError) {
+          console.error('[AI-RANKING] Failed to sync job_candidate_matches:', matchError);
+        }
+
+
+        try {
+          // ALSO insert into job_recommendations table (new table for UI)
+          console.log('[AI-RANKING] Inserting', candidateIds.length, 'recommendations into job_recommendations');
+          await pool.query(
+            `
+            INSERT INTO job_recommendations (
+              job_id,
+              candidate_id,
+              final_score,
+              skills_score,
+              experience_score,
+              recommendation_score_bucket,
+              recommendation_status
+            )
+            SELECT
+              $1::int AS job_id,
+              m.candidate_id,
+              m.final_score,
+              m.skills_score,
+              m.experience_score,
+              CASE
+                WHEN m.final_score >= 0.75 THEN 'strong'
+                WHEN m.final_score >= 0.55 THEN 'good'
+                WHEN m.final_score >= 0.35 THEN 'partial'
+                ELSE 'cold'
+              END AS recommendation_score_bucket,
+              'new' AS recommendation_status
             FROM unnest(
               $2::int[],
               $3::double precision[],
               $4::double precision[],
               $5::double precision[]
-            ) AS u(candidate_id, experience_score, skills_score, final_score)
-          ) m ON TRUE
-          WHERE j.job_id = $1
-          ON CONFLICT (job_id, candidate_id)
-          DO UPDATE SET
-            final_score = EXCLUDED.final_score,
-            matched_at = NOW();
-          `,
-          [jobId, candidateIds, experienceScores, skillsScores, finalScores]
-        );
-
-
-        // ALSO insert into job_recommendations table (new table for UI)
-        console.log('[AI-RANKING] Inserting', candidateIds.length, 'recommendations into job_recommendations');
-        await pool.query(
-          `
-          INSERT INTO job_recommendations (
-            job_id,
-            candidate_id,
-            final_score,
-            skills_score,
-            experience_score,
-            recommendation_score_bucket,
-            recommendation_status
-          )
-          SELECT
-            $1::int AS job_id,
-            m.candidate_id,
-            m.final_score,
-            m.skills_score,
-            m.experience_score,
-            CASE
-              WHEN m.final_score >= 0.75 THEN 'strong'
-              WHEN m.final_score >= 0.55 THEN 'good'
-              WHEN m.final_score >= 0.35 THEN 'partial'
-              ELSE 'cold'
-            END AS recommendation_score_bucket,
-            'new' AS recommendation_status
-          FROM unnest(
-            $2::int[],
-            $3::double precision[],
-            $4::double precision[],
-            $5::double precision[]
-          ) AS m(candidate_id, final_score, skills_score, experience_score)
-          ON CONFLICT (job_id, candidate_id)
-          DO UPDATE SET
-            final_score = EXCLUDED.final_score,
-            skills_score = EXCLUDED.skills_score,
-            experience_score = EXCLUDED.experience_score,
-            recommendation_score_bucket = EXCLUDED.recommendation_score_bucket,
-            recommended_at = NOW();
-          `,
-          [jobId, candidateIds, finalScores, skillsScores, experienceScores]
-        );
-        console.log('[AI-RANKING] Successfully inserted recommendations');
+            ) AS m(candidate_id, final_score, skills_score, experience_score)
+            ON CONFLICT (job_id, candidate_id)
+            DO UPDATE SET
+              final_score = EXCLUDED.final_score,
+              skills_score = EXCLUDED.skills_score,
+              experience_score = EXCLUDED.experience_score,
+              recommendation_score_bucket = EXCLUDED.recommendation_score_bucket,
+              recommended_at = NOW();
+            `,
+            [jobId, candidateIds, finalScores, skillsScores, experienceScores]
+          );
+          console.log('[AI-RANKING] Successfully inserted recommendations');
+        } catch (recError) {
+          console.error('[AI-RANKING] Failed to sync job_recommendations:', recError);
+        }
       }
     }
 

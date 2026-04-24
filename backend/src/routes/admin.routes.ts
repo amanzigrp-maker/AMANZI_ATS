@@ -48,7 +48,7 @@ router.get('/logins/recent', async (req, res) => {
     let query = `
       SELECT la.auditid, la.userid, u.email, la.logintime, la.ipaddress, la.deviceinfo, la.loginstatus
       FROM loginaudit la
-      LEFT JOIN users u ON la.userid = u.userid
+      JOIN users u ON la.userid = u.userid
     `;
     const params: any[] = [limit, offset];
 
@@ -84,7 +84,7 @@ router.get('/logins/recent', async (req, res) => {
  * Query params: min (number), hours (number)
  */
 router.get('/logins/failed', async (req, res) => {
-  const min = parseInt(req.query.min as string || '3', 10);
+  const min = parseInt(req.query.min as string || '1', 10);
   const hours = parseInt(req.query.hours as string || '24', 10);
 
   try {
@@ -103,7 +103,9 @@ router.get('/logins/failed', async (req, res) => {
       params.push(loggedInUser.id);
     }
 
-    query += ` GROUP BY u.userid, u.email HAVING COUNT(*) >= $1 ORDER BY failed_attempts DESC`;
+    query += ` GROUP BY u.userid, u.email`;
+
+    query += ` HAVING COUNT(*) >= $1 ORDER BY failed_attempts DESC`;
 
     const { rows } = await pool.query(query, params);
     res.json(rows);

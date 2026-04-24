@@ -245,7 +245,7 @@ function JobMatches({
         toast.message('No strong matches found');
       }
     } catch (e: any) {
-      const msg = 'AI matching failed. Please try again.';
+      const msg = e.message || 'System busy. Please try ranking again in a moment.';
       setError(msg);
       toast.error(msg);
     } finally {
@@ -292,7 +292,18 @@ function JobMatches({
                   <th className="py-2 pr-4">Name</th>
                 </tr>
               </thead>
-              <tbody></tbody>
+              <tbody>
+                {matches.slice(0, 10).map((m) => (
+                  <tr key={m.candidate_id} className="border-b hover:bg-slate-50 cursor-pointer" onClick={() => navigate(`/candidate/${m.candidate_id}`)}>
+                    <td className="py-2 pr-4 font-medium">{m.full_name}</td>
+                    <td className="py-2 pr-4 text-slate-500">{m.current_designation}</td>
+                    <td className="py-2 pr-4 text-slate-500">{m.total_experience_years}y</td>
+                    <td className="py-2 text-right">
+                      <Badge variant="outline" className="bg-blue-50">{(m.final_score * 100).toFixed(0)}% Match</Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
             </table>
           </div>
         )}
@@ -369,7 +380,7 @@ function CandidateMatchesCard({ jobId }: { jobId: number }) {
         toast.message('No strong matches found');
       }
     } catch (e: any) {
-      const msg = 'AI matching failed. Please try again.';
+      const msg = e.message || 'AI ranking currently unavailable. Check your internet or try again.';
       setError(msg);
       toast.error(msg);
     } finally {

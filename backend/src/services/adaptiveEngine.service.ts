@@ -57,6 +57,9 @@ export class AdaptiveEngineService {
       );
     }
 
+    console.log(`\x1b[36m🎯 IRT SESSION STARTING for \x1b[1m${candidateEmail}\x1b[0m \x1b[36min skill\x1b[0m \x1b[1m${skill}\x1b[0m`);
+    console.log(`   └─ Initial Ability Estimate (θ): \x1b[33m${initialTheta.toFixed(2)}\x1b[0m`);
+
     return {
       candidateId,
       candidateEmail,
@@ -74,27 +77,107 @@ export class AdaptiveEngineService {
   public static async getNextQuestion(session: AdaptiveSessionState) {
     const { skill, currentTheta, attemptedQuestionIds } = session;
 
-    // FIND BEST QUESTION: Closest difficulty_b to current theta
+    // Clean up skill name for more lenient matching (e.g., mern_developer -> mern%developer)
+    const searchPattern = `%${skill.replace(/[_-]/g, '%')}%`;
+
     const query = `
       SELECT q.*, 
-             ABS(q.difficulty_b - $1) as diff_distance
+             ABS(q.difficulty_b - $1) as diff_distance,
+             jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
       FROM questions q
-      WHERE q.skill_tag = $2
+      JOIN question_options o ON q.question_id = o.question_id
+      WHERE (q.skill_tag ILIKE $2 OR q.skill_tag ILIKE $3)
         AND q.question_id NOT IN (${attemptedQuestionIds.length > 0 ? attemptedQuestionIds.join(',') : '-1'})
+      GROUP BY q.question_id
       ORDER BY diff_distance ASC, q.discrimination_a DESC
       LIMIT 1
     `;
 
-    const result = await pool.query(query, [currentTheta, skill]);
+    const result = await pool.query(query, [currentTheta, skill, searchPattern]);
 
-    if (result.rows.length === 0) {
-      // Fallback: If no manually calibrated questions, try any question with this tag
-      // In a real production system, this is where we'd call Gemini to generate a question 
-      // at difficulty = currentTheta
-      return null;
+    if (result.rows.length > 0) {
+      const bestMatch = result.rows[0];
+      if (bestMatch.diff_distance < 1.0) {
+        const shortText = bestMatch.question_text.length > 60 ? bestMatch.question_text.substring(0, 57) + '...' : bestMatch.question_text;
+        console.log(`\x1b[35m🔍 Adaptive Selection:\x1b[0m Matching Item Bank`);
+        console.log(`   ├─ Question: "${shortText}"`);
+        console.log(`   └─ Item Difficulty (b): \x1b[33m${bestMatch.difficulty_b.toFixed(2)}\x1b[0m (Current θ: ${currentTheta.toFixed(2)}, Distance: ${bestMatch.diff_distance.toFixed(3)})`);
+        return bestMatch;
+      }
     }
 
-    return result.rows[0];
+    // 2. FALLBACK to AI: Generate tailored question with Gemini
+    console.log(`\x1b[34m🤖 Adaptive Fallback:\x1b[0m Item Bank low for '${skill}' @ θ ${currentTheta.toFixed(2)}. Calling Gemini...`);
+    try {
+      const { GeminiQuestionService } = await import('./geminiQuestion.service');
+      const aiQuestion = await GeminiQuestionService.generateQuestion(skill, currentTheta);
+
+      if (aiQuestion) {
+        const shortText = aiQuestion.question_text.length > 60 ? aiQuestion.question_text.substring(0, 57) + '...' : aiQuestion.question_text;
+        console.log(`\x1b[34m🤖 AI Generation Success:\x1b[0m Tailored question generated`);
+        console.log(`   ├─ Question: "${shortText}"`);
+        console.log(`   └─ AI Est. Difficulty (b): \x1b[33m${aiQuestion.difficulty_b.toFixed(2)}\x1b[0m`);
+
+        const { CalibrationService } = await import('./calibration.service');
+        const savedResult = await CalibrationService.injectAIQuestion({
+          text: aiQuestion.question_text,
+          options: aiQuestion.options,
+          correct: aiQuestion.correct_option,
+          skill: aiQuestion.skill_tag,
+          aiEstimateDifficulty: aiQuestion.difficulty_b
+        });
+        
+        // Return in same format as DB query (with options)
+        return {
+          ...savedResult.rows[0],
+          options: aiQuestion.options
+        };
+      }
+    } catch (e) {
+      console.error("AI Fallback failed:", e);
+    }
+
+    // 3. FINAL FALLBACK: If everything failed, try to get ANY question from 'General' skill
+    if (result.rows.length === 0) {
+      console.log(`\x1b[33m⚠️  Adaptive Crisis:\x1b[0m No questions for '${skill}' and AI failed. Falling back to 'General'...`);
+      const generalFallback = await pool.query(`
+        SELECT q.*, 
+               ABS(q.difficulty_b - $1) as diff_distance,
+               jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
+        FROM questions q
+        JOIN question_options o ON q.question_id = o.question_id
+        WHERE q.skill_tag ILIKE 'General'
+          AND q.question_id NOT IN (${attemptedQuestionIds.length > 0 ? attemptedQuestionIds.join(',') : '-1'})
+        GROUP BY q.question_id
+        ORDER BY diff_distance ASC
+        LIMIT 1
+      `, [currentTheta]);
+      
+      if (generalFallback.rows.length > 0) {
+        console.log(`\x1b[32m✅ Crisis Averted:\x1b[0m Found a General question.`);
+        return generalFallback.rows[0];
+      }
+      
+      // 4. ABSOLUTE LAST RESORT: Get ANY question from the DB regardless of skill
+      console.log(`\x1b[31m💣 Total Bank Exhaustion:\x1b[0m No skill-matched or General questions. Pulling ANY question...`);
+      const absoluteLastResort = await pool.query(`
+        SELECT q.*, 
+               ABS(q.difficulty_b - $1) as diff_distance,
+               jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
+        FROM questions q
+        JOIN question_options o ON q.question_id = o.question_id
+        WHERE q.question_id NOT IN (${attemptedQuestionIds.length > 0 ? attemptedQuestionIds.join(',') : '-1'})
+        GROUP BY q.question_id
+        ORDER BY RANDOM()
+        LIMIT 1
+      `, [currentTheta]);
+      
+      if (absoluteLastResort.rows.length > 0) {
+        return absoluteLastResort.rows[0];
+      }
+    }
+
+    return result.rows.length > 0 ? result.rows[0] : null;
   }
 
   /**
@@ -107,17 +190,26 @@ export class AdaptiveEngineService {
   ): Promise<{ newTheta: number; isFinished: boolean }> {
     // 1. Get question parameters
     const qResult = await pool.query(
-      'SELECT difficulty_b, discrimination_a, guessing_c, skill_tag FROM questions WHERE question_id = $1',
+      'SELECT question_text, difficulty_b, discrimination_a, guessing_c, skill_tag FROM questions WHERE question_id = $1',
       [questionId]
     );
 
     if (qResult.rows.length === 0) throw new Error('Question not found');
-    const params: IRTParameters = qResult.rows[0];
+    const { question_text, ...params } = qResult.rows[0];
 
     // 2. Update Theta
     const thetaBefore = session.currentTheta;
     const thetaAfter = IRTService.updateTheta(thetaBefore, params, isCorrect);
     
+    // Log Calibration
+    const shift = thetaAfter - thetaBefore;
+    const direction = shift >= 0 ? '\x1b[32m⬆️ INCREASE\x1b[0m' : '\x1b[31m⬇️ DECREASE\x1b[0m';
+    const shortText = question_text.length > 60 ? question_text.substring(0, 57) + '...' : question_text;
+    
+    console.log(`\x1b[32m📊 IRT Update [Q${session.questionCount + 1}]:\x1b[0m ${isCorrect ? '✅ CORRECT' : '❌ INCORRECT'}`);
+    console.log(`   ├─ Question: "${shortText}"`);
+    console.log(`   └─ θ Shift: ${thetaBefore.toFixed(3)} ➔ ${thetaAfter.toFixed(3)} (${direction}: ${Math.abs(shift).toFixed(3)})`);
+
     // 3. Record Response
     await pool.query(
       `INSERT INTO irt_responses 
