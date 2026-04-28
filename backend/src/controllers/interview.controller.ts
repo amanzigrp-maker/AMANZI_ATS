@@ -4,6 +4,7 @@ import bcrypt from 'bcrypt';
 import { pool } from '../lib/database';
 import { sendInterviewLink, sendInterviewResults, sendSelectionEmail } from '../services/email.service';
 import { generateAdaptiveQuestionAtDifficulty } from '../services/ai-interview.service';
+import { aiWorkerService } from '../services/ai-worker.service';
 import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../middleware/auth.middleware';
 
@@ -247,7 +248,71 @@ const formatQuestionForClient = (row: any) => ({
   options: Array.isArray(row.options) ? row.options : Object.values(row.options || {}),
   difficulty: row.difficulty || 'medium',
   theta: row.theta !== undefined ? Number(row.theta) : undefined,
+  selection_mode: String(row.selection_mode || ''),
+  semantic_similarity: row.semantic_similarity !== undefined && row.semantic_similarity !== null
+    ? Number(row.semantic_similarity)
+    : undefined,
+  semantic_topic: row.semantic_topic ? String(row.semantic_topic) : undefined,
 });
+
+const buildSemanticQueryText = ({
+  role,
+  skillFocus,
+  difficulty,
+  experience,
+  recentQuestions,
+}: {
+  role: string;
+  skillFocus: string;
+  difficulty: string;
+  experience: number;
+  recentQuestions: string[];
+}) => {
+  const lines = [
+    `Role: ${role || 'General'}`,
+    `Skill focus: ${skillFocus || role || 'General'}`,
+    `Target difficulty: ${difficulty || 'medium'}`,
+    `Experience: ${Number(experience) || 0} years`,
+  ];
+
+  const recent = recentQuestions.map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3);
+  if (recent.length) {
+    lines.push(`Recent questions already asked: ${recent.join(' | ')}`);
+  }
+
+  return lines.join('\n');
+};
+
+const scoreSemanticQuestionCandidate = (candidate: any, theta: number) => {
+  const semanticSimilarity = Math.max(0, Math.min(1, Number(candidate?.similarity) || 0));
+  const difficultyDelta = Math.abs((Number(candidate?.difficulty_score) || difficultyScore(candidate?.difficulty)) - theta);
+  const difficultyFit = Math.max(0, 1 - Math.min(difficultyDelta, 1));
+  return (semanticSimilarity * 0.72) + (difficultyFit * 0.28);
+};
+
+const pickBestSemanticQuestion = (candidates: any[], theta: number) => {
+  if (!Array.isArray(candidates) || !candidates.length) return null;
+  return [...candidates].sort((a, b) => scoreSemanticQuestionCandidate(b, theta) - scoreSemanticQuestionCandidate(a, theta))[0] || null;
+};
+
+const toOptionList = (options: any) => {
+  if (Array.isArray(options)) return options.filter(Boolean);
+  const optionObject = options && typeof options === 'object' ? options : {};
+  return ['A', 'B', 'C', 'D'].map((key) => optionObject[key]).filter(Boolean);
+};
+
+const getSemanticAssessmentMatches = async (
+  assessmentId: number,
+  queryText: string,
+  topK: number,
+  excludeQuestionIds: number[]
+) => {
+  let matches = await aiWorkerService.semanticQuestionSearch(assessmentId, queryText, topK, excludeQuestionIds);
+  if (matches.length) return matches;
+
+  await aiWorkerService.embedAssessment(assessmentId);
+  return aiWorkerService.semanticQuestionSearch(assessmentId, queryText, topK, excludeQuestionIds);
+};
 
 const createNextAdaptiveQuestion = async (
   client: any,
@@ -270,45 +335,77 @@ const createNextAdaptiveQuestion = async (
   const aiQuestionCount = Number(aiCountResult.rows[0]?.count) || 0;
   const skillFocus = await getCandidateSkillFocus(tokenData.candidate_email, sessionId, aiQuestionCount, role);
   const shouldUseSkillAi = tokenData.question_source === 'hybrid' && generatedCount % 2 === 1;
+  const usedSourceQuestionIdsResult = await client.query(
+    `SELECT source_question_id FROM interview_questions WHERE session_id = $1 AND source_question_id IS NOT NULL`,
+    [sessionId]
+  );
+  const recentQuestionsResult = await client.query(
+    `SELECT question, source_question_id FROM interview_questions WHERE session_id = $1 ORDER BY id DESC LIMIT 5`,
+    [sessionId]
+  );
+  const recentQuestionTexts = recentQuestionsResult.rows.map((row: any) => String(row.question || '').trim()).filter(Boolean);
+  const usedSourceQuestionIds = usedSourceQuestionIdsResult.rows
+    .map((row: any) => Number(row.source_question_id))
+    .filter((value: number) => Number.isInteger(value) && value > 0);
+  const semanticQueryText = buildSemanticQueryText({
+    role,
+    skillFocus,
+    difficulty: targetDifficulty,
+    experience,
+    recentQuestions: recentQuestionTexts,
+  });
 
   if (!shouldUseSkillAi && (tokenData.question_source === 'bank' || tokenData.question_source === 'hybrid') && tokenData.assessment_id) {
-    const candidates = await client.query(
-      `
-      SELECT
-        q.question_id,
-        q.question_text,
-        q.correct_option,
-        q.difficulty,
-        q.difficulty_score,
-        jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
-      FROM question_sets qs
-      JOIN questions q ON q.question_set_id = qs.question_set_id
-      JOIN question_options o ON o.question_id = q.question_id
-      WHERE qs.assessment_id = $1
-        AND q.question_id NOT IN (
-          SELECT COALESCE(source_question_id, -1)
-          FROM interview_questions
-          WHERE session_id = $2
-        )
-      GROUP BY q.question_id
-      ORDER BY ABS(COALESCE(q.difficulty_score::float8, $3) - $3), RANDOM()
-      LIMIT 25
-      `,
-      [Number(tokenData.assessment_id), sessionId, theta]
-    );
+    let selected =
+      pickBestSemanticQuestion(
+        await getSemanticAssessmentMatches(
+          Number(tokenData.assessment_id),
+          semanticQueryText,
+          10,
+          usedSourceQuestionIds
+        ),
+        theta
+      ) as any;
 
-    const selected = (shuffleRows(candidates.rows) as any[]).sort((a: any, b: any) => {
-      const da = Math.abs((Number(a.difficulty_score) || difficultyScore(a.difficulty)) - theta);
-      const db = Math.abs((Number(b.difficulty_score) || difficultyScore(b.difficulty)) - theta);
-      return da - db;
-    })[0] as any;
+    if (!selected) {
+      const candidates = await client.query(
+        `
+        SELECT
+          q.question_id,
+          q.question_text,
+          q.correct_option,
+          q.difficulty,
+          q.difficulty_score,
+          jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
+        FROM question_sets qs
+        JOIN questions q ON q.question_set_id = qs.question_set_id
+        JOIN question_options o ON o.question_id = q.question_id
+        WHERE qs.assessment_id = $1
+          AND q.question_id NOT IN (
+            SELECT COALESCE(source_question_id, -1)
+            FROM interview_questions
+            WHERE session_id = $2
+          )
+        GROUP BY q.question_id
+        ORDER BY ABS(COALESCE(q.difficulty_score::float8, $3) - $3), RANDOM()
+        LIMIT 25
+        `,
+        [Number(tokenData.assessment_id), sessionId, theta]
+      );
+
+      selected = (shuffleRows(candidates.rows) as any[]).sort((a: any, b: any) => {
+        const da = Math.abs((Number(a.difficulty_score) || difficultyScore(a.difficulty)) - theta);
+        const db = Math.abs((Number(b.difficulty_score) || difficultyScore(b.difficulty)) - theta);
+        return da - db;
+      })[0] as any;
+    }
 
     if (!selected && tokenData.question_source === 'bank') return null;
     if (!selected) {
       // Hybrid assessments can continue with role + focused-skill AI if the chosen bank is exhausted.
     } else {
       const optionsObject = selected.options || {};
-      const optionList = ['A', 'B', 'C', 'D'].map((key) => optionsObject[key]).filter(Boolean);
+      const optionList = toOptionList(optionsObject);
       const correctAnswer = optionsObject[selected.correct_option] || selected.correct_option;
       const itemDifficulty = Number(selected.difficulty_score) || difficultyScore(selected.difficulty);
 
@@ -321,11 +418,57 @@ const createNextAdaptiveQuestion = async (
         [sessionId, selected.question_text, JSON.stringify(optionList), correctAnswer, selected.difficulty || targetDifficulty, selected.question_id, itemDifficulty]
       );
 
-      return { ...inserted.rows[0], theta };
+      return {
+        ...inserted.rows[0],
+        theta,
+        selection_mode: Number(selected?.similarity) > 0 ? 'semantic+theta' : 'theta-fallback',
+        semantic_similarity: Number(selected?.similarity) > 0 ? Number(selected.similarity) : null,
+        semantic_topic: String(selected?.topic || skillFocus || '').trim() || null,
+      };
     }
   }
 
-  const aiQuestion = await generateAdaptiveQuestionAtDifficulty(role, experience || 0, skillFocus, targetDifficulty);
+  const semanticReferenceQuestions = tokenData.assessment_id
+    ? await getSemanticAssessmentMatches(
+        Number(tokenData.assessment_id),
+        semanticQueryText,
+        5,
+        usedSourceQuestionIds
+      )
+    : [];
+  const candidateSemanticContext = tokenData.candidate_email
+    ? await aiWorkerService.semanticCandidateContext(tokenData.candidate_email, semanticQueryText, 4)
+    : [];
+  const semanticSimilarityCandidates = [
+    ...semanticReferenceQuestions.map((item: any) => Number(item?.similarity) || 0),
+    ...candidateSemanticContext.map((item: any) => Number(item?.similarity) || 0),
+  ].filter((value: number) => value > 0);
+  const bestSemanticSimilarity = semanticSimilarityCandidates.length
+    ? Math.max(...semanticSimilarityCandidates)
+    : null;
+
+  const aiQuestion = await generateAdaptiveQuestionAtDifficulty(
+    role,
+    experience || 0,
+    skillFocus,
+    targetDifficulty,
+    {
+      relatedTopics: Array.from(
+        new Set(
+          [skillFocus, ...semanticReferenceQuestions.map((item: any) => String(item?.topic || '').trim())]
+            .filter(Boolean)
+        )
+      ),
+      referenceQuestions: semanticReferenceQuestions.map((item: any) => String(item?.question_text || '').trim()).filter(Boolean),
+      candidateContext: candidateSemanticContext
+        .map((item: any) => {
+          const section = String(item?.section || '').trim();
+          const content = String(item?.content || '').trim();
+          return [section ? `${section}:` : '', content].filter(Boolean).join(' ');
+        })
+        .filter(Boolean),
+    }
+  );
   const inserted = await client.query(
     `
     INSERT INTO interview_questions (session_id, question, options, correct_answer, difficulty, difficulty_score)
@@ -335,7 +478,13 @@ const createNextAdaptiveQuestion = async (
     [sessionId, aiQuestion.question, JSON.stringify(aiQuestion.options), aiQuestion.correct_answer, targetDifficulty, difficultyScore(targetDifficulty)]
   );
 
-  return { ...inserted.rows[0], theta };
+  return {
+    ...inserted.rows[0],
+    theta,
+    selection_mode: bestSemanticSimilarity ? 'semantic-grounded-ai' : 'ai',
+    semantic_similarity: bestSemanticSimilarity,
+    semantic_topic: skillFocus || role || null,
+  };
 };
 
 /**
@@ -394,7 +543,7 @@ export const searchCandidates = async (req: Request, res: Response) => {
  */
 export const generateAndSendLink = async (req: Request, res: Response) => {
   try {
-    const { email, jobRole, validityMins, questionCount, questionSource, assessmentId } = req.body;
+    const { email, name, jobRole, validityMins, questionCount, questionSource, assessmentId } = req.body;
 
     if (!email) {
       return res.status(400).json({ success: false, error: 'Email is required' });
@@ -413,6 +562,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     }
 
     const candidate = candidateResult.rows[0];
+    const candidateName = String(name || candidate.full_name || '').trim() || candidate.full_name;
 
     // 2. Generate secure token and password
     const token = crypto.randomBytes(32).toString('hex');
@@ -443,7 +593,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
       [
         token,
         candidate.email,
-        candidate.full_name,
+        candidateName,
         jobRole || null,
         duration,
         expiresAt,
@@ -462,7 +612,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     const loginUrl = `${frontendUrl}/interview-login`;
 
     // 5. Send email
-    await sendInterviewLink(candidate.email, candidate.full_name, loginUrl, plainPassword);
+    await sendInterviewLink(candidate.email, candidateName, loginUrl, plainPassword);
 
     res.json({ success: true, message: 'Interview link sent successfully' });
   } catch (error) {
@@ -489,6 +639,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     }
 
     const candidate = candidateResult.rows[0];
+    const candidateName = String(name || candidate.full_name || '').trim() || candidate.full_name;
     const token = crypto.randomBytes(32).toString('hex');
     const plainPassword = generateTemporaryPassword();
     const hashedPassword = await bcrypt.hash(plainPassword, 10);
@@ -508,7 +659,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
       [
         token,
         candidate.email,
-        name || candidate.full_name,
+        candidateName,
         jobRole || null,
         duration,
         expiresAt,
@@ -520,7 +671,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     );
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-    await sendInterviewLink(candidate.email, name || candidate.full_name, `${frontendUrl}/interview`, plainPassword);
+    await sendInterviewLink(candidate.email, candidateName, `${frontendUrl}/interview`, plainPassword);
 
     return res.json({ success: true, message: 'Temporary interview credentials sent successfully' });
   } catch (error: any) {

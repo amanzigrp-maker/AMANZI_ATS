@@ -30,6 +30,12 @@ export interface AdaptiveSequenceResponse {
   };
 }
 
+export interface AdaptiveQuestionSemanticContext {
+  relatedTopics?: string[];
+  referenceQuestions?: string[];
+  candidateContext?: string[];
+}
+
 const buildFallbackQuestion = (
   role: string,
   skill: string,
@@ -82,13 +88,26 @@ export const generateAdaptiveQuestionAtDifficulty = async (
   role: string,
   experience: number,
   skill: string,
-  difficulty: 'basic' | 'medium' | 'advanced'
+  difficulty: 'basic' | 'medium' | 'advanced',
+  semanticContext: AdaptiveQuestionSemanticContext = {}
 ): Promise<AdaptiveSequenceItem> => {
   initAI();
+  const relatedTopics = Array.from(new Set((semanticContext.relatedTopics || []).map((item) => String(item || '').trim()).filter(Boolean))).slice(0, 5);
+  const referenceQuestions = (semanticContext.referenceQuestions || []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3);
+  const candidateContext = (semanticContext.candidateContext || []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3);
+
+  const semanticPromptBlock = [
+    relatedTopics.length ? `Semantic topics to stay close to:\n- ${relatedTopics.join('\n- ')}` : '',
+    referenceQuestions.length ? `Semantically similar reference questions (do not copy them verbatim):\n- ${referenceQuestions.join('\n- ')}` : '',
+    candidateContext.length ? `Candidate semantic context from resume/profile:\n- ${candidateContext.join('\n- ')}` : '',
+  ].filter(Boolean).join('\n\n');
+
   const prompt = `
     Generate exactly 1 multiple-choice interview assessment question for a ${role || 'candidate'} with ${experience || 0} years experience.
     Focus skill/topic: ${skill || 'General'}.
     Difficulty must be "${difficulty}".
+
+    ${semanticPromptBlock ? `Use this semantic grounding to stay aligned with the right meaning/topic:\n${semanticPromptBlock}\n` : ''}
 
     Return only JSON:
     {
@@ -105,6 +124,7 @@ export const generateAdaptiveQuestionAtDifficulty = async (
     - Ask about ONLY the focus skill/topic above.
     - Do not list or combine multiple skills in the question.
     - Make the question practical and specific enough to test depth in that one skill.
+    - If semantic grounding is provided, stay close to that meaning and candidate context while still producing a fresh question.
     - No markdown, no text outside JSON.
   `;
 

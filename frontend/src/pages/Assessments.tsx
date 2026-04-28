@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ClipboardList, FileUp, Loader2, Sparkles } from "lucide-react";
+import QuestionContent from "@/components/QuestionContent";
 
 type Assessment = {
   assessment_id: number;
@@ -122,7 +123,7 @@ export default function Assessments() {
   const submitCsv = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!uploadFile) {
-      setMessage("Please choose a CSV or PDF file first.");
+      setMessage("Please choose a CSV, PDF, DOCX, DOC, or TXT file first.");
       return;
     }
 
@@ -260,10 +261,10 @@ export default function Assessments() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      <Label>Upload CSV or PDF</Label>
+                      <Label>Upload Question Bank File</Label>
                       <Input
                         type="file"
-                        accept=".csv,.pdf,text/csv,application/pdf"
+                        accept=".csv,.pdf,.doc,.docx,.txt,text/csv,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         onChange={(event) => {
                           const file = event.target.files?.[0] || null;
                           setUploadFile(file);
@@ -276,6 +277,17 @@ export default function Assessments() {
                           }
                         }}
                       />
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+                        Supported formats: CSV, PDF, DOCX, DOC, TXT. The parser now supports numbered questions with A/B/C/D options and either inline answers or a separate answer-key page/table.
+                        <pre className="mt-2 whitespace-pre-wrap font-mono text-[11px] text-slate-700">
+{`1. Which hook memoizes an expensive value?
+A) useMemo
+B) useEffect
+C) useRef
+D) useReducer
+Answer: A`}
+                        </pre>
+                      </div>
                     </div>
                     <Button type="submit" disabled={saving} className="w-full">
                       {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
@@ -344,9 +356,9 @@ export default function Assessments() {
               {questions.map((question, index) => (
                 <div key={question.question_id} className="rounded-lg border border-slate-200 bg-white p-4">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                    <h3 className="font-medium text-slate-900">
-                      {index + 1}. {question.question_text}
-                    </h3>
+                    <div className="font-medium text-slate-900">
+                      <QuestionContent content={`${index + 1}. ${question.question_text}`} />
+                    </div>
                     <Badge className="w-fit bg-violet-600">Answer {question.correct_option}</Badge>
                   </div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -359,7 +371,10 @@ export default function Assessments() {
                             : "border-slate-200 bg-slate-50 text-slate-700"
                         }`}
                       >
-                        <span className="font-semibold">{key}.</span> {question.options?.[key]}
+                        <div>
+                          <span className="font-semibold">{key}.</span>{" "}
+                          <QuestionContent content={String(question.options?.[key] || "")} compact />
+                        </div>
                       </div>
                     ))}
                   </div>

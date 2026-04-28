@@ -339,6 +339,32 @@ def normalize_windows_path(resume_id: int, file_path: str) -> Path:
     return path
 
 
+def build_assessment_question_embedding_text(question: Dict[str, Any]) -> str:
+    options = question.get("options") or {}
+    ordered_options = []
+    for key in ["A", "B", "C", "D"]:
+        value = ""
+        if isinstance(options, dict):
+            value = str(options.get(key) or "").strip()
+        if value:
+            ordered_options.append(f"{key}. {value}")
+
+    parts = [
+        f"Topic: {str(question.get('topic') or 'General').strip()}",
+        f"Difficulty: {str(question.get('difficulty') or 'medium').strip()}",
+        f"Question: {str(question.get('question_text') or '').strip()}",
+    ]
+
+    if ordered_options:
+        parts.append("Options: " + " | ".join(ordered_options))
+
+    explanation = str(question.get("explanation") or "").strip()
+    if explanation:
+        parts.append(f"Explanation: {explanation}")
+
+    return "\n".join(part for part in parts if part).strip()
+
+
 # ---------------------------------------------------------------------
 # Background Task
 # ---------------------------------------------------------------------
@@ -488,6 +514,114 @@ async def embed_job(request: Request):
         "success": True,
         "job_id": job_id,
         "count": len(embedded_sections),
+    }
+
+
+@app.post("/api/embed-assessment")
+async def embed_assessment(request: Request):
+    body = await request.json()
+    assessment_id = body.get("assessment_id")
+
+    if not isinstance(assessment_id, int):
+        raise HTTPException(400, "assessment_id must be an integer")
+
+    if not embedding_service.is_loaded():
+        raise HTTPException(503, "Embedding model not loaded")
+
+    questions = await db.get_assessment_questions(assessment_id)
+    if not questions:
+        raise HTTPException(404, "Assessment questions not found")
+
+    payload = []
+    texts = []
+    for question in questions:
+        content = build_assessment_question_embedding_text(question)
+        if not content:
+            continue
+        payload.append({
+            "question_id": int(question.get("question_id")),
+            "topic": str(question.get("topic") or "").strip(),
+            "content": content,
+        })
+        texts.append(content)
+
+    if not texts:
+        raise HTTPException(400, "Assessment has no embeddable questions")
+
+    embeddings = await embedding_service.batch_encode(texts)
+    for item, embedding in zip(payload, embeddings):
+        item["embedding"] = embedding
+
+    await db.upsert_question_embeddings(
+        assessment_id=assessment_id,
+        questions=payload,
+        model_name=getattr(embedding_service, "model_name", ""),
+    )
+
+    return {
+        "success": True,
+        "assessment_id": assessment_id,
+        "count": len(payload),
+    }
+
+
+@app.post("/api/semantic/question-search")
+async def semantic_question_search(request: Request):
+    body = await request.json()
+    assessment_id = body.get("assessment_id")
+    query_text = str(body.get("query_text") or "").strip()
+    top_k = max(1, min(int(body.get("top_k", 8) or 8), 20))
+    exclude_question_ids = body.get("exclude_question_ids") or []
+
+    if not isinstance(assessment_id, int):
+        raise HTTPException(400, "assessment_id must be an integer")
+    if not query_text:
+        raise HTTPException(400, "query_text is required")
+    if not embedding_service.is_loaded():
+        raise HTTPException(503, "Embedding model not loaded")
+
+    query_embedding = await embedding_service.encode(query_text)
+    matches = await db.semantic_search_assessment_questions(
+        assessment_id=assessment_id,
+        query_embedding=query_embedding,
+        top_k=top_k,
+        exclude_question_ids=exclude_question_ids,
+    )
+
+    return {
+        "success": True,
+        "assessment_id": assessment_id,
+        "count": len(matches),
+        "matches": jsonable_encoder(matches),
+    }
+
+
+@app.post("/api/semantic/candidate-context")
+async def semantic_candidate_context(request: Request):
+    body = await request.json()
+    candidate_email = str(body.get("candidate_email") or "").strip()
+    query_text = str(body.get("query_text") or "").strip()
+    top_k = max(1, min(int(body.get("top_k", 4) or 4), 12))
+
+    if not candidate_email:
+        raise HTTPException(400, "candidate_email is required")
+    if not query_text:
+        raise HTTPException(400, "query_text is required")
+    if not embedding_service.is_loaded():
+        raise HTTPException(503, "Embedding model not loaded")
+
+    query_embedding = await embedding_service.encode(query_text)
+    matches = await db.semantic_search_candidate_context(
+        candidate_email=candidate_email,
+        query_embedding=query_embedding,
+        top_k=top_k,
+    )
+
+    return {
+        "success": True,
+        "candidate_email": candidate_email,
+        "count": len(matches),
+        "matches": jsonable_encoder(matches),
     }
 
 

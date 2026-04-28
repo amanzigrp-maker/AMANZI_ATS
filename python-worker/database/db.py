@@ -62,6 +62,39 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_candidate_embeddings_candidate_id ON candidate_embeddings (candidate_id)"
         )
 
+    def _ensure_question_embeddings_table_sync(self, cur):
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS question_embeddings (
+                question_id INTEGER PRIMARY KEY,
+                assessment_id INTEGER NOT NULL,
+                topic TEXT,
+                content TEXT,
+                embedding VECTOR(384),
+                model_name TEXT,
+                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        try:
+            cur.execute("ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS topic TEXT")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS content TEXT")
+        except Exception:
+            pass
+        try:
+            cur.execute("ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS model_name TEXT")
+        except Exception:
+            pass
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_question_embeddings_assessment_id ON question_embeddings (assessment_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_question_embeddings_topic ON question_embeddings (topic)"
+        )
+
     # ======================================================
     # Internal helpers (sync psycopg2 via executor)
     # ======================================================
@@ -622,10 +655,7 @@ class Database:
             self._fetchone_sync,
             """
             SELECT
-                job_id,
-                description,
-                requirements,
-                skills
+                *
             FROM jobs
             WHERE job_id = %s
             """,
@@ -635,26 +665,351 @@ class Database:
         if not row:
             return None
 
-        job_description = (row.get("description") or "").strip()
-        skills = row.get("skills")
+        job_description = str(
+            row.get("job_description")
+            or row.get("description")
+            or ""
+        ).strip()
         requirements = row.get("requirements")
+        skills = row.get("skills")
 
-        required_skills: str | None = None
+        normalized_skills: List[str] = []
         if isinstance(skills, list):
-            cleaned = [str(s).strip() for s in skills if str(s).strip()]
-            if cleaned:
-                required_skills = ", ".join(cleaned)
+            normalized_skills = [str(s).strip() for s in skills if str(s).strip()]
         elif isinstance(skills, str) and skills.strip():
-            required_skills = skills.strip()
+            normalized_skills = [s.strip() for s in skills.split(",") if s.strip()]
 
-        if (not required_skills) and isinstance(requirements, str) and requirements.strip():
-            required_skills = requirements.strip()
+        preferred_education = row.get("preferred_education") or row.get("education")
+        if isinstance(preferred_education, str) and preferred_education.strip():
+            preferred_education = [preferred_education.strip()]
+        elif not isinstance(preferred_education, list):
+            preferred_education = []
+
+        min_experience_years = (
+            row.get("min_experience_years")
+            or row.get("min_experience")
+            or row.get("experience_min")
+            or 0
+        )
+        try:
+            min_experience_years = float(min_experience_years or 0)
+        except Exception:
+            min_experience_years = 0
 
         return {
+            **dict(row),
             "job_id": int(row.get("job_id")) if row.get("job_id") is not None else job_id,
+            "title": str(row.get("title") or row.get("job_title") or "").strip(),
+            "description": job_description,
             "job_description": job_description,
-            "required_skills": required_skills,
+            "requirements": requirements,
+            "skills": normalized_skills,
+            "required_skills": ", ".join(normalized_skills) if normalized_skills else (
+                str(requirements).strip() if isinstance(requirements, str) and requirements.strip() else ""
+            ),
+            "preferred_education": preferred_education,
+            "location": str(row.get("location") or "").strip(),
+            "industry": str(row.get("industry") or row.get("company") or "").strip(),
+            "min_experience_years": min_experience_years,
         }
+
+    async def get_candidate_semantic_scores(
+        self,
+        *,
+        job_id: int,
+        candidate_ids: List[int],
+    ) -> Dict[int, Dict[str, Any]]:
+        if not job_id or not candidate_ids:
+            return {}
+
+        candidate_ids = [int(cid) for cid in candidate_ids if int(cid) > 0]
+        if not candidate_ids:
+            return {}
+
+        query = """
+            WITH section_weights AS (
+                SELECT *
+                FROM (
+                    VALUES
+                        ('skills', 'skills', 0.45),
+                        ('skills', 'resume_skills', 0.45),
+                        ('skills', 'summary', 0.20),
+                        ('skills', 'projects', 0.20),
+                        ('responsibilities', 'experience', 0.45),
+                        ('responsibilities', 'resume_experience', 0.45),
+                        ('responsibilities', 'projects', 0.30),
+                        ('responsibilities', 'summary', 0.15),
+                        ('education', 'education', 0.10),
+                        ('education', 'summary', 0.05)
+                ) AS t(job_section, candidate_section, weight)
+            ),
+            pairwise AS (
+                SELECT
+                    ce.candidate_id,
+                    jse.section AS job_section,
+                    ce.section AS candidate_section,
+                    sw.weight,
+                    GREATEST(0, LEAST(1, 1 - (ce.embedding <=> jse.embedding))) AS similarity,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY ce.candidate_id, jse.section, ce.section
+                        ORDER BY ce.embedding <=> jse.embedding
+                    ) AS rn
+                FROM candidate_embeddings ce
+                JOIN section_weights sw
+                  ON sw.candidate_section = ce.section
+                JOIN job_section_embeddings jse
+                  ON jse.job_id = %s
+                 AND jse.section = sw.job_section
+                WHERE ce.candidate_id = ANY(%s::int[])
+                  AND ce.embedding IS NOT NULL
+                  AND jse.embedding IS NOT NULL
+            ),
+            best_pairwise AS (
+                SELECT
+                    candidate_id,
+                    job_section,
+                    candidate_section,
+                    weight,
+                    similarity
+                FROM pairwise
+                WHERE rn = 1
+            ),
+            per_job_section AS (
+                SELECT
+                    candidate_id,
+                    job_section,
+                    SUM(weight * similarity) / NULLIF(SUM(weight), 0) AS section_similarity
+                FROM best_pairwise
+                GROUP BY candidate_id, job_section
+            ),
+            scored AS (
+                SELECT
+                    candidate_id,
+                    SUM(
+                        CASE job_section
+                            WHEN 'skills' THEN 0.45 * section_similarity
+                            WHEN 'responsibilities' THEN 0.45 * section_similarity
+                            WHEN 'education' THEN 0.10 * section_similarity
+                            ELSE 0
+                        END
+                    ) / NULLIF(
+                        SUM(
+                            CASE job_section
+                                WHEN 'skills' THEN 0.45
+                                WHEN 'responsibilities' THEN 0.45
+                                WHEN 'education' THEN 0.10
+                                ELSE 0
+                            END
+                        ),
+                        0
+                    ) AS semantic_score,
+                    MAX(CASE WHEN job_section = 'skills' THEN section_similarity END) AS skills_alignment,
+                    MAX(CASE WHEN job_section = 'responsibilities' THEN section_similarity END) AS responsibilities_alignment,
+                    MAX(CASE WHEN job_section = 'education' THEN section_similarity END) AS education_alignment
+                FROM per_job_section
+                GROUP BY candidate_id
+            )
+            SELECT
+                candidate_id,
+                semantic_score,
+                skills_alignment,
+                responsibilities_alignment,
+                education_alignment
+            FROM scored
+        """
+
+        rows = await self._run_sync(
+            self._fetchall_sync,
+            query,
+            (job_id, candidate_ids),
+        )
+
+        scores: Dict[int, Dict[str, Any]] = {}
+        for row in rows or []:
+            result = dict(row)
+            candidate_id = int(result.get("candidate_id"))
+            scores[candidate_id] = {
+                "semantic_score": float(result.get("semantic_score") or 0),
+                "breakdown": {
+                    "skills": round(float(result.get("skills_alignment") or 0), 4),
+                    "responsibilities": round(float(result.get("responsibilities_alignment") or 0), 4),
+                    "education": round(float(result.get("education_alignment") or 0), 4),
+                },
+            }
+
+        return scores
+
+    async def get_assessment_questions(self, assessment_id: int) -> List[Dict[str, Any]]:
+        if not assessment_id:
+            return []
+
+        rows = await self._run_sync(
+            self._fetchall_sync,
+            """
+            SELECT
+                q.question_id,
+                qs.assessment_id,
+                q.question_text,
+                q.difficulty,
+                q.difficulty_score,
+                q.topic,
+                q.explanation,
+                q.correct_option,
+                jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
+            FROM question_sets qs
+            JOIN questions q ON q.question_set_id = qs.question_set_id
+            JOIN question_options o ON o.question_id = q.question_id
+            WHERE qs.assessment_id = %s
+            GROUP BY q.question_id, qs.assessment_id
+            ORDER BY q.question_id ASC
+            """,
+            (assessment_id,),
+        )
+
+        return [dict(row) for row in (rows or [])]
+
+    async def upsert_question_embeddings(
+        self,
+        *,
+        assessment_id: int,
+        questions: List[Dict[str, Any]],
+        model_name: str,
+    ):
+        if not assessment_id or not questions:
+            return
+
+        def _store():
+            conn = None
+            try:
+                conn = self._get_conn()
+                with conn.cursor() as cur:
+                    self._ensure_vector_extension_sync(cur)
+                    self._ensure_question_embeddings_table_sync(cur)
+
+                    cur.execute(
+                        "DELETE FROM question_embeddings WHERE assessment_id = %s",
+                        (assessment_id,),
+                    )
+
+                    sql = """
+                        INSERT INTO question_embeddings
+                        (question_id, assessment_id, topic, content, embedding, model_name)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """
+
+                    inserted = 0
+                    for question in questions:
+                        question_id = int(question.get("question_id") or 0)
+                        embedding = question.get("embedding")
+                        if not question_id or embedding is None:
+                            continue
+
+                        vector = np.asarray(embedding, dtype=np.float32)
+                        cur.execute(
+                            sql,
+                            (
+                                question_id,
+                                assessment_id,
+                                (question.get("topic") or "").strip() or None,
+                                (question.get("content") or "").strip(),
+                                vector,
+                                model_name,
+                            ),
+                        )
+                        inserted += 1
+
+                conn.commit()
+                return inserted
+            except Exception:
+                if conn and getattr(conn, "closed", 0) == 0:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                raise
+            finally:
+                self._put_conn(conn)
+
+        inserted = await self._run_sync(_store)
+        logger.success(
+            f"✅ Stored {inserted} question embeddings for assessment {assessment_id}"
+        )
+
+    async def semantic_search_assessment_questions(
+        self,
+        *,
+        assessment_id: int,
+        query_embedding: List[float],
+        top_k: int = 8,
+        exclude_question_ids: List[int] | None = None,
+    ) -> List[Dict[str, Any]]:
+        if not assessment_id or not query_embedding:
+            return []
+
+        exclude_question_ids = [int(qid) for qid in (exclude_question_ids or []) if int(qid) > 0]
+        vector = np.asarray(query_embedding, dtype=np.float32)
+
+        rows = await self._run_sync(
+            self._fetchall_sync,
+            """
+            SELECT
+                q.question_id,
+                q.question_text,
+                q.difficulty,
+                q.difficulty_score,
+                q.topic,
+                q.explanation,
+                q.correct_option,
+                qe.content,
+                GREATEST(0, LEAST(1, 1 - (qe.embedding <=> %s))) AS similarity,
+                jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
+            FROM question_embeddings qe
+            JOIN questions q ON q.question_id = qe.question_id
+            JOIN question_options o ON o.question_id = q.question_id
+            WHERE qe.assessment_id = %s
+              AND qe.embedding IS NOT NULL
+              AND NOT (qe.question_id = ANY(%s::int[]))
+            GROUP BY q.question_id, qe.content, qe.embedding
+            ORDER BY qe.embedding <=> %s
+            LIMIT %s
+            """,
+            (vector, assessment_id, exclude_question_ids, vector, int(top_k)),
+        )
+
+        return [dict(row) for row in (rows or [])]
+
+    async def semantic_search_candidate_context(
+        self,
+        *,
+        candidate_email: str,
+        query_embedding: List[float],
+        top_k: int = 4,
+    ) -> List[Dict[str, Any]]:
+        email = str(candidate_email or "").strip()
+        if not email or not query_embedding:
+            return []
+
+        vector = np.asarray(query_embedding, dtype=np.float32)
+
+        rows = await self._run_sync(
+            self._fetchall_sync,
+            """
+            SELECT
+                ce.candidate_id,
+                ce.section,
+                ce.content,
+                GREATEST(0, LEAST(1, 1 - (ce.embedding <=> %s))) AS similarity
+            FROM candidate_embeddings ce
+            JOIN candidates c ON c.candidate_id = ce.candidate_id
+            WHERE c.email ILIKE %s
+              AND ce.embedding IS NOT NULL
+            ORDER BY ce.embedding <=> %s
+            LIMIT %s
+            """,
+            (vector, email, vector, int(top_k)),
+        )
+
+        return [dict(row) for row in (rows or [])]
 
     async def upsert_job_embeddings(
         self,

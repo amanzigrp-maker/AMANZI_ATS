@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { Brain, ArrowRight, CheckCircle2, Award, Target, TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+import QuestionContent from '@/components/QuestionContent';
 
 interface Question {
   question_id: number;
@@ -178,7 +179,7 @@ const AdaptiveInterview: React.FC = () => {
                   </Badge>
                 </div>
                 <CardTitle className="text-2xl leading-relaxed">
-                  {currentQuestion.question_text}
+                  <QuestionContent content={currentQuestion.question_text} />
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4 pt-4">
@@ -197,7 +198,9 @@ const AdaptiveInterview: React.FC = () => {
                         ${selectedOption === key ? 'bg-indigo-500 text-white' : 'bg-neutral-700 text-neutral-400'}`}>
                         {key}
                       </div>
-                      <span className="text-neutral-200">{value as string}</span>
+                      <div className="text-neutral-200">
+                        <QuestionContent content={String(value || "")} compact />
+                      </div>
                     </div>
                     {selectedOption === key && <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-[0_0_10px_#6366f1]" />}
                   </button>

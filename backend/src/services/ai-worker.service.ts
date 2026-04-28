@@ -65,6 +65,129 @@ export class AIWorkerService {
     }
   }
 
+  async embedAssessment(assessmentId: number): Promise<void> {
+    if (!this.isInitialized) {
+      console.warn('embedAssessment skipped: AI Worker Service not initialized');
+      return;
+    }
+
+    if (!Number.isInteger(assessmentId)) {
+      console.warn('embedAssessment skipped: invalid assessmentId', assessmentId);
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/api/embed-assessment`,
+        { assessment_id: assessmentId },
+        {
+          timeout: 90_000,
+          headers: { 'Content-Type': 'application/json' },
+          validateStatus: (status) => status < 500,
+        }
+      );
+
+      if (response.status >= 400) {
+        console.warn(
+          `embedAssessment failed | assessment_id=${assessmentId} | status=${response.status}`,
+          response.data
+        );
+        return;
+      }
+
+      console.log(`embedAssessment queued/updated | assessment_id=${assessmentId}`);
+    } catch (err: any) {
+      console.warn(
+        `embedAssessment error | assessment_id=${assessmentId}`,
+        err?.response?.data || err.message
+      );
+    }
+  }
+
+  async semanticQuestionSearch(
+    assessmentId: number,
+    queryText: string,
+    topK: number = 8,
+    excludeQuestionIds: number[] = []
+  ): Promise<any[]> {
+    if (!this.isInitialized) return [];
+    if (!Number.isInteger(assessmentId) || !String(queryText || '').trim()) return [];
+
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/api/semantic/question-search`,
+        {
+          assessment_id: assessmentId,
+          query_text: queryText,
+          top_k: topK,
+          exclude_question_ids: excludeQuestionIds,
+        },
+        {
+          timeout: 30_000,
+          headers: { 'Content-Type': 'application/json' },
+          validateStatus: (status) => status < 500,
+        }
+      );
+
+      if (response.status >= 400) {
+        console.warn(
+          `semanticQuestionSearch failed | assessment_id=${assessmentId} | status=${response.status}`,
+          response.data
+        );
+        return [];
+      }
+
+      return Array.isArray(response.data?.matches) ? response.data.matches : [];
+    } catch (err: any) {
+      console.warn(
+        `semanticQuestionSearch error | assessment_id=${assessmentId}`,
+        err?.response?.data || err.message
+      );
+      return [];
+    }
+  }
+
+  async semanticCandidateContext(
+    candidateEmail: string,
+    queryText: string,
+    topK: number = 4
+  ): Promise<any[]> {
+    if (!this.isInitialized) return [];
+    if (!String(candidateEmail || '').trim() || !String(queryText || '').trim()) return [];
+
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/api/semantic/candidate-context`,
+        {
+          candidate_email: candidateEmail,
+          query_text: queryText,
+          top_k: topK,
+        },
+        {
+          timeout: 30_000,
+          headers: { 'Content-Type': 'application/json' },
+          validateStatus: (status) => status < 500,
+        }
+      );
+
+      if (response.status >= 400) {
+        console.warn(
+          `semanticCandidateContext failed | candidate_email=${candidateEmail} | status=${response.status}`,
+          response.data
+        );
+        return [];
+      }
+
+      return Array.isArray(response.data?.matches) ? response.data.matches : [];
+    } catch (err: any) {
+      console.warn(
+        `semanticCandidateContext error | candidate_email=${candidateEmail}`,
+        err?.response?.data || err.message
+      );
+      return [];
+    }
+  }
+
   /* ------------------------------------------------------------------ */
   /* Initialization                                                      */
   /* ------------------------------------------------------------------ */

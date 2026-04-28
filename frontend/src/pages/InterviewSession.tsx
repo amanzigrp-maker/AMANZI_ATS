@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import Proctoring from "@/components/proctoring/Proctoring";
+import QuestionContent from "@/components/QuestionContent";
 
 interface Question {
   question_id: number;
@@ -339,9 +340,12 @@ export default function InterviewSession() {
                   <span className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-4 block">
                     Question {currentQuestionIndex + 1} of {questions.length}
                   </span>
-                  <h3 className="text-2xl md:text-3xl font-bold text-white mb-10 leading-snug relative z-10">
-                    {currentQ.question_text}
-                  </h3>
+                  <div className="mb-10 relative z-10">
+                    <QuestionContent
+                      content={currentQ.question_text}
+                      className="text-2xl md:text-3xl font-bold text-white"
+                    />
+                  </div>
 
                   <div className="grid grid-cols-1 gap-4 relative z-10">
                     {Object.entries(currentQ.options || {}).map(([key, value], idx) => {
@@ -357,10 +361,12 @@ export default function InterviewSession() {
                           }`}
                         >
                           <div className="flex items-center justify-between">
-                            <span className="text-lg font-medium">{key}: {value as string}</span>
-                            <div className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
-                              isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-700'
-                            }`}>
+                                                    <div className="text-lg font-medium">
+                                                      <QuestionContent content={`${key}: ${String(value || "")}`} compact />
+                                                    </div>
+                                                    <div className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
+                                                        isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-700'
+                                                    }`}>
                               {isSelected && <div className="w-2.5 h-2.5 bg-white rounded-full" />}
                             </div>
                           </div>

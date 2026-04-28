@@ -38,9 +38,10 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
   const [isSuccess, setIsSuccess] = useState(false);
   
   const [selectedRole, setSelectedRole] = useState('');
+  const [candidateName, setCandidateName] = useState('');
   const [validity, setValidity] = useState(15); // Default 15 mins
   const [questionCount, setQuestionCount] = useState(10); // Default 10 questions
-  const [questionSource, setQuestionSource] = useState<'ai' | 'bank' | 'hybrid'>('ai');
+  const [questionSource, setQuestionSource] = useState<'bank' | 'hybrid'>('hybrid');
   const [assessmentId, setAssessmentId] = useState('');
   const [assessments, setAssessments] = useState<AssessmentOption[]>([]);
   const [loadingAssessments, setLoadingAssessments] = useState(false);
@@ -59,7 +60,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
         const data = await response.json().catch(() => ({}));
         const list = Array.isArray(data.data) ? data.data : [];
         setAssessments(list);
-    if ((questionSource === 'bank' || questionSource === 'hybrid') && list.length === 0) {
+        if (list.length === 0) {
           setAssessmentId('');
         }
       } catch {
@@ -105,6 +106,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
   const handleSelectCandidate = (c: CandidateInfo) => {
     setCandidate(c);
     setEmail(c.email);
+    setCandidateName(c.full_name || '');
     setSuggestions([]);
     setShowSuggestions(false);
     
@@ -126,6 +128,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
       if (data.success && data.data && data.data.length > 0) {
         setCandidate(data.data[0]);
         setEmail(data.data[0].email);
+        setCandidateName(data.data[0].full_name || '');
       } else {
         toast.error('No matching candidate found');
       }
@@ -146,9 +149,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     const ok = window.confirm(
       questionSource === 'bank'
         ? `Send document-only test for ${selectedRole.trim()}?`
-        : questionSource === 'hybrid'
-          ? `Send mixed test from uploaded bank plus candidate skills for ${selectedRole.trim()}?`
-          : `Generate AI questions for ${selectedRole.trim()} and send this test?`
+        : `Send mixed test from uploaded bank plus candidate skills for ${selectedRole.trim()}?`
     );
     if (!ok) return;
 
@@ -159,11 +160,12 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           email: candidate.email,
+          name: candidateName.trim() || candidate.full_name,
           jobRole: selectedRole.trim(),
           validityMins: validity,
           questionCount: questionCount,
           questionSource,
-          assessmentId: questionSource === 'bank' || questionSource === 'hybrid' ? Number(assessmentId) : null
+          assessmentId: Number(assessmentId)
         })
       });
       const data = await response.json();
@@ -194,9 +196,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     const ok = window.confirm(
       questionSource === 'bank'
         ? `Send credentials with document-only test for ${selectedRole.trim()}?`
-        : questionSource === 'hybrid'
-          ? `Send credentials with uploaded bank plus candidate skills for ${selectedRole.trim()}?`
-          : `Send credentials and generate AI questions for ${selectedRole.trim()}?`
+        : `Send credentials with uploaded bank plus candidate skills for ${selectedRole.trim()}?`
     );
     if (!ok) return;
 
@@ -207,12 +207,12 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           email: candidate.email,
-          name: candidate.full_name,
+          name: candidateName.trim() || candidate.full_name,
           jobRole: selectedRole.trim(),
           validityMins: validity,
           questionCount,
           questionSource,
-          assessmentId: questionSource === 'bank' || questionSource === 'hybrid' ? Number(assessmentId) : null,
+          assessmentId: Number(assessmentId),
           interviewId: `INT-${Math.floor(Math.random() * 10000)}`
         })
       });
@@ -237,8 +237,9 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
   const resetState = () => {
     setEmail('');
     setCandidate(null);
+    setCandidateName('');
     setIsSuccess(false);
-    setQuestionSource('ai');
+    setQuestionSource('hybrid');
     setAssessmentId('');
     setAssessments([]);
   };
@@ -341,6 +342,15 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
 
                       <div className="space-y-4 mb-6 border-t border-slate-100 pt-5">
                         <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Interview Name</label>
+                          <Input
+                            placeholder="Type the candidate/interview name you want"
+                            value={candidateName}
+                            onChange={(e) => setCandidateName(e.target.value)}
+                            className="text-sm"
+                          />
+                        </div>
+                        <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Interview Role (Question Domain)</label>
                           <Input
                             placeholder="Type role, for example Software Engineer"
@@ -366,21 +376,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
 
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Question Source</label>
-                          <div className="grid grid-cols-3 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setQuestionSource('ai');
-                                setAssessmentId('');
-                              }}
-                              className={`rounded-xl border px-3 py-2 text-sm font-bold transition-all ${
-                                questionSource === 'ai'
-                                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                              }`}
-                            >
-                              Generate with AI
-                            </button>
+                          <div className="grid grid-cols-2 gap-2">
                             <button
                               type="button"
                               onClick={() => setQuestionSource('bank')}
@@ -406,37 +402,35 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                           </div>
                         </div>
 
-                        {(questionSource === 'bank' || questionSource === 'hybrid') && (
-                          <div className="space-y-2">
-                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select Uploaded Question Bank</label>
-                            <select
-                              value={assessmentId}
-                              onChange={(e) => {
-                                const nextId = e.target.value;
-                                setAssessmentId(nextId);
-                                const selected = assessments.find((item) => String(item.assessment_id) === nextId);
-                                if (selected?.question_count) {
-                                  setQuestionCount(selected.question_count);
-                                }
-                              }}
-                              className="w-full bg-white border border-purple-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                            >
-                              <option value="">
-                                {loadingAssessments ? 'Loading banks...' : '-- Choose a named bank --'}
+                        <div className="space-y-2">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select Uploaded Question Bank</label>
+                          <select
+                            value={assessmentId}
+                            onChange={(e) => {
+                              const nextId = e.target.value;
+                              setAssessmentId(nextId);
+                              const selected = assessments.find((item) => String(item.assessment_id) === nextId);
+                              if (selected?.question_count) {
+                                setQuestionCount(selected.question_count);
+                              }
+                            }}
+                            className="w-full bg-white border border-purple-200 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                          >
+                            <option value="">
+                              {loadingAssessments ? 'Loading banks...' : '-- Choose a named bank --'}
+                            </option>
+                            {assessments.map((assessment) => (
+                              <option key={assessment.assessment_id} value={assessment.assessment_id}>
+                                {assessment.title} ({assessment.question_count} questions)
                               </option>
-                              {assessments.map((assessment) => (
-                                <option key={assessment.assessment_id} value={assessment.assessment_id}>
-                                  {assessment.title} ({assessment.question_count} questions)
-                                </option>
-                              ))}
-                            </select>
-                            {!loadingAssessments && assessments.length === 0 && (
-                              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                                No uploaded banks found for this role. Create one in Assessments first.
-                              </p>
-                            )}
-                          </div>
-                        )}
+                            ))}
+                          </select>
+                          {!loadingAssessments && assessments.length === 0 && (
+                            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                              No uploaded banks found for this role. Create one in Assessments first.
+                            </p>
+                          )}
+                        </div>
 
                         <div className="grid grid-cols-2 gap-6">
                           <div className="space-y-2">

@@ -2,10 +2,8 @@
 Enhanced Matching Service
 Provides comprehensive 7-factor candidate-job matching for talent pool search
 """
-import numpy as np
 from typing import Dict, Any, List, Optional, Tuple
 from loguru import logger
-from services.embedding_service import EmbeddingService
 from database.db import Database
 
 
@@ -79,14 +77,26 @@ class EnhancedMatchingService:
             if not candidates:
                 logger.warning(f"No candidates found for job {job_id}")
                 return []
+
+            candidate_ids = [
+                int(candidate.get('candidate_id'))
+                for candidate in candidates
+                if candidate.get('candidate_id')
+            ]
+            semantic_scores = await self.db.get_candidate_semantic_scores(
+                job_id=job_id,
+                candidate_ids=candidate_ids,
+            )
             
             # Calculate scores for each candidate
             matches = []
             for candidate in candidates:
+                candidate_id = int(candidate.get('candidate_id') or 0)
                 match_result = await self.calculate_comprehensive_match(
                     job_id=job_id,
                     job_data=job_data,
-                    candidate=candidate
+                    candidate=candidate,
+                    semantic_context=semantic_scores.get(candidate_id),
                 )
                 if match_result:
                     matches.append(match_result)
@@ -106,7 +116,8 @@ class EnhancedMatchingService:
         self,
         job_id: int,
         job_data: Dict[str, Any],
-        candidate: Dict[str, Any]
+        candidate: Dict[str, Any],
+        semantic_context: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Calculate comprehensive match score across all 7 dimensions
@@ -121,17 +132,17 @@ class EnhancedMatchingService:
         """
         try:
             # Extract job requirements
-            required_skills = job_data.get('skills') or []
+            required_skills = self._normalize_skills(job_data.get('skills') or job_data.get('required_skills'))
             required_experience = job_data.get('min_experience_years') or 0
             job_location = job_data.get('location', '')
             job_industry = job_data.get('industry', '')
-            job_description = job_data.get('description', '')
             
             # Extract candidate data
             candidate_skills = candidate.get('skills') or []
             candidate_experience = float(candidate.get('total_experience_years') or 0)
             candidate_location = candidate.get('location', '')
             candidate_industry = candidate.get('current_company', '')
+            semantic_score = self._resolve_semantic_score(semantic_context)
             
             # Calculate individual scores
             scores = {
@@ -141,9 +152,7 @@ class EnhancedMatchingService:
                 'skills': self._calculate_skills_match(
                     candidate_skills, required_skills
                 )[0],
-                'semantic': await self._calculate_semantic_similarity(
-                    job_description, candidate
-                ),
+                'semantic': semantic_score,
                 'education': self._calculate_education_match(
                     candidate.get('education', []), job_data.get('preferred_education')
                 ),
@@ -177,6 +186,7 @@ class EnhancedMatchingService:
                 'matched_skills': matched_skills,
                 'missing_skills': missing_skills,
                 'explanation': explanation,
+                'semantic_breakdown': (semantic_context or {}).get('breakdown', {}),
                 'candidate': {
                     'full_name': candidate.get('full_name'),
                     'email': candidate.get('email'),
@@ -191,6 +201,21 @@ class EnhancedMatchingService:
         except Exception as e:
             logger.error(f"Error calculating match: {e}")
             return None
+
+    def _normalize_skills(self, skills: Any) -> List[str]:
+        if isinstance(skills, list):
+            return [str(s).strip() for s in skills if str(s).strip()]
+        if isinstance(skills, str) and skills.strip():
+            return [s.strip() for s in skills.split(',') if s.strip()]
+        return []
+
+    def _resolve_semantic_score(self, semantic_context: Optional[Dict[str, Any]]) -> float:
+        if semantic_context and semantic_context.get('semantic_score') is not None:
+            try:
+                return max(0.0, min(1.0, float(semantic_context['semantic_score'])))
+            except Exception:
+                pass
+        return 0.5
     
     def _calculate_experience_score(
         self,
@@ -279,64 +304,6 @@ class EnhancedMatchingService:
             score = min(1.0, score + bonus)
         
         return score, matched, missing
-    
-    async def _calculate_semantic_similarity(
-        self,
-        job_description: str,
-        candidate: Dict[str, Any]
-    ) -> float:
-        """
-        Calculate semantic similarity using embeddings
-        """
-        try:
-            if not self.embedding_service.is_loaded():
-                return 0.5  # Default score if embeddings not available
-            
-            # Build candidate text from available data
-            candidate_text_parts = []
-            
-            # Experience descriptions
-            if 'experience' in candidate:
-                for exp in (candidate.get('experience') or []):
-                    desc = exp.get('description', '')
-                    if desc:
-                        candidate_text_parts.append(desc)
-            
-            # Skills
-            skills = candidate.get('skills') or []
-            if skills:
-                candidate_text_parts.append(', '.join(skills))
-            
-            # Current designation
-            designation = candidate.get('current_designation')
-            if designation:
-                candidate_text_parts.append(designation)
-            
-            if not candidate_text_parts:
-                return 0.5
-            
-            candidate_text = ' '.join(candidate_text_parts)
-            
-            # Truncate for embedding
-            if len(candidate_text) > 3000:
-                candidate_text = candidate_text[:3000]
-            if len(job_description) > 3000:
-                job_description = job_description[:3000]
-            
-            # Generate embeddings
-            job_embedding = await self.embedding_service._encode_text(job_description)
-            candidate_embedding = await self.embedding_service._encode_text(candidate_text)
-            
-            # Calculate cosine similarity
-            similarity = self.embedding_service.calculate_similarity(
-                job_embedding, candidate_embedding
-            )
-            
-            return similarity
-            
-        except Exception as e:
-            logger.warning(f"Error calculating semantic similarity: {e}")
-            return 0.5
     
     def _calculate_education_match(
         self,

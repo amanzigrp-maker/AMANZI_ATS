@@ -4,7 +4,9 @@ import { execFile } from "child_process";
 import fs from "fs/promises";
 import os from "os";
 import path from "path";
+import mammoth from "mammoth";
 import { pool } from "../lib/database";
+import { aiWorkerService } from "../services/ai-worker.service";
 
 type NormalizedQuestion = {
   question_text: string;
@@ -49,6 +51,57 @@ const parseCsvLine = (line: string): string[] => {
   return cells;
 };
 
+const parseCsvRows = (csv: string): string[][] => {
+  const rows: string[][] = [];
+  const normalized = String(csv || "").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  let currentRow: string[] = [];
+  let currentCell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < normalized.length; i += 1) {
+    const char = normalized[i];
+    const next = normalized[i + 1];
+
+    if (char === '"' && inQuotes && next === '"') {
+      currentCell += '"';
+      i += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (char === "," && !inQuotes) {
+      currentRow.push(currentCell.trim());
+      currentCell = "";
+      continue;
+    }
+
+    if (char === "\n" && !inQuotes) {
+      currentRow.push(currentCell.trim());
+      if (currentRow.some((cell) => cell !== "")) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+      currentCell = "";
+      continue;
+    }
+
+    currentCell += char;
+  }
+
+  if (currentCell.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentCell.trim());
+    if (currentRow.some((cell) => cell !== "")) {
+      rows.push(currentRow);
+    }
+  }
+
+  return rows;
+};
+
 const normalizeCorrectOption = (value: unknown): "A" | "B" | "C" | "D" => {
   const raw = String(value || "").trim().toUpperCase();
   if (optionKeys.includes(raw as any)) return raw as "A" | "B" | "C" | "D";
@@ -86,18 +139,12 @@ const validateQuestion = (question: any): NormalizedQuestion => {
 };
 
 const parseCsvQuestions = (csv: string): NormalizedQuestion[] => {
-  const lines = csv
-    .replace(/^\uFEFF/, "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const rows = parseCsvRows(csv);
+  if (rows.length < 2) return [];
 
-  if (lines.length < 2) return [];
+  const headers = rows[0].map((header) => header.trim().toLowerCase());
 
-  const headers = parseCsvLine(lines[0]).map((header) => header.trim().toLowerCase());
-
-  return lines.slice(1).map((line) => {
-    const cells = parseCsvLine(line);
+  return rows.slice(1).map((cells) => {
     const row: Record<string, string> = {};
     headers.forEach((header, index) => {
       row[header] = cells[index] || "";
@@ -189,50 +236,293 @@ const extractPdfText = async (buffer: Buffer, originalName: string): Promise<str
   }
 };
 
-const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
-  const normalized = text
+const extractTextWithPython = async (buffer: Buffer, filename: string): Promise<string> => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "amanzi-assessment-py-"));
+  const safeName = path.basename(filename || "assessment.bin").replace(/[^\w.-]/g, "_");
+  const inputPath = path.join(tempDir, safeName);
+  const scriptPath = path.join(tempDir, "extract_assessment_text.py");
+  const outputPath = path.join(tempDir, "output.txt");
+  const pythonPath = process.env.AMANZI_PYTHON_PATH || path.join(process.cwd(), "..", ".venv", "Scripts", "python.exe");
+
+  const script = `
+import sys
+from pathlib import Path
+
+input_path = Path(sys.argv[1])
+output_path = Path(sys.argv[2])
+suffix = input_path.suffix.lower()
+text = ""
+
+def try_pdf():
+    import fitz
+    doc = fitz.open(str(input_path))
+    parts = []
+    try:
+        for page in doc:
+            page_text = (page.get_text("text") or "").strip()
+            if page_text:
+                parts.append(page_text)
+        return "\\n\\n".join(parts).strip()
+    finally:
+        doc.close()
+
+if suffix == ".pdf":
+    try:
+        text = try_pdf()
+    except Exception:
+        text = ""
+    if len(text.strip()) < 80:
+        try:
+            import fitz
+            import cv2
+            import numpy as np
+            import pytesseract
+            doc = fitz.open(str(input_path))
+            parts = []
+            try:
+                for page in doc:
+                    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                    img_data = pix.tobytes("png")
+                    nparr = np.frombuffer(img_data, np.uint8)
+                    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+                    parts.append(pytesseract.image_to_string(thresh, lang="eng"))
+                text = "\\n\\n".join(parts).strip()
+            finally:
+                doc.close()
+        except Exception:
+            pass
+elif suffix == ".docx":
+    try:
+        from docx import Document
+        doc = Document(str(input_path))
+        text = "\\n".join([p.text for p in doc.paragraphs if p.text and p.text.strip()]).strip()
+    except Exception:
+        text = ""
+else:
+    try:
+        text = input_path.read_text(encoding="utf-8", errors="ignore").strip()
+    except Exception:
+        text = ""
+
+output_path.write_text(text, encoding="utf-8")
+`;
+
+  try {
+    await fs.writeFile(inputPath, buffer);
+    await fs.writeFile(scriptPath, script);
+    await new Promise<void>((resolve, reject) => {
+      execFile(pythonPath, [scriptPath, inputPath, outputPath], (error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+    return await fs.readFile(outputPath, "utf8");
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+};
+
+const extractDocxText = async (buffer: Buffer): Promise<string> => {
+  const result = await mammoth.extractRawText({ buffer });
+  return String(result.value || "").replace(/\r/g, "").trim();
+};
+
+const extractPlainText = (buffer: Buffer): string =>
+  buffer
+    .toString("utf8")
+    .replace(/\u0000/g, " ")
+    .replace(/\r/g, "")
+    .trim();
+
+const cleanQuestionImportText = (text: string): string =>
+  text
     .replace(/\u00a0/g, " ")
     .replace(/\r/g, "")
     .replace(/[ \t]+/g, " ")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/^\s*page \d+(?: of \d+)?\s*$/gim, "")
+    .replace(/^\s*ATS .*$/gim, "")
+    .replace(/^\s*Full-Stack Development Question Bank.*$/gim, "")
+    .replace(/^\s*Original exam-style MCQs.*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 
-  const answerKeyStart = normalized.search(/\bAnswer\s+Key\b/i);
-  const questionText = answerKeyStart >= 0 ? normalized.slice(0, answerKeyStart) : normalized;
-  const answerKeyText = answerKeyStart >= 0 ? normalized.slice(answerKeyStart) : "";
-  const answerKey = new Map<number, "A" | "B" | "C" | "D">();
+const splitQuestionAndAnswerKey = (text: string) => {
+  const normalized = cleanQuestionImportText(text);
+  const headingMatch = normalized.match(/(?:^|\n)\s*Answer\s+Key\s*(?:\n|$)/i);
 
-  for (const match of answerKeyText.matchAll(/\b(\d{1,4})\.\s*([A-D])\b/gi)) {
-    const questionNumber = Number(match[1]);
-    const option = normalizeCorrectOption(match[2]);
-    if (questionNumber > 0) {
-      answerKey.set(questionNumber, option);
+  if (!headingMatch || headingMatch.index === undefined) {
+    return {
+      questionText: normalized,
+      answerKeyText: "",
+    };
+  }
+
+  const start = headingMatch.index;
+  return {
+    questionText: normalized.slice(0, start).trim(),
+    answerKeyText: normalized.slice(start).trim(),
+  };
+};
+
+const extractAnswerKeyMap = (answerKeyText: string) => {
+  const map = new Map<number, "A" | "B" | "C" | "D">();
+  if (!answerKeyText.trim()) return map;
+
+  const text = cleanQuestionImportText(answerKeyText)
+    .replace(/\bQuestion\s+No\.?\b/gi, "Q")
+    .replace(/\bAns(?:wer)?\b/gi, " Ans ")
+    .replace(/\bQuestion\s+Name\b/gi, " ")
+    .replace(/[|]/g, " ");
+
+  const patterns = [
+    /\bQ?\s*0*(\d{1,4})\s+(?:[A-Z][^\n]{0,80}\s+)?([A-D])\b/gi,
+    /\b(\d{1,4})\s*[.):-]?\s*([A-D])\b/gi,
+    /\b(\d{1,4})\b\s+([A-D])\b/gi,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const questionNumber = Number(match[1]);
+      const answer = String(match[2] || "").toUpperCase();
+      if (questionNumber > 0 && optionKeys.includes(answer as any) && !map.has(questionNumber)) {
+        map.set(questionNumber, answer as "A" | "B" | "C" | "D");
+      }
     }
   }
 
-  const blocks = questionText
-    .split(/\n(?=\s*(?:Q(?:uestion)?\.?\s*)?\d+[\).:-]\s+)/i)
-    .map((block) => block.trim())
-    .filter(Boolean);
+  return map;
+};
+
+const parseQuestionBlocks = (text: string) => {
+  const lines = cleanQuestionImportText(text).split("\n");
+  const blocks: { number: number; raw: string }[] = [];
+  let currentNumber = 0;
+  let currentLines: string[] = [];
+
+  const flush = () => {
+    if (currentNumber > 0 && currentLines.length) {
+      blocks.push({ number: currentNumber, raw: currentLines.join("\n").trim() });
+    }
+    currentNumber = 0;
+    currentLines = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const questionStart = trimmed.match(/^(?:Q(?:uestion)?\s*)?(\d{1,4})[\).:-]\s*(.*)$/i);
+    if (questionStart) {
+      flush();
+      currentNumber = Number(questionStart[1]);
+      const rest = String(questionStart[2] || "").trim();
+      if (rest) currentLines.push(rest);
+      continue;
+    }
+
+    if (currentNumber > 0) {
+      currentLines.push(trimmed);
+    }
+  }
+
+  flush();
+  return blocks;
+};
+
+const extractOptionsFromBlock = (blockText: string) => {
+  const patterns = [
+    /(?:^|\n)\s*([A-D])[\).:-]\s*([\s\S]*?)(?=\n\s*[A-D][\).:-]\s*|\n\s*(?:correct\s*)?answer\s*[:\-]?|\s*$)/gi,
+    /\b([A-D])[\).:-]\s*([\s\S]*?)(?=\s+[A-D][\).:-]\s*|\s*(?:correct\s*)?answer\s*[:\-]?|\s*$)/gi,
+  ];
+
+  for (const pattern of patterns) {
+    const matches = [...blockText.matchAll(pattern)];
+    const deduped = new Map<string, string>();
+    for (const match of matches) {
+      const key = String(match[1] || "").toUpperCase();
+      const value = String(match[2] || "").replace(/\n+/g, " ").trim();
+      if (optionKeys.includes(key as any) && value && !deduped.has(key)) {
+        deduped.set(key, value);
+      }
+    }
+    if (optionKeys.every((key) => deduped.has(key))) {
+      return {
+        byKey: Object.fromEntries(Array.from(deduped.entries())),
+        firstIndex: matches[0]?.index || 0,
+      };
+    }
+  }
+
+  return null;
+};
+
+const parseInlineAnswerQuestions = (text: string): NormalizedQuestion[] => {
+  const { questionText } = splitQuestionAndAnswerKey(text);
+
+  const pattern =
+    /(?:^|\n)\s*(\d{1,4})\.\s*([\s\S]*?)\n\s*Answer\s*[:\-]?\s*([A-D])\s*\n\s*A[\).:-]\s*([\s\S]*?)\n\s*B[\).:-]\s*([\s\S]*?)\n\s*C[\).:-]\s*([\s\S]*?)\n\s*D[\).:-]\s*([\s\S]*?)(?=\n\s*\d{1,4}\.\s|\s*$)/gi;
+
+  const questions: NormalizedQuestion[] = [];
+
+  for (const match of questionText.matchAll(pattern)) {
+    const questionNumber = Number(match[1]);
+    const inferredDifficulty =
+      questionNumber <= 60 ? "foundation" :
+      questionNumber <= 130 ? "developing" :
+      questionNumber <= 195 ? "advanced" :
+      "expert";
+
+    try {
+      questions.push(
+        validateQuestion({
+          question_text: String(match[2] || "").replace(/\n+/g, " ").trim(),
+          option_a: String(match[4] || "").replace(/\n+/g, " ").trim(),
+          option_b: String(match[5] || "").replace(/\n+/g, " ").trim(),
+          option_c: String(match[6] || "").replace(/\n+/g, " ").trim(),
+          option_d: String(match[7] || "").replace(/\n+/g, " ").trim(),
+          correct_option: String(match[3] || "").trim(),
+          difficulty: inferredDifficulty,
+          metadata: {
+            source_parser: "inline-answer-regex",
+            pdf_question_number: questionNumber || undefined,
+          },
+        })
+      );
+    } catch {
+      // Skip malformed blocks.
+    }
+  }
+
+  return questions;
+};
+
+const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
+  const inlineQuestions = parseInlineAnswerQuestions(text);
+  if (inlineQuestions.length) return inlineQuestions;
+
+  const { questionText, answerKeyText } = splitQuestionAndAnswerKey(text);
+  const answerKey = extractAnswerKeyMap(answerKeyText);
+  const blocks = parseQuestionBlocks(questionText);
 
   const questions: NormalizedQuestion[] = [];
 
   for (const block of blocks) {
-    const questionNumber = Number(block.match(/^\s*(?:Q(?:uestion)?\.?\s*)?(\d+)[\).:-]\s*/i)?.[1] || 0);
-    const answerMatch = block.match(/(?:correct\s*)?answer\s*[:\-]?\s*([A-D])/i);
+    const questionNumber = Number(block.number || 0);
+    const blockText = block.raw;
+    const answerMatch = blockText.match(/(?:correct\s*)?answer\s*[:\-]?\s*([A-D])/i);
     const answerFromKey = questionNumber > 0 ? answerKey.get(questionNumber) : undefined;
-    const optionMatches = [...block.matchAll(/(?:^|\n)\s*([A-D])[\).:-]\s*([\s\S]*?)(?=\n\s*[A-D][\).:-]\s*|\n\s*(?:correct\s*)?answer\s*[:\-]?|\s*$)/gi)];
-    if ((!answerMatch && !answerFromKey) || optionMatches.length < 4) continue;
+    const extractedOptions = extractOptionsFromBlock(blockText);
+    if ((!answerMatch && !answerFromKey) || !extractedOptions) continue;
 
-    const firstOptionIndex = optionMatches[0].index || 0;
-    const questionText = block
+    const firstOptionIndex = extractedOptions.firstIndex;
+    const parsedQuestionText = blockText
       .slice(0, firstOptionIndex)
-      .replace(/^\s*(?:Q(?:uestion)?\.?\s*)?\d+[\).:-]\s*/i, "")
       .trim();
 
-    const byKey: Record<string, string> = {};
-    optionMatches.slice(0, 4).forEach((match) => {
-      byKey[match[1].toUpperCase()] = match[2].replace(/\n+/g, " ").trim();
-    });
+    const byKey: Record<string, string> = extractedOptions.byKey as Record<string, string>;
 
     const inferredDifficulty =
       questionNumber <= 60 ? "foundation" :
@@ -243,14 +533,14 @@ const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
     try {
       questions.push(
         validateQuestion({
-          question_text: questionText,
+          question_text: parsedQuestionText,
           option_a: byKey.A,
           option_b: byKey.B,
           option_c: byKey.C,
           option_d: byKey.D,
           correct_option: answerFromKey || answerMatch?.[1],
           difficulty: inferredDifficulty,
-          topic: block.match(/\bCompetency\s*:\s*([^\n]+)/i)?.[1]?.trim() || "",
+          topic: blockText.match(/\bCompetency\s*:\s*([^\n]+)/i)?.[1]?.trim() || "",
           explanation: "",
           metadata: {
             source_parser: "pdf-text",
@@ -265,6 +555,14 @@ const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
   }
 
   return questions;
+};
+
+const parseDocumentQuestions = (text: string): NormalizedQuestion[] => {
+  const direct = parsePdfQuestions(text);
+  if (direct.length) return direct;
+
+  const flattened = cleanQuestionImportText(text).replace(/\n/g, " \n ");
+  return parsePdfQuestions(flattened);
 };
 
 const fallbackQuestions = (role: string, topic: string, count: number): NormalizedQuestion[] => {
@@ -418,6 +716,16 @@ const createAssessmentWithQuestions = async (
   } finally {
     client.release();
   }
+};
+
+const triggerAssessmentEmbedding = (assessmentId: number) => {
+  if (!Number.isInteger(assessmentId)) return;
+  aiWorkerService.embedAssessment(assessmentId).catch((error) => {
+    console.warn(
+      `Failed to embed assessment ${assessmentId}:`,
+      error instanceof Error ? error.message : error
+    );
+  });
 };
 
 export const listAssessments = async (req: Request, res: Response) => {
@@ -625,6 +933,8 @@ export const createAssessmentFromAi = async (req: Request, res: Response) => {
       questions,
     });
 
+    triggerAssessmentEmbedding(Number(assessment.assessment_id));
+
     return res.status(201).json({ success: true, data: assessment, question_count: questions.length });
   } catch (error: any) {
     return res.status(400).json({ error: error.message || "Failed to generate assessment" });
@@ -652,6 +962,8 @@ export const createAssessmentFromCsv = async (req: Request, res: Response) => {
       questions,
     });
 
+    triggerAssessmentEmbedding(Number(assessment.assessment_id));
+
     return res.status(201).json({ success: true, data: assessment, question_count: questions.length });
   } catch (error: any) {
     return res.status(400).json({ error: error.message || "Failed to import CSV" });
@@ -661,11 +973,14 @@ export const createAssessmentFromCsv = async (req: Request, res: Response) => {
 export const createAssessmentFromUpload = async (req: Request, res: Response) => {
   try {
     const { fields, file } = await parseMultipartForm(req);
-    if (!file) return res.status(400).json({ error: "Please upload a CSV or PDF file." });
+    if (!file) return res.status(400).json({ error: "Please upload a CSV, PDF, DOCX, DOC, or TXT file." });
 
     const extension = path.extname(file.filename).toLowerCase();
     const isCsv = extension === ".csv" || file.mimetype.includes("csv");
     const isPdf = extension === ".pdf" || file.mimetype.includes("pdf");
+    const isDocx = extension === ".docx" || file.mimetype.includes("wordprocessingml");
+    const isDoc = extension === ".doc" || file.mimetype.includes("msword");
+    const isTxt = extension === ".txt" || file.mimetype.includes("text/plain");
 
     let questions: NormalizedQuestion[] = [];
     let attemptedQuestions = 0;
@@ -677,18 +992,51 @@ export const createAssessmentFromUpload = async (req: Request, res: Response) =>
       questions = parseCsvQuestions(csv);
       parser = "csv";
     } else if (isPdf) {
-      const text = await extractPdfText(file.buffer, file.filename);
+      let usedPythonFallback = false;
+      let text = "";
+      try {
+        text = await extractPdfText(file.buffer, file.filename);
+      } catch {
+        text = "";
+      }
+      if (!text.trim() || parsePdfQuestions(text).length === 0) {
+        const pythonText = await extractTextWithPython(file.buffer, file.filename).catch(() => "");
+        if (pythonText.trim()) {
+          text = pythonText;
+          usedPythonFallback = true;
+        }
+      }
       attemptedQuestions = text.match(/(?:^|\n)\s*(?:Q(?:uestion)?\.?\s*)?\d+[\).:-]\s+/gi)?.length || 0;
       questions = parsePdfQuestions(text);
-      parser = "pdf";
+      parser = usedPythonFallback ? "pdf-python" : "pdf";
+    } else if (isDocx) {
+      let text = await extractDocxText(file.buffer).catch(() => "");
+      let usedPythonFallback = false;
+      if (!text.trim()) {
+        text = await extractTextWithPython(file.buffer, file.filename).catch(() => "");
+        usedPythonFallback = Boolean(text.trim());
+      }
+      attemptedQuestions = text.match(/(?:^|\n)\s*(?:Q(?:uestion)?\.?\s*)?\d+[\).:-]\s+/gi)?.length || 0;
+      questions = parseDocumentQuestions(text);
+      parser = usedPythonFallback ? "docx-python" : "docx";
+    } else if (isDoc || isTxt) {
+      let text = extractPlainText(file.buffer);
+      let usedPythonFallback = false;
+      if (!text.trim()) {
+        text = await extractTextWithPython(file.buffer, file.filename).catch(() => "");
+        usedPythonFallback = Boolean(text.trim());
+      }
+      attemptedQuestions = text.match(/(?:^|\n)\s*(?:Q(?:uestion)?\.?\s*)?\d+[\).:-]\s+/gi)?.length || 0;
+      questions = parseDocumentQuestions(text);
+      parser = isDoc ? (usedPythonFallback ? "doc-python" : "doc") : (usedPythonFallback ? "txt-python" : "txt");
     } else {
-      return res.status(400).json({ error: "Only CSV and PDF uploads are supported." });
+      return res.status(400).json({ error: "Only CSV, PDF, DOCX, DOC, and TXT uploads are supported." });
     }
 
     if (!questions.length) {
       return res.status(400).json({
-        error: isPdf
-          ? "No valid PDF questions found. Use numbered questions with A/B/C/D options and an Answer: A line."
+        error: isPdf || isDocx || isDoc || isTxt
+          ? "No valid questions found. Use numbered questions with A/B/C/D options and either inline answers or an Answer Key section/table."
           : "CSV needs headers: question_text,option_a,option_b,option_c,option_d,correct_option.",
       });
     }
@@ -715,6 +1063,8 @@ export const createAssessmentFromUpload = async (req: Request, res: Response) =>
       source_file: file.filename,
       questions: enrichedQuestions,
     });
+
+    triggerAssessmentEmbedding(Number(assessment.assessment_id));
 
     return res.status(201).json({
       success: true,

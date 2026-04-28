@@ -22,11 +22,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import Proctoring from "@/components/proctoring/Proctoring";
+import QuestionContent from "@/components/QuestionContent";
 
 interface Question {
   id: number;
   question: string;
   options: string[];
+  difficulty?: string;
+  selection_mode?: string;
+  semantic_similarity?: number;
+  semantic_topic?: string;
 }
 
 export default function InterviewPage() {
@@ -534,9 +539,29 @@ export default function InterviewPage() {
                                 <span className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-4 block">
                                     Question {currentQuestionIndex + 1} of {totalQuestions}
                                 </span>
-                                <h3 className="text-2xl md:text-3xl font-bold text-white mb-10 leading-snug">
-                                    {currentQ.question}
-                                </h3>
+                                <div className="mb-4 flex flex-wrap gap-2">
+                                    {currentQ.selection_mode && (
+                                        <span className="inline-flex items-center rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-cyan-300">
+                                            {currentQ.selection_mode}
+                                        </span>
+                                    )}
+                                    {typeof currentQ.semantic_similarity === "number" && (
+                                        <span className="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-300">
+                                            Cosine {currentQ.semantic_similarity.toFixed(3)}
+                                        </span>
+                                    )}
+                                    {currentQ.semantic_topic && (
+                                        <span className="inline-flex items-center rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-violet-300">
+                                            Topic {currentQ.semantic_topic}
+                                        </span>
+                                    )}
+                                </div>
+                                <div className="mb-10">
+                                    <QuestionContent
+                                        content={currentQ.question}
+                                        className="text-2xl md:text-3xl font-bold text-white"
+                                    />
+                                </div>
 
                                 <div className="grid grid-cols-1 gap-4">
                                     {currentQ.options.map((option, idx) => {
@@ -552,7 +577,9 @@ export default function InterviewPage() {
                                                 }`}
                                             >
                                                 <div className="flex items-center justify-between">
-                                                    <span className="text-lg font-medium">{option}</span>
+                                                    <div className="text-lg font-medium">
+                                                        <QuestionContent content={String(option || "")} compact />
+                                                    </div>
                                                     <div className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
                                                         isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-700'
                                                     }`}>
@@ -566,7 +593,9 @@ export default function InterviewPage() {
 
                                 <CardFooter className="px-0 pt-12 flex justify-between">
                                     <div className="text-xs text-slate-500 font-mono">
-                                      {theta !== null ? `theta ${theta.toFixed(2)}` : 'adaptive mode'}
+                                      {theta !== null
+                                        ? `theta ${theta.toFixed(2)}${typeof currentQ.semantic_similarity === "number" ? ` | cosine ${currentQ.semantic_similarity.toFixed(3)}` : ''}`
+                                        : 'adaptive mode'}
                                     </div>
                                     
                                     <Button 
