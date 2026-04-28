@@ -29,7 +29,7 @@ class ElasticsearchService {
       });
 
       await this.client.ping();
-      console.log('Elasticsearch service initialized');
+
       
       // Create indices if they don't exist
       await this.createIndices();
@@ -69,7 +69,7 @@ class ElasticsearchService {
             }
           }
         });
-        console.log(`Created index: ${this.indexResumes}`);
+
       }
 
       // Job index
@@ -95,7 +95,7 @@ class ElasticsearchService {
             }
           }
         });
-        console.log(`Created index: ${this.indexJobs}`);
+
       }
 
       // Candidate index
@@ -124,7 +124,7 @@ class ElasticsearchService {
             }
           }
         });
-        console.log(`Created index: ${this.indexCandidates}`);
+
       }
     } catch (error) {
       console.error('Error creating indices:', error);
@@ -486,7 +486,7 @@ class ElasticsearchService {
 
       if (body.length > 0) {
         await this.client.bulk({ body });
-        console.log(`Reindexed ${documents.length} ${type}`);
+
       }
     } catch (error) {
       console.error(`Error reindexing ${type}:`, error);

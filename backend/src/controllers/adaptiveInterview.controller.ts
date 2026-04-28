@@ -14,7 +14,14 @@ export const startInterview = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Email and Skill are required' });
     }
 
-    const session = await AdaptiveEngineService.initializeSession(email, skill, experienceYears);
+    const { pool } = await import('../lib/database');
+    const tokenRes = await pool.query(
+      'SELECT total_questions FROM interview_tokens WHERE candidate_email ILIKE $1 ORDER BY created_at DESC LIMIT 1',
+      [email]
+    );
+    const maxQuestions = tokenRes.rows.length > 0 ? (tokenRes.rows[0].total_questions || 10) : 10;
+
+    const session = await AdaptiveEngineService.initializeSession(email, skill, experienceYears, maxQuestions);
     const sessionId = `${email}_${skill}_${Date.now()}`;
     sessionStore.set(sessionId, session);
 

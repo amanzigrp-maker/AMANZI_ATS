@@ -151,39 +151,9 @@ const gracefulShutdown = async (signal: string) => {
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
-// -----------------------------------------------------------------------------
-// START SERVER
-// -----------------------------------------------------------------------------
-const startServer = async () => {
-  try {
-    console.log("🔌 Testing database connection...");
-
-    const connected = await testConnection();
-
-    if (!connected) {
-      console.error("❌ Database connection failed.");
-      process.exit(1);
-    }
-
-    console.log("🤖 Initializing AI Worker...");
-    await aiWorkerService.initialize();
-
-    // IMPORTANT: expose server to internet (EC2 fix)
-    httpServer.listen(PORT, "0.0.0.0", () => {
-      console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`🌐 Accessible at http://<YOUR-EC2-IP>:${PORT}`);
-      console.log("✅ ATS Monolithic Application ready with Socket.io!");
-    });
-
-  } catch (error) {
-    console.error("❌ Failed to start server:", error);
-    process.exit(1);
-  }
-};
-
 const bootstrapServer = async () => {
   try {
-    console.log("Testing database connection...");
+    console.log("Initializing database connection...");
 
     const connected = await testConnection();
 
@@ -201,7 +171,7 @@ const bootstrapServer = async () => {
     console.log("Initializing AI Worker in background...");
     void aiWorkerService.initialize()
       .then(() => {
-        console.log("AI Worker warmup complete");
+        console.log("AI Worker ready");
       })
       .catch((err) => {
         console.error("AI Worker failed to initialize:", err);

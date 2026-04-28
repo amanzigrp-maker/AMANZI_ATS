@@ -290,7 +290,7 @@ export class AIWorkerService {
   /* ------------------------------------------------------------------ */
 
   async parseResume(resumeId: number, isBulk: boolean = false): Promise<any> {
-    console.log('🔥🔥🔥 parseResume FUNCTION ENTERED with resumeId =', resumeId, 'isBulk =', isBulk);
+
     if (!this.isInitialized) {
       throw new Error('AI Worker Service not initialized');
     }
@@ -312,7 +312,7 @@ export class AIWorkerService {
         }
       );
 
-      console.log('🔥 parseResume called with', resumeId);
+
 
       if (response.status === 409) {
         const err: any = new Error('Duplicate resume');

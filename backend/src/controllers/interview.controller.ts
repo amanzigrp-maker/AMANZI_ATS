@@ -1190,26 +1190,6 @@ export const submitAnswers = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Submit Interview Feedback
- */
-export const submitFeedback = async (req: Request, res: Response) => {
-  try {
-    const { session_id, feedback } = req.body;
-
-    if (!session_id) {
-      return res.status(400).json({ success: false, error: 'Session ID required' });
-    }
-
-    // Optional: Store feedback in DB
-    await pool.query('UPDATE interview_sessions SET feedback = $1 WHERE id = $2', [feedback, session_id]);
-
-    res.json({ success: true, message: 'Feedback submitted successfully.' });
-  } catch (error) {
-    console.error('Submit feedback error:', error);
-    res.status(500).json({ success: false, error: 'Failed to process feedback' });
-  }
-};
 
 /**
  * Get Interview Assessment Report for Admin Reports page

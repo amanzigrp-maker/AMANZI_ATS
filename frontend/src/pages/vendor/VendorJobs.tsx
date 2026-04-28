@@ -71,17 +71,17 @@ if (searchTerm) params.append("search", searchTerm);
       if (employmentTypeFilter) params.append("employment_type", employmentTypeFilter);
       if (experienceLevelFilter) params.append("experience_level", experienceLevelFilter);
 
-      console.log("Fetching jobs with token:", localStorage.getItem("accessToken"));
+
       const response = await fetch(`/api/jobs?${params}`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
         },
       });
 
-      console.log("Jobs response status:", response.status);
+
       if (response.ok) {
         const data = await response.json();
-        console.log("Jobs data:", data);
+
         setJobs(data.data || []);
         checkApplicationEligibility(data.data || []);
         // ⭐ Frontend filtering for job_code
@@ -113,7 +113,7 @@ if (searchTerm) {
   const checkApplicationEligibility = async (jobList: Job[]) => {
     const eligibilityMap: Record<number, ApplicationEligibility> = {};
 
-    console.log("Checking eligibility for", jobList.length, "jobs");
+
     for (const job of jobList) {
       try {
         const response = await fetch(`/api/applications/jobs/${job.job_id}/can-apply`, {
@@ -122,10 +122,10 @@ if (searchTerm) {
           },
         });
 
-        console.log(`Eligibility check for job ${job.job_id}:`, response.status);
+
         if (response.ok) {
           const data = await response.json();
-          console.log(`Job ${job.job_id} eligibility data:`, data);
+
           eligibilityMap[job.job_id] = data;
         } else {
           console.error(`Failed eligibility check for job ${job.job_id}:`, response.status);
@@ -139,7 +139,7 @@ if (searchTerm) {
       }
     }
 
-    console.log("Final eligibility map:", eligibilityMap);
+
     setApplicationEligibility(eligibilityMap);
   };
 
@@ -154,7 +154,7 @@ if (searchTerm) {
   }) => {
     if (!selectedJob) return;
 
-    console.log('🚀 VendorJobs: Submitting application for job:', selectedJob.job_id);
+
     setIsSubmitting(true);
     try {
       const response = await fetch(`/api/applications/jobs/${selectedJob.job_id}/apply`, {
@@ -168,15 +168,15 @@ if (searchTerm) {
 
       if (response.ok) {
         const result = await response.json();
-        console.log('✅ VendorJobs: Application submitted successfully:', result);
+
         alert("Application submitted successfully!");
         setIsApplicationModalOpen(false);
         
-        console.log('🔄 VendorJobs: Refreshing eligibility for job:', selectedJob.job_id);
+
         await checkApplicationEligibility([selectedJob]);
       } else {
         const errorData = await response.json();
-        console.log('❌ VendorJobs: Application submission failed:', errorData);
+
         alert(`Error: ${errorData.error || "Failed to submit application"}`);
       }
     } catch (error) {
@@ -203,7 +203,7 @@ if (searchTerm) {
 
   const isApplicationButtonDisabled = (jobId: number) => {
     const eligibility = applicationEligibility[jobId];
-    console.log(`Job ${jobId} eligibility:`, eligibility);
+
     return !eligibility || !eligibility.canApply;
   };
 

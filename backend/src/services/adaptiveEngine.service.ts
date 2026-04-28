@@ -12,8 +12,8 @@ export interface AdaptiveSessionState {
 }
 
 export class AdaptiveEngineService {
-  private static MAX_QUESTIONS = 15;
-  private static STOPPING_SEM = 0.3;
+  private static MAX_QUESTIONS = 10;
+  private static STOPPING_SEM = 0.35;
 
   /**
    * Initialize a new adaptive session
@@ -21,7 +21,8 @@ export class AdaptiveEngineService {
   public static async initializeSession(
     candidateEmail: string,
     skill: string,
-    experienceYears?: number
+    experienceYears?: number,
+    maxQuestions: number = 10
   ): Promise<AdaptiveSessionState> {
     // Initial Theta based on experience
     let initialTheta = 0;
@@ -66,7 +67,7 @@ export class AdaptiveEngineService {
       skill,
       currentTheta: initialTheta,
       questionCount: 0,
-      maxQuestions: this.MAX_QUESTIONS,
+      maxQuestions: maxQuestions,
       attemptedQuestionIds: []
     };
   }

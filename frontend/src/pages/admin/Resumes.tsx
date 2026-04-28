@@ -145,9 +145,9 @@ export default function Resumes() {
 
       const data = await response.json();
 
-      console.log('📦 Received data from API:', data);
-      console.log('📦 data.data:', data.data);
-      console.log('📦 data.data.parsed_data:', data.data?.parsed_data);
+
+
+
 
       if (data.success && data.data) {
         setStatus('success');
@@ -155,16 +155,16 @@ export default function Resumes() {
         setResumeId(data.data.resume_id || null);
 
         if (data.data.parsed_data) {
-          console.log('✅ Auto-filling form with parsed data:', data.data.parsed_data);
-          console.log('📋 Available fields:', Object.keys(data.data.parsed_data));
-          console.log('🔍 Gender:', data.data.parsed_data.gender);
-          console.log('🔍 Designation:', data.data.parsed_data.designation);
-          console.log('🔍 Country:', data.data.parsed_data.country);
-          console.log('🔍 City:', data.data.parsed_data.city);
-          console.log('🔍 Primary Skills:', data.data.parsed_data.primary_skills);
-          console.log('🔍 Experience:', data.data.parsed_data.experience);
-          console.log('🔍 Projects:', data.data.parsed_data.projects);
-          console.log('🔍 Education:', data.data.parsed_data.education);
+
+
+
+
+
+
+
+
+
+
           const pd = data.data.parsed_data;
           setFormData({
             // Personal Details

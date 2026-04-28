@@ -5,16 +5,13 @@
   "type": "module",
   "scripts": {
     "dev:frontend": "cd frontend && npm run dev",
-    "dev:backend": "cd backend && npm run server",
+    "dev:backend": "cd backend && npm run dev",
     "dev": "npm run dev:frontend",
     "server": "npm run dev:backend",
     "build:frontend": "cd frontend && npm run build",
-    "build:backend": "cd backend && tsc",
+    "build:backend": "cd backend && npm run build",
     "start": "npm run build:frontend && npm run dev:backend",
-    "fix-assignments": "cd backend && node scripts/fix-existing-job-assignments.js",
-    "setup:linux": "chmod +x linux-setup.sh && ./linux-setup.sh",
-    "deploy:monolithic": "chmod +x deploy-monolithic.sh && ./deploy-monolithic.sh",
-    "install:python-deps": "cd python-worker && pip install -r requirements-monolithic.txt"
+    "install:python-deps": "cd python-worker && pip install -r requirements.txt"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^9.2.0",

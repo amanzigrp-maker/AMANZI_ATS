@@ -9,7 +9,6 @@ import {
   submitAdaptiveAnswer,
   getQuestions,
   submitAnswers,
-  submitFeedback,
   getInterviewReport,
   updateCandidateDecision
 } from '../controllers/interview.controller';
@@ -43,8 +42,11 @@ router.get('/questions', verifyToken, getQuestions);
 // 4. Submit answers (Authenticated Candidate)
 router.post('/submit', verifyToken, submitAnswers);
 
-// 5. Submit feedback (Authenticated Candidate)
-router.post('/feedback', verifyToken, submitFeedback);
+// 5. Fallback for removed feedback feature
+router.post('/feedback', verifyToken, (req, res) => {
+  res.status(200).json({ message: "Feature removed" });
+});
+
 
 // --- Admin Report Routes ---
 

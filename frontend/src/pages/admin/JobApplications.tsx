@@ -214,22 +214,22 @@ const JobApplications: React.FC = () => {
 
   const fetchApplications = async () => {
     try {
-      console.log('🔍 Admin fetching applications for job:', jobId);
+
       const response = await fetch(`/api/applications/jobs/${jobId}`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('accessToken')}`,
         },
       });
 
-      console.log('📡 Applications API response status:', response.status);
+
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Applications data received:', data);
+
         setApplications(data.data || []);
       } else {
         const errorData = await response.json();
-        console.log('❌ Applications API error:', errorData);
+
         alert(`Error fetching applications: ${errorData.error || 'Unknown error'}`);
       }
     } catch (error) {

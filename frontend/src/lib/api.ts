@@ -12,7 +12,7 @@ const getNewAccessToken = async (): Promise<string | null> => {
   }
 
   try {
-    console.log('[AUTH] Attempting to refresh access token...');
+
     const response = await fetch('/api/auth/refresh', {
       method: 'POST',
       headers: {
@@ -41,7 +41,7 @@ const getNewAccessToken = async (): Promise<string | null> => {
     }
 
     localStorage.setItem('accessToken', data.accessToken);
-    console.log('[AUTH] Token refresh successful');
+
     return data.accessToken;
   } catch (error) {
     console.error('[AUTH] Error refreshing token:', error);
@@ -104,7 +104,7 @@ async function getUserProfile() {
       throw new Error('Failed to fetch profile');
     }
     const profile = await response.json();
-    console.log(profile);
+
   } catch (error) {
     console.error(error);
   }

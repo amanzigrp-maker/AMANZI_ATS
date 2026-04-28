@@ -7,7 +7,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import AppLayout from "./components/AppLayout";
 import { ThemeProvider } from "./components/theme-provider";
-import { CursorRobot } from "./components/CursorRobot";
+
 
 // General Pages
 import Landing from "./pages/Landing";
@@ -153,7 +153,7 @@ const App: React.FC = () => {
               </Routes>
             </BrowserRouter>
           </SmoothScroll>
-          <CursorRobot />
+
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>

@@ -544,7 +544,7 @@ export default function Landing() {
                       { title: "AI Matching", desc: "Automated ranking based on semantic relevance." },
                       { title: "Smart Scheduling", desc: "Syncs instantly with your team's calendar." },
                       { title: "Deep Analytics", desc: "Visualize your entire hiring funnel in real-time." },
-                      { title: "Team Collab", desc: "Hire together with shared feedback and ratings." }
+                      { title: "Team Collab", desc: "Hire together with shared ratings and collaborative reviews." }
                     ].map((feature, idx) => (
                       <Card key={idx} className="w-[240px] p-5 bg-white/[0.03] backdrop-blur-xl border border-white/10 hover:border-blue-500/50 transition-all duration-500 cursor-pointer shrink-0 shadow-xl group/fcard">
                         <h3 className="text-base font-bold text-white mb-2 font-heading tracking-tight">{feature.title}</h3>

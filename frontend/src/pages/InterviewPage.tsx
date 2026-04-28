@@ -58,8 +58,6 @@ export default function InterviewPage() {
   const [score, setScore] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [totalQuestions, setTotalQuestions] = useState(10); // Dynamic total from Admin
-  const [feedback, setFeedback] = useState("");
-  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   const [theta, setTheta] = useState<number | null>(null);
 
   // 1. Validate Token on Mount (Fallback for old flow)
@@ -245,7 +243,7 @@ export default function InterviewPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [status, timeLeft, handleSubmit]);
+  }, [status, timeLeft, handleAnswerSubmit, answers, questions, currentQuestionIndex]);
 
   const fetchQuestions = async (sId: string | number, jwt: string | null = jwtToken) => {
     const res = await fetch(`/api/interview/questions?session_id=${sId}`, {
@@ -623,21 +621,6 @@ export default function InterviewPage() {
   }
 
   if (status === "completed") {
-    const handleFeedbackSubmit = async () => {
-      try {
-        await fetch("/api/interview/feedback", {
-          method: "POST",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${jwtToken}`
-          },
-          body: JSON.stringify({ session_id: sessionId, feedback })
-        });
-      } catch (err) {
-        console.error("Feedback submission error:", err);
-      }
-      setFeedbackSubmitted(true);
-    };
 
     return (
       <div className="h-screen w-full flex items-center justify-center bg-[#020617] p-6 text-center">
@@ -660,29 +643,14 @@ export default function InterviewPage() {
                </p>
             </div>
             
-            {!feedbackSubmitted ? (
-              <div className="bg-white/5 rounded-2xl p-6 text-left border border-white/10 mt-4">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-4">Leave Feedback (Optional)</span>
-                <textarea 
-                  className="w-full bg-slate-950 border border-white/10 rounded-xl p-4 text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none"
-                  rows={3}
-                  placeholder="How was your interview experience?"
-                  value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
-                />
+             <div className="mt-8">
                 <Button 
-                  onClick={handleFeedbackSubmit}
-                  className="w-full mt-4 h-11 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-[0_0_20px_rgba(37,99,235,0.2)]"
+                  onClick={() => navigate("/")}
+                  className="w-full h-12 bg-white hover:bg-slate-200 text-black font-bold rounded-xl transition-all"
                 >
-                  Submit & Finish
+                  Close & Exit
                 </Button>
-              </div>
-            ) : (
-               <div className="bg-emerald-500/10 rounded-2xl p-6 text-center border border-emerald-500/20 mt-4">
-                  <span className="text-emerald-400 font-bold block">Feedback Received</span>
-                  <p className="text-xs text-emerald-500/80 mt-1">Thank you. You may now safely close this window.</p>
-               </div>
-            )}
+             </div>
           </Card>
         </motion.div>
       </div>

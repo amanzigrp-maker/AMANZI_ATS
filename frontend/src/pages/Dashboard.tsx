@@ -395,7 +395,7 @@ export default function Dashboard() {
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key === 'jobsUpdated' || e.key === 'applicantsUpdated') {
-        console.log(`Storage event: ${e.key} detected — refreshing dashboard`);
+
         refreshDashboard();
         fetchRecentApplications();
       }
@@ -425,10 +425,10 @@ export default function Dashboard() {
   /** PROFILE */
   const fetchProfile = async () => {
     try {
-      console.log('Fetching profile...');
+
       const res = await api.get('/api/users/profile');
       const data = unwrap(res);
-      console.log('Profile response:', data);
+
       setProfile(data);
     } catch (err) {
       console.error('Failed to fetch profile:', err);
@@ -441,7 +441,7 @@ export default function Dashboard() {
     try {
       const res = await api.get('/api/dashboard/stats');
       const data = unwrap(res);
-      console.log('Dashboard stats received:', data);
+
       const nextStats = {
         totalJobs: data.totalJobs ?? data.total_jobs ?? 0,
         activeJobs: data.activeJobs ?? data.active_jobs ?? 0,
@@ -513,7 +513,7 @@ export default function Dashboard() {
     try {
       const res = await api.get('/api/jobs?status=active&limit=5');
       const data = unwrap(res);
-      console.log('Job openings received:', data);
+
       // Support either { data: [...] } or direct array
       const list = data?.data ?? data ?? [];
       setJobOpenings(list);
@@ -534,7 +534,7 @@ export default function Dashboard() {
     try {
       const res = await api.get('/api/notifications?unread=true');
       const data = unwrap(res);
-      console.log('Notifications received:', data);
+
       // backend might return { notifications: [], unread_count: n } or { data: ... }
       const next = data.notifications ?? data?.data ?? [];
       setNotifications(next);
@@ -574,11 +574,11 @@ export default function Dashboard() {
   const checkApplicationEligibility = async (jobList: any[] = jobOpenings) => {
     if (profile?.role !== 'vendor') return;
     if (!Array.isArray(jobList) || jobList.length === 0) {
-      console.log('No jobs to check eligibility for.');
+
       return;
     }
 
-    console.log('Checking application eligibility for jobs:', jobList.map(j => j.job_id ?? j.id));
+
     const map: Record<string, any> = {};
 
     for (const job of jobList) {
@@ -586,7 +586,7 @@ export default function Dashboard() {
       try {
         const res = await api.get(`/api/applications/jobs/${id}/can-apply`);
         const data = unwrap(res);
-        console.log(`Eligibility for job ${id}:`, data);
+
         map[id] = data;
       } catch (err) {
         console.warn(`Eligibility check failed for ${id}:`, err);
@@ -595,13 +595,13 @@ export default function Dashboard() {
       }
     }
 
-    console.log('Eligibility map:', map);
+
     setApplicationEligibility(map);
   };
 
   /** Apply button interactions */
   const handleApplyClick = (job: any) => {
-    console.log('Apply clicked for job', job);
+
     setSelectedJob(job);
     setIsApplicationModalOpen(true);
   };
@@ -815,10 +815,10 @@ export default function Dashboard() {
     setIsSubmitting(true);
     try {
       const id = selectedJob.job_id ?? selectedJob.id;
-      console.log('Submitting application for job:', id, applicationData);
+
       const res = await api.post(`/api/applications/jobs/${id}/apply`, applicationData);
       const data = unwrap(res);
-      console.log('Application submit response:', data);
+
       alert('Application submitted successfully!');
       setIsApplicationModalOpen(false);
 
@@ -882,7 +882,7 @@ export default function Dashboard() {
     const valid = newFiles.filter(f => allowed.includes(f.type) && f.size <= 10 * 1024 * 1024);
     const newStatuses: FileStatus[] = valid.map(f => ({ file: f, status: 'pending', progress: 0 }));
     setFiles(prev => [...prev, ...newStatuses]);
-    console.log('Files added:', newStatuses);
+
   };
 
   // Low-level helper to refresh access token manually (used only here for multipart retry)
@@ -890,7 +890,7 @@ export default function Dashboard() {
     const refreshToken = localStorage.getItem('refreshToken');
     if (!refreshToken) throw new Error('No refresh token available for manual refresh');
 
-    console.log('Manually refreshing access token for multipart upload...');
+
     const resp = await fetch(`/api/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -905,14 +905,14 @@ export default function Dashboard() {
     localStorage.setItem('accessToken', json.accessToken);
     if (json.refreshToken) localStorage.setItem('refreshToken', json.refreshToken);
 
-    console.log('Manual refresh succeeded, new access token saved.');
+
     return json.accessToken;
   };
 
   const uploadFiles = async () => {
     if (files.length === 0) return;
     setUploading(true);
-    console.log('Starting file upload for', files.length, 'files');
+
 
     // Create form data
     const form = new FormData();
@@ -957,7 +957,7 @@ export default function Dashboard() {
       }
 
       const result = await response.json();
-      console.log('Upload result:', result);
+
 
       // Map results back to file statuses (server should return an array aligned with files)
       if (result?.data?.results && Array.isArray(result.data.results)) {

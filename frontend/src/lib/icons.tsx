@@ -1,106 +1,97 @@
 import * as React from "react";
-import type { IconType } from "react-icons";
+import type { Icon, IconProps as PhosphorIconProps } from "@phosphor-icons/react";
 import {
-  MdAdd,
-  MdArrowBack,
-  MdArrowDownward,
-  MdArrowForward,
-  MdArrowUpward,
-  MdAssessment,
-  MdAttachMoney,
-  MdAutoAwesome,
-  MdBarChart,
-  MdBusiness,
-  MdCalendarMonth,
-  MdCampaign,
-  MdCalendarToday,
-  MdCategory,
-  MdCheck,
-  MdCheckBox,
-  MdCheckCircle,
-  MdChevronLeft,
-  MdChevronRight,
-  MdClose,
-  MdCloudUpload,
-  MdCode,
-  MdConstruction,
-  MdDelete,
-  MdDarkMode,
-  MdDescription,
-  MdDownload,
-  MdDragIndicator,
-  MdEdit,
-  MdEmojiEvents,
-  MdError,
-  MdEventAvailable,
-  MdFilterAlt,
-  MdFolderOpen,
-  MdGpsFixed,
-  MdGppBad,
-  MdFingerprint,
-  MdHomeWork,
-  MdInsertChart,
-  MdInsertDriveFile,
-  MdKey,
-  MdLanguage,
-  MdLightMode,
-  MdLogin,
-  MdMail,
-  MdMemory,
-  MdMenu,
-  MdMoreHoriz,
-  MdNorthEast,
-  MdNoteAlt,
-  MdNotifications,
-  MdOpenInFull,
-  MdPauseCircle,
-  MdPeople,
-  MdPerson,
-  MdPersonAdd,
-  MdPhone,
-  MdPlace,
-  MdPsychology,
-  MdRefresh,
-  MdRadioButtonUnchecked,
-  MdRemoveRedEye,
-  MdSave,
-  MdSchedule,
-  MdSchool,
-  MdScreenShare,
-  MdSearch,
-  MdSend,
-  MdSettings,
-  MdShare,
-  MdShield,
-  MdShieldMoon,
-  MdSpaceDashboard,
-  MdStar,
-  MdTerminal,
-  MdThumbDown,
-  MdThumbUp,
-  MdTimer,
-  MdTrendingDown,
-  MdTrendingUp,
-  MdUploadFile,
-  MdVerifiedUser,
-  MdVideocam,
-  MdVideocamOff,
-  MdViewSidebar,
-  MdVpnKey,
-  MdWarning,
-  MdWork,
-  MdWorkspacePremium,
-  MdZoomIn,
-  MdChecklist,
-  MdBolt,
-  MdCancel,
-} from "react-icons/md";
-import { HiMiniEllipsisHorizontal } from "react-icons/hi2";
-import { FaGithub, FaLinkedinIn, FaTwitter } from "react-icons/fa6";
+  ArrowsOutSimple as PhArrowsOutSimple,
+  ArrowLeft as PhArrowLeft,
+  ArrowLineRight as PhArrowLineRight,
+  Bell as PhBell,
+  Brain as PhBrain,
+  Briefcase as PhBriefcase,
+  Building as PhBuilding,
+  Buildings as PhBuildings,
+  Calendar as PhCalendar,
+  CalendarBlank as PhCalendarBlank,
+  CalendarCheck as PhCalendarCheck,
+  CaretDown as PhCaretDown,
+  CaretLeft as PhCaretLeft,
+  CaretRight as PhCaretRight,
+  CaretUp as PhCaretUp,
+  ChartBar as PhChartBar,
+  ChatCircleText as PhChatCircleText,
+  Check as PhCheck,
+  CheckCircle as PhCheckCircle,
+  Circle as PhCircle,
+  Clock as PhClock,
+  ClockCountdown as PhClockCountdown,
+  CloudArrowUp as PhCloudArrowUp,
+  Code as PhCode,
+  Cpu as PhCpu,
+  CurrencyDollarSimple as PhCurrencyDollarSimple,
+  DotOutline as PhDotOutline,
+  DownloadSimple as PhDownloadSimple,
+  DotsThree as PhDotsThree,
+  DotsThreeVertical as PhDotsThreeVertical,
+  EnvelopeSimple as PhEnvelopeSimple,
+  Exam as PhExam,
+  Eye as PhEye,
+  EyeSlash as PhEyeSlash,
+  FileArrowUp as PhFileArrowUp,
+  FileText as PhFileText,
+  Fingerprint as PhFingerprint,
+  FloppyDisk as PhFloppyDisk,
+  FolderSimple as PhFolderSimple,
+  Gear as PhGear,
+  GithubLogo as PhGithubLogo,
+  GlobeHemisphereWest as PhGlobeHemisphereWest,
+  GraduationCap as PhGraduationCap,
+  IdentificationCard as PhIdentificationCard,
+  Key as PhKey,
+  Lightning as PhLightning,
+  LinkedinLogo as PhLinkedinLogo,
+  List as PhList,
+  ListChecks as PhListChecks,
+  LockSimple as PhLockSimple,
+  MagnifyingGlass as PhMagnifyingGlass,
+  MapPin as PhMapPin,
+  MicrophoneSlash as PhMicrophoneSlash,
+  MonitorPlay as PhMonitorPlay,
+  Moon as PhMoon,
+  Notepad as PhNotepad,
+  PaperPlaneTilt as PhPaperPlaneTilt,
+  Password as PhPassword,
+  PencilSimple as PhPencilSimple,
+  Phone as PhPhone,
+  Plus as PhPlus,
+  PresentationChart as PhPresentationChart,
+  SealCheck as PhSealCheck,
+  ShareNetwork as PhShareNetwork,
+  Shield as PhShield,
+  ShieldWarning as PhShieldWarning,
+  SidebarSimple as PhSidebarSimple,
+  Sparkle as PhSparkle,
+  SquaresFour as PhSquaresFour,
+  Star as PhStar,
+  Sun as PhSun,
+  Target as PhTarget,
+  Terminal as PhTerminal,
+  ThumbsDown as PhThumbsDown,
+  ThumbsUp as PhThumbsUp,
+  TrendDown as PhTrendDown,
+  TrendUp as PhTrendUp,
+  Trophy as PhTrophy,
+  TrashSimple as PhTrashSimple,
+  TwitterLogo as PhTwitterLogo,
+  UploadSimple as PhUploadSimple,
+  User as PhUser,
+  UserCheck as PhUserCheck,
+  UserPlus as PhUserPlus,
+  UsersThree as PhUsersThree,
+  VideoCamera as PhVideoCamera,
+  X as PhX,
+  XCircle as PhXCircle,
+} from "@phosphor-icons/react";
 
-export type IconProps = React.SVGProps<SVGSVGElement> & {
-  color?: string;
-  size?: string | number;
+export type IconProps = Omit<PhosphorIconProps, "weight"> & {
   strokeWidth?: string | number;
   absoluteStrokeWidth?: boolean;
 };
@@ -109,7 +100,7 @@ type IconComponent = React.ForwardRefExoticComponent<
   IconProps & React.RefAttributes<SVGSVGElement>
 >;
 
-function createIcon(BaseIcon: IconType): IconComponent {
+function createIcon(BaseIcon: Icon, weight: PhosphorIconProps["weight"] = "bold"): IconComponent {
   return React.forwardRef<SVGSVGElement, IconProps>(function Icon(
     { size = 20, className, style, ...props },
     ref
@@ -118,6 +109,7 @@ function createIcon(BaseIcon: IconType): IconComponent {
       <BaseIcon
         ref={ref}
         size={size}
+        weight={weight}
         className={className}
         style={style}
         {...props}
@@ -126,114 +118,114 @@ function createIcon(BaseIcon: IconType): IconComponent {
   });
 }
 
-const fallbackIcon = createIcon(MdCategory);
-
-function alias(icon: IconType): IconComponent {
-  return createIcon(icon);
+function alias(icon: Icon, weight: PhosphorIconProps["weight"] = "bold"): IconComponent {
+  return createIcon(icon, weight);
 }
 
-export const Activity = alias(MdInsertChart);
-export const AlertCircle = alias(MdError);
-export const AlertTriangle = alias(MdWarning);
-export const ArrowLeft = alias(MdArrowBack);
-export const ArrowRight = alias(MdArrowForward);
-export const Award = alias(MdWorkspacePremium ?? MdStar);
-export const BarChart3 = alias(MdBarChart);
-export const Bell = alias(MdNotifications);
-export const Brain = alias(MdPsychology);
-export const BrainCircuit = alias(MdPsychology);
-export const Briefcase = alias(MdWork);
-export const Building = alias(MdBusiness);
-export const Building2 = alias(MdHomeWork);
-export const Calendar = alias(MdCalendarToday);
-export const CalendarCheck = alias(MdEventAvailable);
-export const CalendarDays = alias(MdCalendarMonth);
-export const Check = alias(MdCheck);
-export const CheckCircle = alias(MdCheckCircle);
-export const CheckCircle2 = alias(MdCheckCircle);
-export const ChevronDown = alias(MdArrowDownward);
-export const ChevronLeft = alias(MdChevronLeft);
-export const ChevronRight = alias(MdChevronRight);
-export const ChevronUp = alias(MdArrowUpward);
-export const Circle = alias(MdPauseCircle);
-export const ClipboardList = alias(MdChecklist ?? MdDescription);
-export const Clock = alias(MdSchedule);
-export const Cloud = alias(MdCloudUpload);
-export const Code = alias(MdCode);
-export const Cpu = alias(MdMemory ?? MdConstruction);
-export const Dot = alias(MdRadioButtonUnchecked);
-export const DollarSign = alias(MdAttachMoney);
-export const Download = alias(MdDownload);
-export const Edit = alias(MdEdit);
-export const Edit2 = alias(MdEdit);
-export const Edit3 = alias(MdEdit);
-export const Eye = alias(MdRemoveRedEye);
-export const EyeOff = alias(MdShieldMoon);
-export const FileCheck = alias(MdDescription);
-export const FileIcon = alias(MdInsertDriveFile);
-export const FileText = alias(MdDescription);
-export const FileUp = alias(MdUploadFile);
-export const FileWarning = alias(MdDescription);
-export const Filter = alias(MdFilterAlt);
-export const Fingerprint = alias(MdFingerprint);
-export const FolderUp = alias(MdFolderOpen);
-export const Github = alias(FaGithub);
-export const Globe = alias(MdLanguage);
-export const GraduationCap = alias(MdSchool ?? MdWorkspacePremium);
-export const GripVertical = alias(MdDragIndicator);
-export const KeyRound = alias(MdVpnKey ?? MdKey);
-export const LayoutDashboard = alias(MdSpaceDashboard);
-export const Linkedin = alias(FaLinkedinIn);
-export const Loader2 = alias(MdRefresh);
-export const Lock = alias(MdShield);
-export const LogIn = alias(MdLogin);
-export const Mail = alias(MdMail);
-export const MapPin = alias(MdPlace);
-export const Maximize = alias(MdOpenInFull);
-export const Megaphone = alias(MdCampaign);
-export const Menu = alias(MdMenu);
-export const MessageSquare = alias(MdMail);
-export const MicOff = alias(MdVideocamOff);
-export const MonitorPlay = alias(MdScreenShare);
-export const Moon = alias(MdDarkMode ?? MdShieldMoon);
-export const MoreHorizontal = alias(MdMoreHoriz);
-export const MoreVertical = alias(HiMiniEllipsisHorizontal);
-export const PanelLeft = alias(MdViewSidebar ?? MdSpaceDashboard);
-export const Phone = alias(MdPhone);
-export const Plus = alias(MdAdd);
-export const RefreshCw = alias(MdRefresh);
-export const Save = alias(MdSave);
-export const ScrollText = alias(MdNoteAlt);
-export const Search = alias(MdSearch);
-export const Send = alias(MdSend);
-export const SendHorizontal = alias(MdSend);
-export const Settings = alias(MdSettings);
-export const Share2 = alias(MdShare);
-export const Shield = alias(MdShield);
-export const ShieldAlert = alias(MdGppBad);
-export const ShieldCheck = alias(MdVerifiedUser);
-export const Sparkles = alias(MdAutoAwesome);
-export const Star = alias(MdStar);
-export const Sun = alias(MdLightMode);
-export const Target = alias(MdGpsFixed ?? MdNorthEast);
-export const Terminal = alias(MdTerminal);
-export const ThumbsDown = alias(MdThumbDown);
-export const ThumbsUp = alias(MdThumbUp);
-export const Timer = alias(MdTimer);
-export const Trash2 = alias(MdDelete ?? MdClose);
-export const TrendingDown = alias(MdTrendingDown);
-export const TrendingUp = alias(MdTrendingUp);
-export const Trophy = alias(MdEmojiEvents ?? MdStar);
-export const Twitter = alias(FaTwitter);
-export const Upload = alias(MdCloudUpload);
-export const User = alias(MdPerson);
-export const UserCheck = alias(MdVerifiedUser);
-export const UserPlus = alias(MdPersonAdd);
-export const Users = alias(MdPeople);
-export const Video = alias(MdVideocam);
-export const X = alias(MdClose);
-export const XCircle = alias(MdCancel ?? MdClose);
-export const Zap = alias(MdBolt ?? MdAutoAwesome);
-export const ZoomIn = alias(MdZoomIn);
+const fallbackIcon = alias(PhSquaresFour);
+
+export const Activity = alias(PhPresentationChart);
+export const AlertCircle = alias(PhXCircle);
+export const AlertTriangle = alias(PhShieldWarning);
+export const ArrowLeft = alias(PhArrowLeft);
+export const ArrowRight = alias(PhArrowLineRight);
+export const Award = alias(PhTrophy);
+export const BarChart3 = alias(PhChartBar);
+export const Bell = alias(PhBell);
+export const Brain = alias(PhBrain);
+export const BrainCircuit = alias(PhBrain);
+export const Briefcase = alias(PhBriefcase);
+export const Building = alias(PhBuilding);
+export const Building2 = alias(PhBuildings);
+export const Calendar = alias(PhCalendarBlank);
+export const CalendarCheck = alias(PhCalendarCheck);
+export const CalendarDays = alias(PhCalendar);
+export const Check = alias(PhCheck);
+export const CheckCircle = alias(PhCheckCircle);
+export const CheckCircle2 = alias(PhCheckCircle);
+export const ChevronDown = alias(PhCaretDown);
+export const ChevronLeft = alias(PhCaretLeft);
+export const ChevronRight = alias(PhCaretRight);
+export const ChevronUp = alias(PhCaretUp);
+export const Circle = alias(PhCircle);
+export const ClipboardList = alias(PhListChecks);
+export const Clock = alias(PhClock);
+export const Cloud = alias(PhCloudArrowUp);
+export const Code = alias(PhCode);
+export const Cpu = alias(PhCpu);
+export const Dot = alias(PhDotOutline, "fill");
+export const DollarSign = alias(PhCurrencyDollarSimple);
+export const Download = alias(PhDownloadSimple);
+export const Edit = alias(PhPencilSimple);
+export const Edit2 = alias(PhPencilSimple);
+export const Edit3 = alias(PhPencilSimple);
+export const Eye = alias(PhEye);
+export const EyeOff = alias(PhEyeSlash);
+export const FileCheck = alias(PhFileText);
+export const FileIcon = alias(PhFileText);
+export const FileText = alias(PhFileText);
+export const FileUp = alias(PhFileArrowUp);
+export const FileWarning = alias(PhExam);
+export const Filter = alias(PhListChecks);
+export const Fingerprint = alias(PhFingerprint);
+export const FolderUp = alias(PhFolderSimple);
+export const Github = alias(PhGithubLogo);
+export const Globe = alias(PhGlobeHemisphereWest);
+export const GraduationCap = alias(PhGraduationCap);
+export const GripVertical = alias(PhDotsThreeVertical);
+export const KeyRound = alias(PhKey);
+export const LayoutDashboard = alias(PhSquaresFour);
+export const Linkedin = alias(PhLinkedinLogo);
+export const Loader2 = alias(PhClockCountdown);
+export const Lock = alias(PhLockSimple);
+export const LogIn = alias(PhPassword);
+export const Mail = alias(PhEnvelopeSimple);
+export const MapPin = alias(PhMapPin);
+export const Maximize = alias(PhArrowsOutSimple);
+export const Megaphone = alias(PhPresentationChart);
+export const Menu = alias(PhList);
+export const MessageSquare = alias(PhChatCircleText);
+export const MicOff = alias(PhMicrophoneSlash);
+export const MonitorPlay = alias(PhMonitorPlay);
+export const Moon = alias(PhMoon);
+export const MoreHorizontal = alias(PhDotsThree);
+export const MoreVertical = alias(PhDotsThreeVertical);
+export const PanelLeft = alias(PhSidebarSimple);
+export const Phone = alias(PhPhone);
+export const Plus = alias(PhPlus);
+export const RefreshCw = alias(PhClockCountdown);
+export const Save = alias(PhFloppyDisk);
+export const ScrollText = alias(PhNotepad);
+export const Search = alias(PhMagnifyingGlass);
+export const Send = alias(PhPaperPlaneTilt);
+export const SendHorizontal = alias(PhPaperPlaneTilt);
+export const Settings = alias(PhGear);
+export const Share2 = alias(PhShareNetwork);
+export const Shield = alias(PhShield);
+export const ShieldAlert = alias(PhShieldWarning);
+export const ShieldCheck = alias(PhSealCheck);
+export const Sparkles = alias(PhSparkle);
+export const Star = alias(PhStar);
+export const Sun = alias(PhSun);
+export const Target = alias(PhTarget);
+export const Terminal = alias(PhTerminal);
+export const ThumbsDown = alias(PhThumbsDown);
+export const ThumbsUp = alias(PhThumbsUp);
+export const Timer = alias(PhClockCountdown);
+export const Trash2 = alias(PhTrashSimple);
+export const TrendingDown = alias(PhTrendDown);
+export const TrendingUp = alias(PhTrendUp);
+export const Trophy = alias(PhTrophy);
+export const Twitter = alias(PhTwitterLogo);
+export const Upload = alias(PhUploadSimple);
+export const User = alias(PhUser);
+export const UserCheck = alias(PhUserCheck);
+export const UserPlus = alias(PhUserPlus);
+export const Users = alias(PhUsersThree);
+export const Video = alias(PhVideoCamera);
+export const X = alias(PhX);
+export const XCircle = alias(PhXCircle);
+export const Zap = alias(PhLightning);
+export const ZoomIn = alias(PhMagnifyingGlass);
 
 export default fallbackIcon;
