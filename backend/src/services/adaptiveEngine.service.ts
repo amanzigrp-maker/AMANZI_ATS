@@ -41,10 +41,30 @@ export class AdaptiveEngineService {
     let candidateId = existing.rows.length > 0 ? existing.rows[0].candidate_id : null;
 
     if (!candidateId) {
-      // Fetch candidateId from interview_users table
-      const userRes = await pool.query('SELECT id FROM interview_users WHERE email = $1', [candidateEmail]);
-      if (userRes.rows.length > 0) {
-        candidateId = userRes.rows[0].id;
+      // Prefer the main candidates table when present.
+      try {
+        const candidateRes = await pool.query(
+          'SELECT candidate_id FROM candidates WHERE email ILIKE $1 LIMIT 1',
+          [candidateEmail]
+        );
+        if (candidateRes.rows.length > 0) {
+          candidateId = candidateRes.rows[0].candidate_id;
+        }
+      } catch (error) {
+        console.warn('Adaptive session could not read candidates table:', error);
+      }
+    }
+
+    if (!candidateId) {
+      // Legacy fallback: some environments still keep interview users separately.
+      // Do not fail the interview if this table is unavailable to the app user.
+      try {
+        const userRes = await pool.query('SELECT id FROM interview_users WHERE email = $1', [candidateEmail]);
+        if (userRes.rows.length > 0) {
+          candidateId = userRes.rows[0].id;
+        }
+      } catch (error) {
+        console.warn('Adaptive session skipping interview_users lookup:', error);
       }
     }
 
@@ -80,17 +100,21 @@ export class AdaptiveEngineService {
 
     // Clean up skill name for more lenient matching (e.g., mern_developer -> mern%developer)
     const searchPattern = `%${skill.replace(/[_-]/g, '%')}%`;
+    const attemptedIdsSql = attemptedQuestionIds.length > 0 ? attemptedQuestionIds.join(',') : '-1';
 
     const query = `
       SELECT q.*, 
-             ABS(q.difficulty_b - $1) as diff_distance,
+             ABS(COALESCE(q.difficulty_b, 0) - $1) as diff_distance,
              jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
       FROM questions q
       JOIN question_options o ON q.question_id = o.question_id
-      WHERE (q.skill_tag ILIKE $2 OR q.skill_tag ILIKE $3)
-        AND q.question_id NOT IN (${attemptedQuestionIds.length > 0 ? attemptedQuestionIds.join(',') : '-1'})
+      WHERE (
+          q.skill_tag ILIKE $2 OR q.skill_tag ILIKE $3 OR
+          q.topic ILIKE $2 OR q.topic ILIKE $3
+      )
+        AND q.question_id NOT IN (${attemptedIdsSql})
       GROUP BY q.question_id
-      ORDER BY diff_distance ASC, q.discrimination_a DESC
+      ORDER BY diff_distance ASC, COALESCE(q.discrimination_a, 1) DESC
       LIMIT 1
     `;
 
@@ -143,12 +167,12 @@ export class AdaptiveEngineService {
       console.log(`\x1b[33m⚠️  Adaptive Crisis:\x1b[0m No questions for '${skill}' and AI failed. Falling back to 'General'...`);
       const generalFallback = await pool.query(`
         SELECT q.*, 
-               ABS(q.difficulty_b - $1) as diff_distance,
+               ABS(COALESCE(q.difficulty_b, 0) - $1) as diff_distance,
                jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
         FROM questions q
         JOIN question_options o ON q.question_id = o.question_id
-        WHERE q.skill_tag ILIKE 'General'
-          AND q.question_id NOT IN (${attemptedQuestionIds.length > 0 ? attemptedQuestionIds.join(',') : '-1'})
+        WHERE (q.skill_tag ILIKE 'General' OR q.topic ILIKE 'General')
+          AND q.question_id NOT IN (${attemptedIdsSql})
         GROUP BY q.question_id
         ORDER BY diff_distance ASC
         LIMIT 1
@@ -163,11 +187,11 @@ export class AdaptiveEngineService {
       console.log(`\x1b[31m💣 Total Bank Exhaustion:\x1b[0m No skill-matched or General questions. Pulling ANY question...`);
       const absoluteLastResort = await pool.query(`
         SELECT q.*, 
-               ABS(q.difficulty_b - $1) as diff_distance,
+               ABS(COALESCE(q.difficulty_b, 0) - $1) as diff_distance,
                jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
         FROM questions q
         JOIN question_options o ON q.question_id = o.question_id
-        WHERE q.question_id NOT IN (${attemptedQuestionIds.length > 0 ? attemptedQuestionIds.join(',') : '-1'})
+        WHERE q.question_id NOT IN (${attemptedIdsSql})
         GROUP BY q.question_id
         ORDER BY RANDOM()
         LIMIT 1

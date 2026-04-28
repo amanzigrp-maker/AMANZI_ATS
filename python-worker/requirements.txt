@@ -1,10 +1,10 @@
 # =====================================================
 # AI Resume Processing Worker - Dependencies (Fixed & Stable)
 # System Requirements:
- Python==3.11.9
- Node==v24.13.0
- PostgreSQL==17.7
- Tesseract-OCR==5.5.0
+# Python 3.11.9
+# Node v24.13.0
+# PostgreSQL 17.7
+# Tesseract-OCR 5.5.0
 # =====================================================
 
 # -------------------------
@@ -27,11 +27,13 @@ opencv-python==4.11.0.86
 rapidfuzz==3.14.3
 
 # -------------------------
-# NLP & Machine Learning (Gemini API Based)
+# NLP & Machine Learning
 # -------------------------
-# Using External LLM (Gemini) for both Parsing and Embeddings
-# Local AI libraries (Torch/Sentence-Transformers) removed to save space
+# Required for local sentence-transformers embeddings when
+# EMBEDDING_PROVIDER=sentence-transformers
 numpy==1.24.3
+torch==2.5.1
+sentence-transformers==3.3.1
 
 # -------------------------
 # Database & Vector Search

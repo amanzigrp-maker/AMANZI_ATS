@@ -362,11 +362,15 @@ export const sendInterviewResults = async (
   total: number,
   role?: string,
   timeTakenMins?: number | null,
-  breakdown?: Record<string, { total: number, correct: number }>
+  breakdown?: Record<string, { total: number, correct: number }>,
+  report?: { correct?: number; incorrect?: number; attempted?: number }
 ): Promise<void> => {
   try {
     const transporter = createTransporter();
     const percentage = total > 0 ? Math.round((score / total) * 100) : 0;
+    const correct = Number(report?.correct ?? score) || 0;
+    const attempted = Number(report?.attempted ?? total) || total || 0;
+    const incorrect = Number(report?.incorrect ?? Math.max(0, attempted - correct)) || 0;
     
     let performanceLabel = 'Needs Improvement';
     let performanceColor = '#EF4444';
@@ -412,6 +416,7 @@ export const sendInterviewResults = async (
       console.log(`To: ${to}`);
       console.log(`Name: ${name}`);
       console.log(`Score: ${score}/${total} (${percentage}%)`);
+      console.log(`Correct: ${correct} | Incorrect: ${incorrect} | Assigned: ${attempted}`);
       console.log(`==============================================\n`);
       return;
     }
@@ -453,6 +458,26 @@ export const sendInterviewResults = async (
                     ${performanceEmoji} ${performanceLabel} — ${percentage}%
                   </div>
                 </div>
+                <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 20px 0;">
+                  <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:16px;">
+                    <div style="font-size:12px; text-transform:uppercase; color:#64748b;">Correct Answers</div>
+                    <div style="font-size:28px; font-weight:800; color:#10B981;">${correct}</div>
+                  </div>
+                  <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:16px;">
+                    <div style="font-size:12px; text-transform:uppercase; color:#64748b;">Incorrect Answers</div>
+                    <div style="font-size:28px; font-weight:800; color:#EF4444;">${incorrect}</div>
+                  </div>
+                  <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:16px;">
+                    <div style="font-size:12px; text-transform:uppercase; color:#64748b;">Questions Assigned</div>
+                    <div style="font-size:28px; font-weight:800; color:#4F46E5;">${attempted}</div>
+                  </div>
+                  <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:16px;">
+                    <div style="font-size:12px; text-transform:uppercase; color:#64748b;">Time Taken</div>
+                    <div style="font-size:28px; font-weight:800; color:#0F172A;">${timeTakenMins ?? '—'}</div>
+                    <div style="font-size:11px; color:#64748b;">minutes</div>
+                  </div>
+                </div>
+                ${role ? `<p style="margin: 0 0 16px; color: #475569; font-size: 14px;"><strong>Assessment Focus:</strong> ${role}</p>` : ''}
                 ${analysisHtml}
                 <div style="background: #fdf2f2; border: 1px solid #fee2e2; border-radius: 10px; padding: 20px; margin: 24px 0;">
                   <h3 style="margin: 0 0 8px; color: #991b1b; font-size: 15px;">🚀 Next Steps</h3>
@@ -470,7 +495,7 @@ export const sendInterviewResults = async (
         </body>
         </html>
       `,
-      text: `Assessment Results — Score: ${score}/${total} (${percentage}%). If selected, you will receive a mail regarding next steps.`,
+      text: `Assessment Results — Score: ${score}/${total} (${percentage}%). Correct: ${correct}. Incorrect: ${incorrect}. Questions Assigned: ${attempted}.${timeTakenMins !== null && timeTakenMins !== undefined ? ` Time Taken: ${timeTakenMins} minutes.` : ''} If selected, you will receive a mail regarding next steps.`,
     };
 
     await transporter.sendMail(mailOptions);

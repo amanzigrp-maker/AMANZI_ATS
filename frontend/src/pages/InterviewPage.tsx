@@ -132,86 +132,46 @@ export default function InterviewPage() {
     
     try {
       const currentQ = questions[currentQuestionIndex];
-      const res = await fetch("/api/interview/adaptive/submit", {
+      const res = await fetch("/api/interview/answer", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${jwtToken}`
         },
         body: JSON.stringify({
-          sessionId: sessionId,
-          questionId: currentQ.id,
-          selectedAnswer
+          session_id: sessionId,
+          question_id: currentQ.id,
+          selected_answer: selectedAnswer
         })
       });
       const data = await res.json();
 
-      if (data.success) {
-        if (data.isFinished) {
-          setStatus("completed");
-        } else {
-          // Add next adaptive question
-          setQuestions(prev => [...prev, {
-            id: data.question.question_id,
-            question: data.question.question_text,
-            options: Object.values(data.question.options) as string[]
-          }]);
-          setCurrentQuestionIndex(prev => prev + 1);
-        }
+      if (!res.ok || !data.success) {
+        toast.error(data.error || "Failed to save answer");
+        return;
       }
-    } catch (err) {
-      console.error("Adaptive submission error:", err);
-      toast.error("Failed to submit answer. Retrying...");
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [sessionId, questions, currentQuestionIndex, isSubmitting, jwtToken]);
-
-  const handleAdaptiveAnswer = async () => {
-    const currentQ = questions[currentQuestionIndex];
-    if (!currentQ || !sessionId || !answers[currentQ.id]) return;
-
-    setIsSubmitting(true);
-    try {
-      const res = await fetch("/api/interview/answer", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${jwtToken}`
-        },
-        body: JSON.stringify({
-          session_id: sessionId,
-          question_id: currentQ.id,
-          selected_answer: answers[currentQ.id]
-        })
-      });
-        const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          toast.error(data.error || "Failed to save answer");
-          return;
-        }
 
       if (typeof data.theta === "number") {
         setTheta(data.theta);
       }
 
       if (data.isFinished) {
-        setScore(data.score);
+        setScore(typeof data.score === "number" ? data.score : null);
         setStatus("completed");
         return;
       }
 
       if (data.question) {
-        setQuestions((prev) => [...prev, data.question]);
-        setCurrentQuestionIndex((prev) => prev + 1);
+        setQuestions(prev => [...prev, data.question]);
+        setCurrentQuestionIndex(prev => prev + 1);
       }
     } catch (err) {
-      toast.error("Failed to save answer");
+      console.error("Answer submission error:", err);
+      toast.error("Failed to submit answer");
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [sessionId, questions, currentQuestionIndex, isSubmitting, jwtToken]);
 
   // Handle stuck loading
   useEffect(() => {
@@ -229,13 +189,16 @@ export default function InterviewPage() {
 
   useEffect(() => {
     if (status !== "interviewing" || timeLeft <= 0) return;
+    const currentQuestion = questions[currentQuestionIndex];
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
           // When time runs out, try to submit current answer if selected, or just finish
-          handleAnswerSubmit(answers[questions[currentQuestionIndex].id] || "");
+          if (currentQuestion) {
+            handleAnswerSubmit(answers[currentQuestion.id] || "");
+          }
           return 0;
         }
         return prev - 1;
@@ -243,7 +206,7 @@ export default function InterviewPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [status, timeLeft, handleAnswerSubmit, answers, questions, currentQuestionIndex]);
+  }, [status, timeLeft, questions, currentQuestionIndex, answers, handleAnswerSubmit]);
 
   const fetchQuestions = async (sId: string | number, jwt: string | null = jwtToken) => {
     const res = await fetch(`/api/interview/questions?session_id=${sId}`, {
@@ -263,35 +226,41 @@ export default function InterviewPage() {
       return;
     }
 
+    const activeToken = interviewToken || token;
+    if (!activeToken) {
+      toast.error("Interview token is missing. Please log in again.");
+      setStatus("login");
+      return;
+    }
+
     setStatus("loading");
     try {
-      const res = await fetch("/api/interview/adaptive/start", {
+      const res = await fetch("/api/interview/generate", {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${jwtToken}`
         },
         body: JSON.stringify({
-          email: candidateInfo?.email,
-          skill: setupData.role,
-          experienceYears: setupData.experience
+          token: activeToken,
+          role: setupData.role,
+          experience: setupData.experience
         })
       });
       const data = await res.json();
 
       if (data.success) {
-        setSessionId(data.sessionId);
+        setSessionId(data.session_id);
         if (data.question) {
-          setQuestions([{
-            id: data.question.question_id,
-            question: data.question.question_text,
-            options: Object.values(data.question.options) as string[]
-          }]);
+          setQuestions([data.question]);
           if (typeof data.theta === "number") setTheta(data.theta);
+        }
+        if (data.target_questions) {
+          setTotalQuestions(Number(data.target_questions) || totalQuestions);
         }
         setCurrentQuestionIndex(0);
         setStatus("interviewing");
-        toast.success("Adaptive assessment started. Good luck.");
+        toast.success("Assessment started. Good luck.");
       } else {
         toast.error("Failed to start session. Please try again.");
         setStatus("setup");

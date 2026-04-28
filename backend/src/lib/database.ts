@@ -163,10 +163,13 @@ export async function testConnection(): Promise<boolean> {
     `);
 
     // Add difficulty column if it doesn't exist
-    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'medium'`);
-    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS options JSONB`);
-    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS source_question_id INTEGER`);
-    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(6,4) DEFAULT 0.5`);
+     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'medium'`);
+     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS options JSONB`);
+     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS source_question_id INTEGER`);
+     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(6,4) DEFAULT 0.5`);
+     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS selection_mode TEXT`);
+     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS semantic_similarity NUMERIC(8,6)`);
+     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS semantic_topic TEXT`);
 
     // Ensure interview_responses table exists
     await pool.query(`

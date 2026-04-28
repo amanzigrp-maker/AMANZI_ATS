@@ -195,6 +195,9 @@ const sendCompletionReport = async (sessionId: number) => {
 
     if (!sessionResult.rows.length) return;
     const sess = sessionResult.rows[0];
+    const configuredTotal = Number(sess.total_questions) || 0;
+    const correctCount = Number(sess.score) || 0;
+    const incorrectCount = Math.max(0, configuredTotal - correctCount);
 
     const breakdownResult = await pool.query(
       `SELECT q.difficulty,
@@ -231,11 +234,16 @@ const sendCompletionReport = async (sessionId: number) => {
     await sendInterviewResults(
       sess.candidate_email,
       sess.candidate_name,
-      Number(sess.score) || 0,
-      Number(sess.total_questions) || 0,
+      correctCount,
+      configuredTotal,
       sess.role || sess.job_role,
       timeTakenMins,
-      breakdownMap
+      breakdownMap,
+      {
+        correct: correctCount,
+        incorrect: incorrectCount,
+        attempted: configuredTotal,
+      }
     );
   } catch (emailErr) {
     console.error('Failed to send completion report email:', emailErr);
@@ -244,7 +252,7 @@ const sendCompletionReport = async (sessionId: number) => {
 
 const formatQuestionForClient = (row: any) => ({
   id: Number(row.id),
-  question: String(row.question || ''),
+  question: String(row.question || row.question_text || ''),
   options: Array.isArray(row.options) ? row.options : Object.values(row.options || {}),
   difficulty: row.difficulty || 'medium',
   theta: row.theta !== undefined ? Number(row.theta) : undefined,
@@ -409,21 +417,36 @@ const createNextAdaptiveQuestion = async (
       const correctAnswer = optionsObject[selected.correct_option] || selected.correct_option;
       const itemDifficulty = Number(selected.difficulty_score) || difficultyScore(selected.difficulty);
 
+      const selectionMode = Number(selected?.similarity) > 0 ? 'semantic+theta' : 'theta-fallback';
+      const semanticSimilarity = Number(selected?.similarity) > 0 ? Number(selected.similarity) : null;
+      const semanticTopic = String(selected?.topic || skillFocus || '').trim() || null;
+
       const inserted = await client.query(
         `
-        INSERT INTO interview_questions (session_id, question, options, correct_answer, difficulty, source_question_id, difficulty_score)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, question, options, difficulty, difficulty_score
+        INSERT INTO interview_questions (
+          session_id, question, options, correct_answer, difficulty, source_question_id, difficulty_score,
+          selection_mode, semantic_similarity, semantic_topic
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        RETURNING id, question, options, difficulty, difficulty_score, selection_mode, semantic_similarity, semantic_topic
         `,
-        [sessionId, selected.question_text, JSON.stringify(optionList), correctAnswer, selected.difficulty || targetDifficulty, selected.question_id, itemDifficulty]
+        [
+          sessionId,
+          selected.question_text,
+          JSON.stringify(optionList),
+          correctAnswer,
+          selected.difficulty || targetDifficulty,
+          selected.question_id,
+          itemDifficulty,
+          selectionMode,
+          semanticSimilarity,
+          semanticTopic,
+        ]
       );
 
       return {
         ...inserted.rows[0],
         theta,
-        selection_mode: Number(selected?.similarity) > 0 ? 'semantic+theta' : 'theta-fallback',
-        semantic_similarity: Number(selected?.similarity) > 0 ? Number(selected.similarity) : null,
-        semantic_topic: String(selected?.topic || skillFocus || '').trim() || null,
       };
     }
   }
@@ -471,19 +494,29 @@ const createNextAdaptiveQuestion = async (
   );
   const inserted = await client.query(
     `
-    INSERT INTO interview_questions (session_id, question, options, correct_answer, difficulty, difficulty_score)
-    VALUES ($1, $2, $3, $4, $5, $6)
-    RETURNING id, question, options, difficulty, difficulty_score
+    INSERT INTO interview_questions (
+      session_id, question, options, correct_answer, difficulty, difficulty_score,
+      selection_mode, semantic_similarity, semantic_topic
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    RETURNING id, question, options, difficulty, difficulty_score, selection_mode, semantic_similarity, semantic_topic
     `,
-    [sessionId, aiQuestion.question, JSON.stringify(aiQuestion.options), aiQuestion.correct_answer, targetDifficulty, difficultyScore(targetDifficulty)]
+    [
+      sessionId,
+      aiQuestion.question,
+      JSON.stringify(aiQuestion.options),
+      aiQuestion.correct_answer,
+      targetDifficulty,
+      difficultyScore(targetDifficulty),
+      bestSemanticSimilarity ? 'semantic-grounded-ai' : 'ai',
+      bestSemanticSimilarity,
+      skillFocus || role || null,
+    ]
   );
 
   return {
     ...inserted.rows[0],
     theta,
-    selection_mode: bestSemanticSimilarity ? 'semantic-grounded-ai' : 'ai',
-    semantic_similarity: bestSemanticSimilarity,
-    semantic_topic: skillFocus || role || null,
   };
 };
 
@@ -1003,11 +1036,11 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
     if (answeredCount >= targetCount) {
       await client.query(
         `UPDATE interview_sessions SET is_submitted = true, completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
-        [answeredCount, score, Number(session_id)]
+        [targetCount, score, Number(session_id)]
       );
       await client.query('COMMIT');
       void sendCompletionReport(Number(session_id));
-      return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: answeredCount });
+      return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: targetCount });
     }
 
     const nextQuestion = await createNextAdaptiveQuestion(
@@ -1022,11 +1055,11 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
     if (!nextQuestion) {
       await client.query(
         `UPDATE interview_sessions SET is_submitted = true, completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
-        [answeredCount, score, Number(session_id)]
+        [targetCount, score, Number(session_id)]
       );
       await client.query('COMMIT');
       void sendCompletionReport(Number(session_id));
-      return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: answeredCount });
+      return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: targetCount });
     }
 
     await client.query('COMMIT');
@@ -1060,11 +1093,11 @@ export const getQuestions = async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(
-      'SELECT id, question, options FROM interview_questions WHERE session_id = $1 ORDER BY id ASC',
+      'SELECT id, question, options, difficulty, selection_mode, semantic_similarity, semantic_topic FROM interview_questions WHERE session_id = $1 ORDER BY id ASC',
       [session_id]
     );
 
-    res.json({ success: true, data: result.rows });
+    res.json({ success: true, data: result.rows.map(formatQuestionForClient) });
   } catch (error) {
     console.error('Get questions error:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch questions' });
@@ -1111,12 +1144,20 @@ export const submitAnswers = async (req: Request, res: Response) => {
     );
     const score = Number(scoreResult.rows[0]?.score) || 0;
     const totalAnswered = Number(scoreResult.rows[0]?.total) || answers.length;
+    const configuredTotalResult = await client.query(
+      `SELECT COALESCE(t.total_questions, s.total_questions, $2)::int AS total
+       FROM interview_sessions s
+       LEFT JOIN interview_tokens t ON t.token = s.token
+       WHERE s.id = $1`,
+      [session_id, totalAnswered]
+    );
+    const configuredTotal = Number(configuredTotalResult.rows[0]?.total) || totalAnswered;
 
     await client.query(
       `UPDATE interview_sessions 
        SET is_submitted = true, score = $1, total_questions = $2, completed_at = CURRENT_TIMESTAMP 
        WHERE id = $3`,
-      [score, totalAnswered, session_id]
+      [score, configuredTotal, session_id]
     );
 
     await client.query('COMMIT');
@@ -1169,10 +1210,15 @@ export const submitAnswers = async (req: Request, res: Response) => {
           sess.candidate_email,
           sess.candidate_name,
           sess.score,
-          sess.total_questions,
+          configuredTotal,
           sess.role,
           timeTakenMins,
-          breakdownMap
+          breakdownMap,
+          {
+            correct: Number(sess.score) || 0,
+            incorrect: Math.max(0, configuredTotal - (Number(sess.score) || 0)),
+            attempted: configuredTotal,
+          }
         );
         console.log(`✅ Results email sent to ${sess.candidate_email}`);
       }
