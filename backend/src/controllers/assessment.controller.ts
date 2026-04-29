@@ -224,13 +224,19 @@ const extractPdfText = async (buffer: Buffer, originalName: string): Promise<str
 
   try {
     await fs.writeFile(inputPath, buffer);
-    await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve) => {
       execFile(command, ["-layout", inputPath, outputPath], (error) => {
-        if (error) reject(error);
-        else resolve();
+        // Some pdftotext versions return exit code 1 for minor warnings
+        // We resolve anyway and check if the output file was created
+        resolve();
       });
     });
-    return await fs.readFile(outputPath, "utf8");
+    
+    if (await fs.access(outputPath).then(() => true).catch(() => false)) {
+      const text = await fs.readFile(outputPath, "utf8");
+      if (text.trim()) return text;
+    }
+    return "";
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
@@ -346,6 +352,7 @@ const cleanQuestionImportText = (text: string): string =>
     .replace(/^\s*ATS .*$/gim, "")
     .replace(/^\s*Full-Stack Development Question Bank.*$/gim, "")
     .replace(/^\s*Original exam-style MCQs.*$/gim, "")
+    .replace(/\(Correct\)/gi, " ") // Remove (Correct) suffix if it exists inline
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 
@@ -380,7 +387,8 @@ const extractAnswerKeyMap = (answerKeyText: string) => {
   const patterns = [
     /\bQ?\s*0*(\d{1,4})\s+(?:[A-Z][^\n]{0,80}\s+)?([A-D])\b/gi,
     /\b(\d{1,4})\s*[.):-]?\s*([A-D])\b/gi,
-    /\b(\d{1,4})\b\s+([A-D])\b/gi,
+    /\b(\d{1,4})\b\s*([A-D])\b/gi,
+    /\bQ?(\d{1,4})[.):-]\s*([A-D])\b/gi
   ];
 
   for (const pattern of patterns) {
@@ -403,27 +411,39 @@ const parseQuestionBlocks = (text: string) => {
   let currentLines: string[] = [];
 
   const flush = () => {
-    if (currentNumber > 0 && currentLines.length) {
+    if ((currentNumber > 0 || currentLines.some(l => l.includes("?"))) && currentLines.length) {
       blocks.push({ number: currentNumber, raw: currentLines.join("\n").trim() });
     }
     currentNumber = 0;
     currentLines = [];
   };
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
-    if (!trimmed) continue;
+    if (!trimmed) {
+      if (currentNumber > 0 || currentLines.length > 0) currentLines.push("");
+      continue;
+    }
 
-    const questionStart = trimmed.match(/^(?:Q(?:uestion)?\s*)?(\d{1,4})[\).:-]\s*(.*)$/i);
-    if (questionStart) {
+    // Matches "1.", "Q1.", "Question 1:", "1)", "(1)"
+    const questionStart = trimmed.match(/^(?:(?:Q(?:uestion)?\s*)?\(?(\d{1,4})\)?[\).:-]\s*|(\d{1,4})\.\s+)(.*)$/i);
+    
+    // Fuzzy match for unnumbered questions: a line ending in '?' or a short line followed by A) B) C) D)
+    const isFuzzyQuestion = !questionStart && trimmed.length > 5 && (
+      trimmed.endsWith("?") || 
+      (i < lines.length - 1 && lines[i+1].trim().match(/^[A-D][\).:-]/i))
+    );
+
+    if (questionStart || (isFuzzyQuestion && currentLines.length === 0)) {
       flush();
-      currentNumber = Number(questionStart[1]);
-      const rest = String(questionStart[2] || "").trim();
+      currentNumber = questionStart ? Number(questionStart[1] || questionStart[2]) : blocks.length + 1;
+      const rest = questionStart ? String(questionStart[3] || "").trim() : trimmed;
       if (rest) currentLines.push(rest);
       continue;
     }
 
-    if (currentNumber > 0) {
+    if (currentNumber > 0 || currentLines.length > 0) {
       currentLines.push(trimmed);
     }
   }
@@ -434,12 +454,16 @@ const parseQuestionBlocks = (text: string) => {
 
 const extractOptionsFromBlock = (blockText: string) => {
   const patterns = [
-    /(?:^|\n)\s*([A-D])[\).:-]\s*([\s\S]*?)(?=\n\s*[A-D][\).:-]\s*|\n\s*(?:correct\s*)?answer\s*[:\-]?|\s*$)/gi,
-    /\b([A-D])[\).:-]\s*([\s\S]*?)(?=\s+[A-D][\).:-]\s*|\s*(?:correct\s*)?answer\s*[:\-]?|\s*$)/gi,
+    // Matches A) text, B. text, (A) text etc.
+    /(?:^|\n|\s)\s*\(?([A-D])\)?[\).:-]?\s+([\s\S]*?)(?=\n\s*\(?[A-D]\)?[\).:-]?\s+|\s+\(?[A-D]\)?[\).:-]?\s+|\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?|\s*$)/gi,
+    // Lowercase version
+    /(?:^|\n|\s)\s*\(?([a-d])\)?[\).:-]?\s+([\s\S]*?)(?=\n\s*\(?[a-d]\)?[\).:-]?\s+|\s+\(?[a-d]\)?[\).:-]?\s+|\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?|\s*$)/gi,
   ];
 
   for (const pattern of patterns) {
     const matches = [...blockText.matchAll(pattern)];
+    if (matches.length === 0) continue;
+
     const deduped = new Map<string, string>();
     for (const match of matches) {
       const key = String(match[1] || "").toUpperCase();
@@ -448,10 +472,19 @@ const extractOptionsFromBlock = (blockText: string) => {
         deduped.set(key, value);
       }
     }
-    if (optionKeys.every((key) => deduped.has(key))) {
+
+    // If we found at least 2 options, we consider it a match (others will be filled as "Not provided")
+    if (deduped.size >= 2) {
+      const byKey: Record<string, string> = {
+        A: deduped.get("A") || "Option A not provided",
+        B: deduped.get("B") || "Option B not provided",
+        C: deduped.get("C") || "Option C not provided",
+        D: deduped.get("D") || "Option D not provided",
+      };
       return {
-        byKey: Object.fromEntries(Array.from(deduped.entries())),
+        byKey,
         firstIndex: matches[0]?.index || 0,
+        count: deduped.size
       };
     }
   }
@@ -461,39 +494,47 @@ const extractOptionsFromBlock = (blockText: string) => {
 
 const parseInlineAnswerQuestions = (text: string): NormalizedQuestion[] => {
   const { questionText } = splitQuestionAndAnswerKey(text);
-
-  const pattern =
-    /(?:^|\n)\s*(\d{1,4})\.\s*([\s\S]*?)\n\s*Answer\s*[:\-]?\s*([A-D])\s*\n\s*A[\).:-]\s*([\s\S]*?)\n\s*B[\).:-]\s*([\s\S]*?)\n\s*C[\).:-]\s*([\s\S]*?)\n\s*D[\).:-]\s*([\s\S]*?)(?=\n\s*\d{1,4}\.\s|\s*$)/gi;
-
   const questions: NormalizedQuestion[] = [];
+  
+  // Pattern 1: Q text, Answer: A, A) op1 B) op2 ...
+  const pattern1 = /(?:^|\n)\s*(\d{1,4})\.\s*([\s\S]*?)\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?\s*\(?([A-D])\)?\s*(?:\n|\s)*A[\).:-]\s*([\s\S]*?)\n\s*B[\).:-]\s*([\s\S]*?)\n\s*C[\).:-]\s*([\s\S]*?)\n\s*D[\).:-]\s*([\s\S]*?)(?=\n\s*\d{1,4}\.\s|\s*$)/gi;
+  
+  // Pattern 2: Q text, A) op1 B) op2 C) op3 D) op4, Answer: A
+  const pattern2 = /(?:^|\n)\s*(\d{1,4})\.\s*([\s\S]*?)\n\s*A[\).:-]\s*([\s\S]*?)\n\s*B[\).:-]\s*([\s\S]*?)\n\s*C[\).:-]\s*([\s\S]*?)\n\s*D[\).:-]\s*([\s\S]*?)\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?\s*\(?([A-D])\)?(?=\n\s*\d{1,4}\.\s|\s*$)/gi;
 
-  for (const match of questionText.matchAll(pattern)) {
-    const questionNumber = Number(match[1]);
-    const inferredDifficulty =
-      questionNumber <= 60 ? "foundation" :
-      questionNumber <= 130 ? "developing" :
-      questionNumber <= 195 ? "advanced" :
-      "expert";
-
-    try {
-      questions.push(
-        validateQuestion({
-          question_text: String(match[2] || "").replace(/\n+/g, " ").trim(),
-          option_a: String(match[4] || "").replace(/\n+/g, " ").trim(),
-          option_b: String(match[5] || "").replace(/\n+/g, " ").trim(),
-          option_c: String(match[6] || "").replace(/\n+/g, " ").trim(),
-          option_d: String(match[7] || "").replace(/\n+/g, " ").trim(),
-          correct_option: String(match[3] || "").trim(),
-          difficulty: inferredDifficulty,
-          metadata: {
-            source_parser: "inline-answer-regex",
-            pdf_question_number: questionNumber || undefined,
-          },
-        })
-      );
-    } catch {
-      // Skip malformed blocks.
+  const tryMatch = (pattern: RegExp, mapIdx: (m: RegExpMatchArray) => any) => {
+    for (const match of questionText.matchAll(pattern)) {
+      const q = mapIdx(match);
+      try {
+        questions.push(validateQuestion({
+          ...q,
+          difficulty: q.number <= 60 ? "foundation" : q.number <= 130 ? "developing" : q.number <= 195 ? "advanced" : "expert",
+          metadata: { source_parser: "inline-regex", pdf_question_number: q.number }
+        }));
+      } catch {}
     }
+  };
+
+  tryMatch(pattern1, m => ({
+    number: Number(m[1]),
+    question_text: String(m[2]).replace(/\n+/g, " ").trim(),
+    correct_option: String(m[3]).toUpperCase(),
+    option_a: String(m[4]).replace(/\n+/g, " ").trim(),
+    option_b: String(m[5]).replace(/\n+/g, " ").trim(),
+    option_c: String(m[6]).replace(/\n+/g, " ").trim(),
+    option_d: String(m[7]).replace(/\n+/g, " ").trim(),
+  }));
+
+  if (questions.length === 0) {
+    tryMatch(pattern2, m => ({
+      number: Number(m[1]),
+      question_text: String(m[2]).replace(/\n+/g, " ").trim(),
+      option_a: String(m[3]).replace(/\n+/g, " ").trim(),
+      option_b: String(m[4]).replace(/\n+/g, " ").trim(),
+      option_c: String(m[5]).replace(/\n+/g, " ").trim(),
+      option_d: String(m[6]).replace(/\n+/g, " ").trim(),
+      correct_option: String(m[7]).toUpperCase(),
+    }));
   }
 
   return questions;
@@ -512,7 +553,7 @@ const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
   for (const block of blocks) {
     const questionNumber = Number(block.number || 0);
     const blockText = block.raw;
-    const answerMatch = blockText.match(/(?:correct\s*)?answer\s*[:\-]?\s*([A-D])/i);
+    const answerMatch = blockText.match(/(?:correct\s*)?ans(?:wer)?\s*[:\-]?\s*\(?([A-D])\)?/i);
     const answerFromKey = questionNumber > 0 ? answerKey.get(questionNumber) : undefined;
     const extractedOptions = extractOptionsFromBlock(blockText);
     if ((!answerMatch && !answerFromKey) || !extractedOptions) continue;
@@ -531,6 +572,9 @@ const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
       "expert";
 
     try {
+      const correct_option = answerFromKey || answerMatch?.[1];
+      if (!correct_option) continue;
+
       questions.push(
         validateQuestion({
           question_text: parsedQuestionText,
@@ -538,7 +582,7 @@ const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
           option_b: byKey.B,
           option_c: byKey.C,
           option_d: byKey.D,
-          correct_option: answerFromKey || answerMatch?.[1],
+          correct_option: String(correct_option).toUpperCase(),
           difficulty: inferredDifficulty,
           topic: blockText.match(/\bCompetency\s*:\s*([^\n]+)/i)?.[1]?.trim() || "",
           explanation: "",
@@ -620,6 +664,77 @@ Rules: exactly one locked correct_option per question. No ambiguous answers. No 
   const parsed = JSON.parse(match[0]);
   const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
   return questions.slice(0, count).map(validateQuestion);
+};
+
+const parseQuestionsWithAi = async (rawText: string): Promise<NormalizedQuestion[]> => {
+  const apiKey = process.env.GEMINI_API_KEY || "";
+  if (!apiKey || rawText.length < 50) return [];
+
+  const tryWithModel = async (modelName: string) => {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: modelName });
+    
+    const prompt = `
+      Extract multiple-choice questions (MCQs) from the following raw text. 
+      The text might be messy, have weird formatting, or be from a PDF/Word document.
+      
+      Rules:
+      1. Identify each question and its 4 options (A, B, C, D).
+      2. Identify the correct option for each question.
+      3. If the correct option isn't explicitly stated, try to infer it or default to "A".
+      4. Each question MUST have exactly 4 options. If fewer are found, create placeholders for missing ones.
+      5. Return as a JSON object with a "questions" array.
+
+      Format:
+      {
+        "questions": [
+          {
+            "question_text": "...",
+            "option_a": "...",
+            "option_b": "...",
+            "option_c": "...",
+            "option_d": "...",
+            "correct_option": "A",
+            "difficulty": "medium",
+            "topic": "...",
+            "explanation": "..."
+          }
+        ]
+      }
+
+      Raw Text to Parse:
+      ${rawText.slice(0, 15000)}
+    `;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return [];
+    
+    const parsed = JSON.parse(match[0]);
+    return Array.isArray(parsed.questions) ? parsed.questions : [];
+  };
+
+  try {
+    let rawQuestions = [];
+    try {
+      rawQuestions = await tryWithModel(process.env.GEMINI_MODEL || "gemini-1.5-flash");
+    } catch (e) {
+      console.warn("Retrying AI parse with fallback model...");
+      rawQuestions = await tryWithModel("gemini-1.5-flash");
+    }
+
+    return rawQuestions.map(q => {
+      try {
+        return validateQuestion(q);
+      } catch {
+        return null;
+      }
+    }).filter((q): q is NormalizedQuestion => q !== null);
+  } catch (error) {
+    console.error("AI parsing failed:", error);
+    return [];
+  }
 };
 
 const createAssessmentWithQuestions = async (
@@ -1031,6 +1146,27 @@ export const createAssessmentFromUpload = async (req: Request, res: Response) =>
       parser = isDoc ? (usedPythonFallback ? "doc-python" : "doc") : (usedPythonFallback ? "txt-python" : "txt");
     } else {
       return res.status(400).json({ error: "Only CSV, PDF, DOCX, DOC, and TXT uploads are supported." });
+    }
+
+    // AI Fallback for "Any Type" of format
+    if (questions.length < 2) {
+      const allText = (isCsv ? file.buffer.toString("utf8") : await (async () => {
+        if (isPdf) {
+          const t1 = await extractPdfText(file.buffer, file.filename).catch(() => "");
+          if (t1.trim()) return t1;
+          return extractTextWithPython(file.buffer, file.filename).catch(() => "");
+        }
+        if (isDocx) return extractDocxText(file.buffer).catch(() => "");
+        return extractPlainText(file.buffer);
+      })()) || "";
+
+      if (allText.length > 100) {
+        const aiQuestions = await parseQuestionsWithAi(allText);
+        if (aiQuestions.length > 0) {
+          questions = aiQuestions;
+          parser = `${parser}+ai-fallback`;
+        }
+      }
     }
 
     if (!questions.length) {
