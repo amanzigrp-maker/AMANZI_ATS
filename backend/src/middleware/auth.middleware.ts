@@ -7,6 +7,7 @@ export type AuthenticatedRequest = Request & {
     userid?: number;
     email: string;
     role: string;
+    interview_token?: string;
   };
 };
 
@@ -57,6 +58,7 @@ export const verifyToken = (
       id: number;
       email: string;
       role: string;
+      interview_token?: string;
     };
 
     const roleNorm = (decoded.role || "").trim().toLowerCase();
@@ -66,6 +68,7 @@ export const verifyToken = (
       userid: decoded.id,
       email: decoded.email,
       role: roleNorm,
+      interview_token: typeof decoded.interview_token === "string" ? decoded.interview_token : undefined,
     };
 
     next();

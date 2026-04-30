@@ -16,7 +16,9 @@ interface ProctoringProps {
 const Proctoring: React.FC<ProctoringProps> = ({ interviewId, candidateId, onTerminate }) => {
   const [warnings, setWarnings] = useState(0);
   const [lastWarning, setLastWarning] = useState<string | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(() => Boolean(document.fullscreenElement));
   const maxWarnings = 3;
+  const fullscreenStartWarningSentRef = useRef(false);
 
   const { startWebcam, stopWebcam, videoRef, stream, error: cameraError } = useWebcam();
   const socket = useProctoringSocket(interviewId, candidateId, 'candidate');
@@ -48,9 +50,16 @@ const Proctoring: React.FC<ProctoringProps> = ({ interviewId, candidateId, onTer
       }
     });
 
+    if (!document.fullscreenElement && !fullscreenStartWarningSentRef.current) {
+      fullscreenStartWarningSentRef.current = true;
+      handleViolation('Fullscreen Required', 'Interview started without fullscreen mode enabled');
+    }
+
     // Enforcement: Fullscreen
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
+      const activeFullscreen = Boolean(document.fullscreenElement);
+      setIsFullscreen(activeFullscreen);
+      if (!activeFullscreen) {
         handleViolation('Fullscreen Exited', 'Test must be taken in fullscreen mode');
       }
     };
@@ -166,13 +175,13 @@ const Proctoring: React.FC<ProctoringProps> = ({ interviewId, candidateId, onTer
       )}
 
       {/* Fullscreen Tooltip */}
-      {!document.fullscreenElement && (
+      {!isFullscreen && (
         <button
           onClick={handleRequestFullscreen}
           className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-xs flex items-center justify-center gap-2 shadow-lg transition-all pointer-events-auto"
         >
           <Maximize className="w-4 h-4" />
-          Enter Fullscreen to Continue
+          Enter Fullscreen
         </button>
       )}
 

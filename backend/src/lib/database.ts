@@ -119,6 +119,7 @@ export async function testConnection(): Promise<boolean> {
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS total_questions INTEGER DEFAULT 10`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS question_source TEXT DEFAULT 'ai'`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS assessment_id INTEGER`);
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS candidate_id INTEGER REFERENCES candidates(candidate_id)`);
 
     // Ensure interview_sessions table exists
     await pool.query(`
@@ -155,25 +156,29 @@ export async function testConnection(): Promise<boolean> {
     // Ensure interview_questions table exists
     await pool.query(`
       CREATE TABLE IF NOT EXISTS interview_questions (
-        id SERIAL PRIMARY KEY,
-        session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
-        interview_id TEXT,
-        question TEXT NOT NULL,
-        options JSONB NOT NULL,
-        difficulty VARCHAR(20) DEFAULT 'medium',
-        correct_answer TEXT NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+          id SERIAL PRIMARY KEY,
+          session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
+          interview_id TEXT,
+          question TEXT NOT NULL,
+          options JSONB NOT NULL,
+          question_type VARCHAR(20) DEFAULT 'single',
+          difficulty VARCHAR(20) DEFAULT 'medium',
+          correct_answer TEXT NOT NULL,
+          correct_answers JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
 
     // Add difficulty column if it doesn't exist
      await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'medium'`);
      await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS options JSONB`);
+     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'single'`);
      await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS source_question_id INTEGER`);
      await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(6,4) DEFAULT 0.5`);
      await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS selection_mode TEXT`);
      await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS semantic_similarity NUMERIC(8,6)`);
      await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS semantic_topic TEXT`);
+     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS correct_answers JSONB`);
 
     // Ensure interview_responses table exists
     await pool.query(`
@@ -182,6 +187,7 @@ export async function testConnection(): Promise<boolean> {
         session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
         question_id INTEGER REFERENCES interview_questions(id),
         selected_answer TEXT,
+        selected_answers JSONB,
         response TEXT,
         is_correct BOOLEAN,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -194,6 +200,7 @@ export async function testConnection(): Promise<boolean> {
     await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS question_text TEXT`);
     await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS answer_text TEXT`);
     await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS response TEXT`);
+    await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS selected_answers JSONB`);
     await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS theta_before NUMERIC(6,4)`);
     await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS theta_after NUMERIC(6,4)`);
 
@@ -209,6 +216,24 @@ export async function testConnection(): Promise<boolean> {
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS interview_verifications (
+        id SERIAL PRIMARY KEY,
+        token TEXT UNIQUE REFERENCES interview_tokens(token) ON DELETE CASCADE,
+        candidate_id INTEGER,
+        candidate_email TEXT,
+        selfie_path TEXT,
+        id_card_path TEXT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await pool.query(`ALTER TABLE interview_verifications ADD COLUMN IF NOT EXISTS candidate_id INTEGER`);
+    await pool.query(`ALTER TABLE interview_verifications ADD COLUMN IF NOT EXISTS candidate_email TEXT`);
+    await pool.query(`ALTER TABLE interview_verifications ADD COLUMN IF NOT EXISTS selfie_path TEXT`);
+    await pool.query(`ALTER TABLE interview_verifications ADD COLUMN IF NOT EXISTS id_card_path TEXT`);
+    await pool.query(`ALTER TABLE interview_verifications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`);
 
     console.log('✅ Temporary Interview Access System tables verified');
 

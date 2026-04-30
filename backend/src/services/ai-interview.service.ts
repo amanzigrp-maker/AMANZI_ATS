@@ -18,6 +18,8 @@ export interface AdaptiveSequenceItem {
   question: string;
   options: string[];
   correct_answer: string;
+  correct_answers?: string[];
+  question_type?: 'single' | 'multiple';
   difficulty: 'basic' | 'medium' | 'advanced';
 }
 
@@ -35,6 +37,29 @@ export interface AdaptiveQuestionSemanticContext {
   referenceQuestions?: string[];
   candidateContext?: string[];
 }
+
+export interface AdaptiveQuestionGenerationOptions {
+  style?: 'mcq' | 'code-snippet';
+  variationSeed?: string;
+  allowMultiSelect?: boolean;
+}
+
+const looksTechnical = (role: string, skill: string, semanticContext: AdaptiveQuestionSemanticContext) => {
+  const combined = [
+    role,
+    skill,
+    ...(semanticContext.relatedTopics || []),
+    ...(semanticContext.candidateContext || []),
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return [
+    'java', 'javascript', 'typescript', 'python', 'react', 'node', 'sql', 'api', 'spring',
+    'backend', 'frontend', 'full stack', 'fullstack', 'developer', 'programming', 'coding',
+    'database', 'aws', 'docker', 'kubernetes', 'microservice', 'git', 'algorithm', 'oop'
+  ].some((keyword) => combined.includes(keyword));
+};
 
 const buildFallbackQuestion = (
   role: string,
@@ -54,6 +79,7 @@ const buildFallbackQuestion = (
         'Choose tools randomly without checking fit',
       ],
       correct_answer: 'Clarify the requirement and expected outcome first',
+      question_type: 'single',
     },
     medium: {
       q_no: 1,
@@ -66,6 +92,7 @@ const buildFallbackQuestion = (
         'Change the goal to match the easiest implementation',
       ],
       correct_answer: 'Ask for clarification and document the assumption if needed',
+      question_type: 'single',
     },
     advanced: {
       q_no: 1,
@@ -78,6 +105,7 @@ const buildFallbackQuestion = (
         'Prefer the newest method regardless of constraints',
       ],
       correct_answer: 'Use a validated approach, measure outcomes, and revise based on evidence',
+      question_type: 'single',
     },
   };
 
@@ -89,12 +117,24 @@ export const generateAdaptiveQuestionAtDifficulty = async (
   experience: number,
   skill: string,
   difficulty: 'basic' | 'medium' | 'advanced',
-  semanticContext: AdaptiveQuestionSemanticContext = {}
+  semanticContext: AdaptiveQuestionSemanticContext = {},
+  options: AdaptiveQuestionGenerationOptions = {}
 ): Promise<AdaptiveSequenceItem> => {
   initAI();
   const relatedTopics = Array.from(new Set((semanticContext.relatedTopics || []).map((item) => String(item || '').trim()).filter(Boolean))).slice(0, 5);
   const referenceQuestions = (semanticContext.referenceQuestions || []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3);
   const candidateContext = (semanticContext.candidateContext || []).map((item) => String(item || '').trim()).filter(Boolean).slice(0, 3);
+  const technicalMode = looksTechnical(role, skill, semanticContext);
+  const questionStyle = options.style || 'mcq';
+  const allowMultiSelect = options.allowMultiSelect === true && difficulty !== 'basic';
+  const snippetPreference = questionStyle === 'code-snippet'
+    ? 'Use a compact code snippet as the center of the question. Ask the candidate to reason about output, bug fixing, behavior, or the next best code change.'
+    : technicalMode && difficulty !== 'basic'
+      ? 'Do not use a code snippet for this question. Keep it as a plain MCQ even if the focus area is technical.'
+      : 'Keep this as a plain MCQ without a code snippet.';
+  const variationInstruction = options.variationSeed
+    ? `Use this variation seed to keep the question fresh for this candidate: ${options.variationSeed}. Do not repeat common textbook wording if a different realistic scenario can test the same idea.`
+    : 'Use a fresh scenario instead of repeating common textbook wording.';
 
   const semanticPromptBlock = [
     relatedTopics.length ? `Semantic topics to stay close to:\n- ${relatedTopics.join('\n- ')}` : '',
@@ -114,16 +154,24 @@ export const generateAdaptiveQuestionAtDifficulty = async (
       "q_no": 1,
       "difficulty": "${difficulty}",
       "question": "...",
+      "question_type": "single" | "multiple",
       "options": ["A","B","C","D"],
-      "correct_answer": "exact option text"
+      "correct_answer": "exact option text",
+      "correct_answers": ["exact option text", "exact option text"]
     }
 
     Rules:
     - Exactly 4 options.
-    - correct_answer must exactly match one option.
+    - For single-answer questions, correct_answer must exactly match one option and question_type must be "single".
+    - For multi-select questions, question_type must be "multiple", correct_answers must contain 2 exact option texts, and correct_answer must repeat the first correct option.
     - Ask about ONLY the focus skill/topic above.
     - Do not list or combine multiple skills in the question.
     - Make the question practical and specific enough to test depth in that one skill.
+    - Align the depth with the candidate's experience. Beginner profiles should get simpler, applied questions. Senior profiles should get harder scenario-based or debugging questions.
+    - Maintain a smooth easy -> medium -> hard progression over the overall interview by respecting the requested difficulty for this question.
+    - ${snippetPreference}
+    - ${variationInstruction}
+    - ${allowMultiSelect ? 'You may choose either a single-answer or a multi-select question. Use multi-select only when it feels natural and unambiguous.' : 'Use only a single-answer question for this difficulty.'}
     - If semantic grounding is provided, stay close to that meaning and candidate context while still producing a fresh question.
     - No markdown, no text outside JSON.
   `;
@@ -143,6 +191,18 @@ export const generateAdaptiveQuestionAtDifficulty = async (
       if (!question.question || !Array.isArray(question.options) || question.options.length !== 4 || !question.correct_answer) {
         throw new Error("AI question missing required fields");
       }
+      const questionType = question.question_type === 'multiple' ? 'multiple' : 'single';
+      if (questionType === 'multiple') {
+        const dedupedAnswers = Array.from(new Set((question.correct_answers || []).map((item) => String(item || '').trim()).filter(Boolean)));
+        if (dedupedAnswers.length < 2) {
+          throw new Error("AI multi-select question missing at least two correct answers");
+        }
+        question.correct_answers = dedupedAnswers.slice(0, 2);
+        question.correct_answer = question.correct_answers[0];
+      } else {
+        question.correct_answers = [question.correct_answer];
+      }
+      question.question_type = questionType;
       return question;
     } catch (error: any) {
       lastError = error;

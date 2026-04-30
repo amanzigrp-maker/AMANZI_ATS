@@ -33,6 +33,11 @@ interface Question {
 
 export default function InterviewSession() {
   const navigate = useNavigate();
+
+  useEffect(() => {
+    navigate("/interview", { replace: true });
+  }, [navigate]);
+
   const [user, setUser] = useState<any>(null);
   const [token, setToken] = useState<string | null>(null);
 

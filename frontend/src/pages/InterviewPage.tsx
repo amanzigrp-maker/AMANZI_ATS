@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
@@ -18,7 +18,10 @@ import {
   ChevronRight, 
   BrainCircuit, 
   ShieldCheck,
-  Loader2
+  Loader2,
+  Camera,
+  BadgeCheck,
+  FileImage
 } from "lucide-react";
 import { toast } from "sonner";
 import Proctoring from "@/components/proctoring/Proctoring";
@@ -28,19 +31,20 @@ interface Question {
   id: number;
   question: string;
   options: string[];
-  difficulty?: string;
-  selection_mode?: string;
-  semantic_similarity?: number;
-  semantic_topic?: string;
+  question_type?: "single" | "multiple";
 }
+
+const INSTRUCTION_SECONDS = 30;
+const INTERVIEW_SECONDS = 60;
 
 export default function InterviewPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
+  const candidateIdFromLink = searchParams.get("candidateId");
   const navigate = useNavigate();
 
   // State
-  const [status, setStatus] = useState<"login" | "loading" | "setup" | "interviewing" | "completed" | "error">(token ? "loading" : "login");
+  const [status, setStatus] = useState<"login" | "loading" | "verification" | "instructions" | "interviewing" | "completed" | "error">(token ? "loading" : "login");
   const [errorHeader, setErrorHeader] = useState("Invalid Link");
   const [errorMessage, setErrorMessage] = useState("This interview link is invalid or has expired.");
   
@@ -50,22 +54,39 @@ export default function InterviewPage() {
   const [setupData, setSetupData] = useState({ experience: 0, role: "" });
   const [sessionId, setSessionId] = useState<string | number | null>(null);
   const [jwtToken, setJwtToken] = useState<string | null>(null);
+  const [verificationImages, setVerificationImages] = useState({ selfie: "", idCard: "" });
+  const [isSavingVerification, setIsSavingVerification] = useState(false);
+  const [instructionTimeLeft, setInstructionTimeLeft] = useState(INSTRUCTION_SECONDS);
+  const [isPreparingQuestions, setIsPreparingQuestions] = useState(false);
+  const [prepareError, setPrepareError] = useState<string | null>(null);
+  const [preparedSession, setPreparedSession] = useState<{
+    sessionId: string | number;
+    question?: Question;
+    theta?: number | null;
+    totalQuestions?: number;
+  } | null>(null);
   
   const [questions, setQuestions] = useState<Question[]>([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [answers, setAnswers] = useState<{ [key: number]: string }>({});
-  const [timeLeft, setTimeLeft] = useState(300); // 5 minutes in seconds
+  const [answers, setAnswers] = useState<{ [key: number]: string | string[] }>({});
+  const [timeLeft, setTimeLeft] = useState(INTERVIEW_SECONDS);
   const [score, setScore] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [totalQuestions, setTotalQuestions] = useState(10); // Dynamic total from Admin
   const [theta, setTheta] = useState<number | null>(null);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackDone, setFeedbackDone] = useState(false);
+  const [isFeedbackSubmitting, setIsFeedbackSubmitting] = useState(false);
+  const preparePromiseRef = useRef<Promise<void> | null>(null);
 
   // 1. Validate Token on Mount (Fallback for old flow)
   useEffect(() => {
     if (!token) return;
     const validate = async () => {
       try {
-        const res = await fetch(`/api/interview/validate?token=${token}`);
+        const params = new URLSearchParams({ token });
+        if (candidateIdFromLink) params.set("candidateId", candidateIdFromLink);
+        const res = await fetch(`/api/interview/validate?${params.toString()}`);
         const data = await res.json();
         if (res.ok && data.success) {
           handleAuthSuccess(data.data);
@@ -84,6 +105,22 @@ export default function InterviewPage() {
       }
     };
     validate();
+  }, [token, candidateIdFromLink]);
+
+  useEffect(() => {
+    if (token) return;
+
+    const storedToken = localStorage.getItem("interviewToken");
+    const storedUser = localStorage.getItem("interviewUser");
+    if (!storedToken || !storedUser || storedUser === "undefined") return;
+
+    try {
+      const parsedUser = JSON.parse(storedUser);
+      setInterviewToken(parsedUser.token || null);
+      handleAuthSuccess({ ...parsedUser, jwt: storedToken });
+    } catch (error) {
+      console.error("Stored interview session parse error:", error);
+    }
   }, [token]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -93,7 +130,10 @@ export default function InterviewPage() {
       const res = await fetch("/api/interview/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(loginForm)
+        body: JSON.stringify({
+          ...loginForm,
+          candidateId: candidateIdFromLink ? Number(candidateIdFromLink) : undefined
+        })
       });
       const data = await res.json();
       if (res.ok && data.success) {
@@ -112,21 +152,183 @@ export default function InterviewPage() {
   const handleAuthSuccess = async (data: any) => {
     setCandidateInfo({ name: data.name, email: data.email });
     if (data.jwt) setJwtToken(data.jwt);
-    if (data.duration) setTimeLeft(data.duration * 60);
+    setTimeLeft(INTERVIEW_SECONDS);
     if (data.total_questions) setTotalQuestions(data.total_questions);
-
+    if (typeof data.experience_years === "number") {
+      setSetupData((prev) => ({ ...prev, experience: data.experience_years }));
+    }
+    if (data.role) {
+      setSetupData((prev) => ({ ...prev, role: data.role }));
+    }
     if (data.session_id) {
       setSessionId(data.session_id);
       await fetchQuestions(data.session_id, data.jwt);
       setStatus("interviewing");
     } else {
-      if (data.role) setSetupData(prev => ({ ...prev, role: data.role }));
-      setStatus("setup");
+      setStatus("verification");
     }
   };
 
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(new Error("Failed to read image"));
+      reader.readAsDataURL(file);
+    });
+
+  const handleVerificationFileChange = async (
+    kind: "selfie" | "idCard",
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setVerificationImages((prev) => ({ ...prev, [kind]: dataUrl }));
+    } catch (error) {
+      toast.error("Could not read the selected image");
+    }
+  };
+
+  const prepareInterviewQuestions = useCallback(async () => {
+    if (preparePromiseRef.current || preparedSession || !jwtToken) {
+      return preparePromiseRef.current || Promise.resolve();
+    }
+
+    const activeToken = interviewToken || token;
+    if (!activeToken) {
+      setPrepareError("Interview token is missing. Please log in again.");
+      return Promise.resolve();
+    }
+
+    const prepPromise = (async () => {
+      setIsPreparingQuestions(true);
+      setPrepareError(null);
+      try {
+        const res = await fetch("/api/interview/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${jwtToken}`
+          },
+          body: JSON.stringify({
+            token: activeToken,
+            role: setupData.role
+          })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || "Failed to prepare AI questions");
+        }
+
+        setPreparedSession({
+          sessionId: data.session_id,
+          question: data.question,
+          theta: typeof data.theta === "number" ? data.theta : null,
+          totalQuestions: Number(data.target_questions || data.total_questions || totalQuestions) || totalQuestions,
+        });
+      } catch (error: any) {
+        console.error("Interview preparation error:", error);
+        setPrepareError(error?.message || "Failed to prepare interview questions");
+      } finally {
+        setIsPreparingQuestions(false);
+        preparePromiseRef.current = null;
+      }
+    })();
+
+    preparePromiseRef.current = prepPromise;
+    return prepPromise;
+  }, [preparedSession, jwtToken, interviewToken, token, setupData.role, totalQuestions]);
+
+  const handleVerificationSubmit = async () => {
+    if (!verificationImages.selfie || !verificationImages.idCard) {
+      toast.error("Please capture both your selfie and your ID card before continuing.");
+      return;
+    }
+
+    if (!jwtToken) {
+      toast.error("Secure session is missing. Please reopen the interview link.");
+      return;
+    }
+
+    setIsSavingVerification(true);
+    try {
+      const res = await fetch("/api/interview/verification", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({
+          selfieImage: verificationImages.selfie,
+          idCardImage: verificationImages.idCard
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to save verification images");
+      }
+
+      setInstructionTimeLeft(INSTRUCTION_SECONDS);
+      setStatus("instructions");
+      void prepareInterviewQuestions();
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save verification images");
+    } finally {
+      setIsSavingVerification(false);
+    }
+  };
+
+  const requestFullscreen = async () => {
+    if (document.fullscreenElement) return true;
+
+    try {
+      await document.documentElement.requestFullscreen();
+      return true;
+    } catch (error) {
+      console.warn("Fullscreen request was not completed:", error);
+      return false;
+    }
+  };
+
+  const activatePreparedInterview = useCallback(async () => {
+    if (!preparedSession || !jwtToken) return;
+
+    await requestFullscreen();
+    setStatus("loading");
+    try {
+      const res = await fetch("/api/interview/start-confirmed", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({ session_id: preparedSession.sessionId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to start interview");
+      }
+
+      setSessionId(preparedSession.sessionId);
+      setCurrentQuestionIndex(0);
+      setQuestions(preparedSession.question ? [preparedSession.question] : []);
+      setTheta(preparedSession.theta ?? null);
+      setTotalQuestions(preparedSession.totalQuestions || totalQuestions);
+      setTimeLeft(INTERVIEW_SECONDS);
+      setStatus("interviewing");
+      toast.success("Assessment started. Good luck.");
+    } catch (error: any) {
+      setStatus("instructions");
+      toast.error(error?.message || "Failed to start interview");
+    }
+  }, [preparedSession, jwtToken, totalQuestions]);
+
   // Timer Effect
-  const handleAnswerSubmit = useCallback(async (selectedAnswer: string) => {
+  const handleAnswerSubmit = useCallback(async (selectedAnswer: string | string[]) => {
     if (isSubmitting || !sessionId) return;
     setIsSubmitting(true);
     
@@ -157,6 +359,11 @@ export default function InterviewPage() {
 
       if (data.isFinished) {
         setScore(typeof data.score === "number" ? data.score : null);
+        if (typeof data.total === "number") {
+          setTotalQuestions(data.total);
+        }
+        localStorage.removeItem("interviewToken");
+        localStorage.removeItem("interviewUser");
         setStatus("completed");
         return;
       }
@@ -208,6 +415,16 @@ export default function InterviewPage() {
     return () => clearInterval(timer);
   }, [status, timeLeft, questions, currentQuestionIndex, answers, handleAnswerSubmit]);
 
+  useEffect(() => {
+    if (status !== "instructions") return;
+
+    const timer = setInterval(() => {
+      setInstructionTimeLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [status]);
+
   const fetchQuestions = async (sId: string | number, jwt: string | null = jwtToken) => {
     const res = await fetch(`/api/interview/questions?session_id=${sId}`, {
       headers: {
@@ -220,61 +437,57 @@ export default function InterviewPage() {
     }
   };
 
-  const handleStartInterview = async () => {
-    if (!setupData.role) {
-      toast.error("Please specify the skill/role you are applying for.");
-      return;
-    }
-
-    const activeToken = interviewToken || token;
-    if (!activeToken) {
-      toast.error("Interview token is missing. Please log in again.");
-      setStatus("login");
-      return;
-    }
-
-    setStatus("loading");
-    try {
-      const res = await fetch("/api/interview/generate", {
-        method: "POST",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${jwtToken}`
-        },
-        body: JSON.stringify({
-          token: activeToken,
-          role: setupData.role,
-          experience: setupData.experience
-        })
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        setSessionId(data.session_id);
-        if (data.question) {
-          setQuestions([data.question]);
-          if (typeof data.theta === "number") setTheta(data.theta);
-        }
-        if (data.target_questions) {
-          setTotalQuestions(Number(data.target_questions) || totalQuestions);
-        }
-        setCurrentQuestionIndex(0);
-        setStatus("interviewing");
-        toast.success("Assessment started. Good luck.");
-      } else {
-        toast.error("Failed to start session. Please try again.");
-        setStatus("setup");
-      }
-    } catch (err) {
-      setStatus("setup");
-      toast.error("Connection error");
-    }
-  };
-
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const toggleMultiAnswer = (questionId: number, option: string) => {
+    const current = Array.isArray(answers[questionId]) ? answers[questionId] as string[] : [];
+    const next = current.includes(option)
+      ? current.filter((item) => item !== option)
+      : [...current, option];
+    setAnswers({ ...answers, [questionId]: next });
+  };
+
+  const canStartInterview = instructionTimeLeft <= 0 && !!preparedSession && !isPreparingQuestions;
+
+  const handleFeedbackComplete = async (submit: boolean) => {
+    if (!sessionId || !jwtToken) {
+      setFeedbackDone(true);
+      return;
+    }
+
+    if (!submit) {
+      setFeedbackDone(true);
+      return;
+    }
+
+    setIsFeedbackSubmitting(true);
+    try {
+      const res = await fetch("/api/interview/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          feedback: feedbackText
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to save feedback");
+      }
+      setFeedbackDone(true);
+      toast.success("Feedback submitted");
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to save feedback");
+    } finally {
+      setIsFeedbackSubmitting(false);
+    }
   };
 
   // --- Render Functions ---
@@ -369,82 +582,183 @@ export default function InterviewPage() {
     );
   }
 
-  if (status === "setup") {
+  if (status === "verification") {
     return (
       <div className="h-screen w-full flex items-center justify-center bg-[#020617] p-6 text-left">
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row gap-8 max-w-5xl w-full">
-          {/* Left: Setup Card */}
           <Card className="flex-1 bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl">
             <CardHeader>
               <div className="flex items-center gap-3 mb-2">
-                <BrainCircuit className="text-blue-500 w-6 h-6" />
+                <BadgeCheck className="text-blue-500 w-6 h-6" />
                 <span className="text-xs font-bold text-blue-500 uppercase tracking-widest">
-                  {setupData.role ? `${setupData.role} Assessment` : 'Amanzi Assessment'}
+                  Identity Verification
                 </span>
               </div>
               <CardTitle className="text-white text-3xl font-bold">Welcome, {candidateInfo?.name}</CardTitle>
               <CardDescription className="text-slate-400">
-                Please confirm your details to start your {setupData.role || 'assigned'} assessment.
+                Before the interview begins, please capture a selfie and a clear image of your ID card.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-tighter">Applied Role</label>
-                <input 
-                  type="text"
-                  placeholder="e.g. Senior Frontend Developer"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all font-sans"
-                  value={setupData.role}
-                  onChange={(e) => setSetupData({...setupData, role: e.target.value})}
-                />
+                <div className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white">
+                  {setupData.role || "Assigned interview"}
+                </div>
               </div>
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-tighter">Years of Experience</label>
-                <input 
-                  type="number"
-                  min="0"
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 transition-all font-sans"
-                  value={setupData.experience}
-                  onChange={(e) => setSetupData({...setupData, experience: parseInt(e.target.value) || 0})}
-                />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+                    <Camera className="h-4 w-4 text-blue-400" />
+                    Your Selfie
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="user"
+                    onChange={(event) => void handleVerificationFileChange("selfie", event)}
+                    className="block w-full text-xs text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-blue-500"
+                  />
+                  {verificationImages.selfie ? (
+                    <img src={verificationImages.selfie} alt="Selfie preview" className="h-40 w-full rounded-xl object-cover" />
+                  ) : (
+                    <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-white/10 text-sm text-slate-500">
+                      Capture a clear face photo
+                    </div>
+                  )}
+                </label>
+
+                <label className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+                    <FileImage className="h-4 w-4 text-blue-400" />
+                    ID Card
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(event) => void handleVerificationFileChange("idCard", event)}
+                    className="block w-full text-xs text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-blue-500"
+                  />
+                  {verificationImages.idCard ? (
+                    <img src={verificationImages.idCard} alt="ID card preview" className="h-40 w-full rounded-xl object-cover" />
+                  ) : (
+                    <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-white/10 text-sm text-slate-500">
+                      Capture the front of your ID card
+                    </div>
+                  )}
+                </label>
               </div>
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
-              <Button onClick={handleStartInterview} className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.3)]">
-                Generate Interview Questions
+              <Button
+                onClick={handleVerificationSubmit}
+                disabled={isSavingVerification}
+                className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.3)]"
+              >
+                {isSavingVerification ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Continue to Instructions
               </Button>
               <div className="flex items-center gap-2 justify-center">
                 <ShieldCheck className="w-4 h-4 text-emerald-500 opacity-60" />
-                <span className="text-[10px] text-slate-500 uppercase font-bold">Encrypted & Device Locked</span>
+                <span className="text-[10px] text-slate-500 uppercase font-bold">Captured images stay tied to your secure interview token</span>
               </div>
             </CardFooter>
           </Card>
 
-          {/* Right: Camera Check */}
           <Card className="w-full md:w-80 bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl overflow-hidden relative">
             <CardHeader className="pb-4">
               <CardTitle className="text-sm font-bold text-white flex items-center gap-2">
-                <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
-                System Check
+                <BrainCircuit className="w-4 h-4 text-blue-500" />
+                Before You Continue
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="aspect-video bg-black rounded-xl overflow-hidden border border-white/10 relative">
-                <Proctoring 
-                   interviewId="preview" 
-                   candidateId="preview" 
-                   onTerminate={() => {}} 
-                />
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                   <p className="text-[10px] text-white/50 uppercase tracking-widest font-bold bg-black/40 px-3 py-1 rounded-full backdrop-blur-sm">Camera Preview</p>
-                </div>
-              </div>
               <ul className="text-[11px] space-y-2 text-slate-400 list-disc pl-4">
-                <li>Ensure you are in a well-lit room.</li>
-                <li>Stay within the camera frame at all times.</li>
-                <li>Tabs switching and exiting fullscreen will result in test termination.</li>
+                <li>Use a well-lit environment so both images are readable.</li>
+                <li>Make sure your face is visible and your ID text is not blurry.</li>
+                <li>The next page will explain the full exam structure before the timer starts.</li>
               </ul>
             </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (status === "instructions") {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-[#020617] p-6 text-left">
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col md:flex-row gap-8 max-w-5xl w-full">
+          <Card className="flex-1 bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl">
+            <CardHeader>
+              <div className="flex items-center gap-3 mb-2">
+                <BrainCircuit className="text-blue-500 w-6 h-6" />
+                <span className="text-xs font-bold text-blue-500 uppercase tracking-widest">
+                  Candidate Instructions
+                </span>
+              </div>
+              <CardTitle className="text-white text-3xl font-bold">Review the exam structure</CardTitle>
+              <CardDescription className="text-slate-400">
+                While you read this page, we are preparing a personalized interview based on your stored profile and experience level.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <span className="text-sm font-bold text-white">Warm-up timer</span>
+                  <span className="font-mono text-lg font-bold text-blue-300">{formatTime(instructionTimeLeft)}</span>
+                </div>
+                <Progress value={((INSTRUCTION_SECONDS - instructionTimeLeft) / INSTRUCTION_SECONDS) * 100} />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <h3 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Exam Structure</h3>
+                  <ul className="space-y-2 text-sm text-slate-300">
+                    <li>{totalQuestions} questions in total</li>
+                    <li>Difficulty increases smoothly from easy to medium to hard</li>
+                    <li>Questions stay aligned to your role and experience level</li>
+                    <li>Technical profiles may receive a balanced mix of direct MCQs and code-based questions</li>
+                  </ul>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                  <h3 className="mb-2 text-sm font-bold uppercase tracking-widest text-slate-400">Rules</h3>
+                  <ul className="space-y-2 text-sm text-slate-300">
+                    <li>Remain in fullscreen once the interview begins</li>
+                    <li>Do not switch tabs during the test</li>
+                    <li>Each answer is saved as you proceed</li>
+                    <li>Your webcam monitoring starts when the test starts</li>
+                  </ul>
+                </div>
+              </div>
+
+              {prepareError ? (
+                <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
+                  <p className="font-semibold">Question preparation failed.</p>
+                  <p>{prepareError}</p>
+                </div>
+              ) : null}
+            </CardContent>
+            <CardFooter className="flex flex-col gap-4">
+              <Button
+                onClick={activatePreparedInterview}
+                disabled={!canStartInterview}
+                className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.3)]"
+              >
+                {isPreparingQuestions ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                {instructionTimeLeft > 0 ? `Start Interview (${formatTime(instructionTimeLeft)})` : "Start Interview"}
+              </Button>
+              {prepareError ? (
+                <Button
+                  variant="outline"
+                  onClick={() => void prepareInterviewQuestions()}
+                  className="w-full border-white/10 bg-white/5 text-white hover:bg-white/10"
+                >
+                  Retry Question Preparation
+                </Button>
+              ) : null}
+            </CardFooter>
           </Card>
         </motion.div>
       </div>
@@ -459,7 +773,7 @@ export default function InterviewPage() {
         <div className="min-h-screen w-full bg-[#020617] flex flex-col items-center p-4 md:p-8 text-left">
             <Proctoring 
               interviewId={sessionId?.toString() || ""} 
-              candidateId={token || ""} 
+              candidateId={candidateIdFromLink || candidateInfo?.email || token || ""} 
               onTerminate={() => setStatus("error")} 
             />
             <div className="w-full max-w-4xl flex items-center justify-between mb-8">
@@ -475,9 +789,9 @@ export default function InterviewPage() {
                    </div>
                 </div>
 
-                <div className={`flex items-center gap-3 px-4 py-2 rounded-full border border-white/10 ${timeLeft < 60 ? 'bg-red-500/10 border-red-500/20' : 'bg-slate-900/50'}`}>
-                    <Timer className={`w-4 h-4 ${timeLeft < 60 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`} />
-                    <span className={`font-mono font-bold ${timeLeft < 60 ? 'text-red-500' : 'text-white'}`}>
+                <div className={`flex items-center gap-3 px-4 py-2 rounded-full border border-white/10 ${timeLeft < 15 ? 'bg-red-500/10 border-red-500/20' : 'bg-slate-900/50'}`}>
+                    <Timer className={`w-4 h-4 ${timeLeft < 15 ? 'text-red-500 animate-pulse' : 'text-slate-400'}`} />
+                    <span className={`font-mono font-bold ${timeLeft < 15 ? 'text-red-500' : 'text-white'}`}>
                         {formatTime(timeLeft)}
                     </span>
                 </div>
@@ -506,23 +820,11 @@ export default function InterviewPage() {
                                 <span className="text-xs font-bold text-blue-500 uppercase tracking-widest mb-4 block">
                                     Question {currentQuestionIndex + 1} of {totalQuestions}
                                 </span>
-                                <div className="mb-4 flex flex-wrap gap-2">
-                                    {currentQ.selection_mode && (
-                                        <span className="inline-flex items-center rounded-full border border-cyan-500/20 bg-cyan-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-cyan-300">
-                                            {currentQ.selection_mode}
-                                        </span>
-                                    )}
-                                    {typeof currentQ.semantic_similarity === "number" && (
-                                        <span className="inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-emerald-300">
-                                            Cosine {currentQ.semantic_similarity.toFixed(3)}
-                                        </span>
-                                    )}
-                                    {currentQ.semantic_topic && (
-                                        <span className="inline-flex items-center rounded-full border border-violet-500/20 bg-violet-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-violet-300">
-                                            Topic {currentQ.semantic_topic}
-                                        </span>
-                                    )}
-                                </div>
+                                {currentQ.question_type === "multiple" ? (
+                                    <div className="mb-4 text-xs font-bold uppercase tracking-widest text-amber-300">
+                                        Select all that apply
+                                    </div>
+                                ) : null}
                                 <div className="mb-10">
                                     <QuestionContent
                                         content={currentQ.question}
@@ -532,11 +834,16 @@ export default function InterviewPage() {
 
                                 <div className="grid grid-cols-1 gap-4">
                                     {currentQ.options.map((option, idx) => {
-                                        const isSelected = answers[currentQ.id] === option;
+                                        const currentAnswer = answers[currentQ.id];
+                                        const isSelected = currentQ.question_type === "multiple"
+                                            ? Array.isArray(currentAnswer) && currentAnswer.includes(option)
+                                            : currentAnswer === option;
                                         return (
                                             <button
                                                 key={idx}
-                                                onClick={() => setAnswers({...answers, [currentQ.id]: option})}
+                                                onClick={() => currentQ.question_type === "multiple"
+                                                    ? toggleMultiAnswer(currentQ.id, option)
+                                                    : setAnswers({...answers, [currentQ.id]: option})}
                                                 className={`group relative text-left p-6 rounded-2xl border transition-all duration-300 ${
                                                     isSelected 
                                                     ? 'bg-blue-600/10 border-blue-500/50 text-white' 
@@ -547,8 +854,10 @@ export default function InterviewPage() {
                                                     <div className="text-lg font-medium">
                                                         <QuestionContent content={String(option || "")} compact />
                                                     </div>
-                                                    <div className={`w-6 h-6 rounded-full border flex items-center justify-center transition-colors ${
-                                                        isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-700'
+                                                    <div className={`flex items-center justify-center transition-colors ${
+                                                        currentQ.question_type === "multiple"
+                                                            ? `h-6 w-6 rounded-md border ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-700'}`
+                                                            : `h-6 w-6 rounded-full border ${isSelected ? 'bg-blue-500 border-blue-500' : 'border-slate-700'}`
                                                     }`}>
                                                         {isSelected && <div className="w-2.5 h-2.5 bg-white rounded-full shadow-lg" />}
                                                     </div>
@@ -559,15 +868,16 @@ export default function InterviewPage() {
                                 </div>
 
                                 <CardFooter className="px-0 pt-12 flex justify-between">
-                                    <div className="text-xs text-slate-500 font-mono">
-                                      {theta !== null
-                                        ? `theta ${theta.toFixed(2)}${typeof currentQ.semantic_similarity === "number" ? ` | cosine ${currentQ.semantic_similarity.toFixed(3)}` : ''}`
-                                        : 'adaptive mode'}
-                                    </div>
+                                    <div className="text-xs text-slate-500 font-mono">Choose the best answer and continue.</div>
                                     
                                     <Button 
-                                        disabled={!answers[currentQ.id] || isSubmitting}
-                                        onClick={() => handleAnswerSubmit(answers[currentQ.id])}
+                                        disabled={
+                                            isSubmitting ||
+                                            (currentQ.question_type === "multiple"
+                                                ? !Array.isArray(answers[currentQ.id]) || (answers[currentQ.id] as string[]).length === 0
+                                                : !answers[currentQ.id])
+                                        }
+                                        onClick={() => handleAnswerSubmit(answers[currentQ.id] as string | string[])}
                                         className="bg-white hover:bg-slate-200 text-black px-8 h-12 rounded-xl font-bold flex gap-2"
                                     >
                                         {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin text-black" /> : null}
@@ -603,7 +913,6 @@ export default function InterviewPage() {
             <p className="text-slate-200 text-lg mb-4 font-medium">
               Thank you for taking the assessment!
             </p>
-            
             <div className="bg-white/5 rounded-2xl p-6 border border-white/10 mb-6 text-left">
                <p className="text-slate-300 text-sm leading-relaxed">
                 Your responses have been securely submitted. 
@@ -611,15 +920,49 @@ export default function InterviewPage() {
                 <span className="block mt-2 text-xs text-slate-400 italic">If selected, you will receive a follow-up mail regarding the next steps of the process.</span>
                </p>
             </div>
-            
-             <div className="mt-8">
-                <Button 
-                  onClick={() => navigate("/")}
-                  className="w-full h-12 bg-white hover:bg-slate-200 text-black font-bold rounded-xl transition-all"
+
+            {!feedbackDone ? (
+              <div className="space-y-4 text-left">
+                <label className="block text-xs font-bold uppercase tracking-[0.25em] text-slate-400">
+                  Optional Feedback
+                </label>
+                <textarea
+                  value={feedbackText}
+                  onChange={(e) => setFeedbackText(e.target.value)}
+                  placeholder="Tell us about your interview experience..."
+                  className="min-h-28 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                />
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                  <Button
+                    onClick={() => void handleFeedbackComplete(true)}
+                    disabled={isFeedbackSubmitting}
+                    className="h-12 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl"
+                  >
+                    {isFeedbackSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Submit Feedback
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => void handleFeedbackComplete(false)}
+                    className="h-12 border-white/10 bg-white/5 text-white hover:bg-white/10 rounded-xl"
+                  >
+                    Skip
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+                <p className="text-sm font-medium text-emerald-200">
+                  You may now close the window.
+                </p>
+                <Button
+                  onClick={() => window.close()}
+                  className="mt-4 w-full h-12 bg-white hover:bg-slate-200 text-black font-bold rounded-xl transition-all"
                 >
-                  Close & Exit
+                  Close Window
                 </Button>
-             </div>
+              </div>
+            )}
           </Card>
         </motion.div>
       </div>

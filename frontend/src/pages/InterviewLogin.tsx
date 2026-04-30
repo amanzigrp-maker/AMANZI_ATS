@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { 
   Card, 
@@ -22,7 +22,10 @@ import {
 import { toast } from "sonner";
 
 export default function InterviewLogin() {
-  const [email, setEmail] = useState("");
+  const [searchParams] = useSearchParams();
+  const presetEmail = useMemo(() => searchParams.get("email") || "", [searchParams]);
+  const candidateId = searchParams.get("candidateId") || "";
+  const [email, setEmail] = useState(presetEmail);
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +40,7 @@ export default function InterviewLogin() {
       const res = await fetch("/api/interview/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password, candidateId: candidateId ? Number(candidateId) : undefined })
       });
 
       const data = await res.json();
@@ -48,7 +51,9 @@ export default function InterviewLogin() {
         localStorage.setItem("interviewUser", JSON.stringify(data.data));
         
         toast.success("Login successful! Welcome to your interview.");
-        navigate("/interview-session");
+        const nextParams = new URLSearchParams();
+        if (candidateId) nextParams.set("candidateId", candidateId);
+        navigate(`/interview${nextParams.toString() ? `?${nextParams.toString()}` : ""}`);
       } else {
         setError(data.error || "Invalid credentials. Please try again.");
         toast.error(data.error || "Login failed");

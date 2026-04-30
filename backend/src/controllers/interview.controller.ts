@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import bcrypt from 'bcrypt';
+import fs from 'fs/promises';
+import path from 'path';
 import { pool } from '../lib/database';
-import { sendInterviewLink, sendInterviewResults, sendSelectionEmail } from '../services/email.service';
+import { sendInterviewLink, sendInterviewResults, sendRejectionEmail, sendSelectionEmail } from '../services/email.service';
 import { generateAdaptiveQuestionAtDifficulty } from '../services/ai-interview.service';
 import { aiWorkerService } from '../services/ai-worker.service';
 import jwt from 'jsonwebtoken';
@@ -161,10 +163,16 @@ const parseCandidateSkills = (skillsValue: any) => {
     .filter(Boolean);
 };
 
-const getCandidateSkillFocus = async (email: string, sessionId: number, aiQuestionCount: number, role: string) => {
+const getCandidateProfileByEmail = async (email: string) => {
   const result = await pool.query(
     `
-    SELECT skills, current_designation, total_experience
+    SELECT
+      candidate_id,
+      full_name,
+      email,
+      skills,
+      total_experience,
+      current_designation
     FROM candidates
     WHERE email ILIKE $1
     LIMIT 1
@@ -172,15 +180,104 @@ const getCandidateSkillFocus = async (email: string, sessionId: number, aiQuesti
     [email]
   );
 
-  const row = result.rows[0] || {};
-  const skills = Array.from(new Set(parseCandidateSkills(row.skills)));
+  const row = result.rows[0] || null;
+  if (!row) return null;
+
+  return {
+    candidate_id: Number(row.candidate_id),
+    full_name: String(row.full_name || '').trim(),
+    email: String(row.email || '').trim(),
+    skills: Array.from(new Set(parseCandidateSkills(row.skills))),
+    total_experience: Number(row.total_experience) || 0,
+    current_designation: String(row.current_designation || '').trim(),
+  };
+};
+
+const getEffectiveInterviewRole = (tokenData: any, requestedRole: any, candidateProfile: Awaited<ReturnType<typeof getCandidateProfileByEmail>>) => {
+  return (
+    String(tokenData?.job_role || '').trim() ||
+    String(requestedRole || '').trim() ||
+    String(candidateProfile?.current_designation || '').trim() ||
+    'General'
+  );
+};
+
+const getEffectiveExperience = (requestedExperience: any, candidateProfile: Awaited<ReturnType<typeof getCandidateProfileByEmail>>) => {
+  const candidateYears = Number(candidateProfile?.total_experience);
+  if (Number.isFinite(candidateYears) && candidateYears >= 0) {
+    return candidateYears;
+  }
+
+  const requestedYears = Number(requestedExperience);
+  return Number.isFinite(requestedYears) && requestedYears >= 0 ? requestedYears : 0;
+};
+
+const decodeBase64Image = (value: any) => {
+  const raw = String(value || '').trim();
+  const match = raw.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!match) {
+    throw new Error('Image payload must be a base64 data URL');
+  }
+
+  const mimeType = match[1].toLowerCase();
+  const extension = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+  return {
+    extension,
+    buffer: Buffer.from(match[2], 'base64'),
+  };
+};
+
+const writeVerificationImage = async (token: string, kind: 'selfie' | 'id-card', dataUrl: string) => {
+  const { extension, buffer } = decodeBase64Image(dataUrl);
+  const dir = path.join(process.cwd(), '..', 'storage', 'interview-verifications', token);
+  await fs.mkdir(dir, { recursive: true });
+  const filename = `${kind}.${extension}`;
+  const filePath = path.join(dir, filename);
+  await fs.writeFile(filePath, buffer);
+  return filePath;
+};
+
+const getCandidateSkillFocus = async (email: string, sessionId: number, aiQuestionCount: number, role: string) => {
+  const candidate = await getCandidateProfileByEmail(email);
+  const skills = candidate?.skills || [];
 
   if (skills.length > 0) {
-    const startOffset = sessionId % skills.length;
+    const experienceOffset = Math.max(0, Math.floor(Number(candidate?.total_experience) || 0));
+    const candidateOffset = Number(candidate?.candidate_id) || 0;
+    const startOffset = (sessionId + candidateOffset + experienceOffset) % skills.length;
     return skills[(startOffset + aiQuestionCount) % skills.length];
   }
 
-  return row.current_designation || role || 'General';
+  return candidate?.current_designation || role || 'General';
+};
+
+const looksTechnicalFocus = (role: string, skillFocus: string) => {
+  const combined = `${role || ''} ${skillFocus || ''}`.toLowerCase();
+  return [
+    'java', 'javascript', 'typescript', 'python', 'react', 'node', 'sql', 'spring',
+    'developer', 'engineer', 'backend', 'frontend', 'full stack', 'fullstack', 'coding',
+    'programming', 'api', 'database', 'aws', 'docker', 'kubernetes'
+  ].some((keyword) => combined.includes(keyword));
+};
+
+const getAiQuestionStyle = (
+  role: string,
+  skillFocus: string,
+  aiQuestionCount: number
+): 'mcq' | 'code-snippet' => {
+  if (!looksTechnicalFocus(role, skillFocus)) {
+    return 'mcq';
+  }
+
+  return aiQuestionCount % 2 === 1 ? 'code-snippet' : 'mcq';
+};
+
+const shouldUseMultiSelect = (role: string, skillFocus: string, aiQuestionCount: number) => {
+  if (!looksTechnicalFocus(role, skillFocus)) {
+    return aiQuestionCount % 4 === 2;
+  }
+
+  return aiQuestionCount % 4 === 2 || aiQuestionCount % 4 === 3;
 };
 
 const sendCompletionReport = async (sessionId: number) => {
@@ -254,14 +351,23 @@ const formatQuestionForClient = (row: any) => ({
   id: Number(row.id),
   question: String(row.question || row.question_text || ''),
   options: Array.isArray(row.options) ? row.options : Object.values(row.options || {}),
+  question_type: String(row.question_type || 'single') === 'multiple' ? 'multiple' : 'single',
   difficulty: row.difficulty || 'medium',
-  theta: row.theta !== undefined ? Number(row.theta) : undefined,
-  selection_mode: String(row.selection_mode || ''),
-  semantic_similarity: row.semantic_similarity !== undefined && row.semantic_similarity !== null
-    ? Number(row.semantic_similarity)
-    : undefined,
-  semantic_topic: row.semantic_topic ? String(row.semantic_topic) : undefined,
 });
+
+const normalizeAnswerArray = (value: any): string[] => {
+  if (Array.isArray(value)) {
+    return Array.from(new Set(value.map((item) => String(item || '').trim()).filter(Boolean))).sort();
+  }
+
+  const single = String(value || '').trim();
+  return single ? [single] : [];
+};
+
+const areSameAnswerSets = (left: string[], right: string[]) => {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => item === right[index]);
+};
 
 const buildSemanticQueryText = ({
   role,
@@ -423,23 +529,25 @@ const createNextAdaptiveQuestion = async (
 
       const inserted = await client.query(
         `
-        INSERT INTO interview_questions (
-          session_id, question, options, correct_answer, difficulty, source_question_id, difficulty_score,
+          INSERT INTO interview_questions (
+          session_id, question, options, question_type, correct_answer, correct_answers, difficulty, source_question_id, difficulty_score,
           selection_mode, semantic_similarity, semantic_topic
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        RETURNING id, question, options, difficulty, difficulty_score, selection_mode, semantic_similarity, semantic_topic
-        `,
-        [
-          sessionId,
-          selected.question_text,
-          JSON.stringify(optionList),
-          correctAnswer,
-          selected.difficulty || targetDifficulty,
-          selected.question_id,
-          itemDifficulty,
-          selectionMode,
-          semanticSimilarity,
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          RETURNING id, question, options, question_type, difficulty, difficulty_score, selection_mode, semantic_similarity, semantic_topic
+          `,
+          [
+            sessionId,
+            selected.question_text,
+            JSON.stringify(optionList),
+            'single',
+            correctAnswer,
+            JSON.stringify([correctAnswer]),
+            selected.difficulty || targetDifficulty,
+            selected.question_id,
+            itemDifficulty,
+            selectionMode,
+            semanticSimilarity,
           semanticTopic,
         ]
       );
@@ -471,11 +579,11 @@ const createNextAdaptiveQuestion = async (
     : null;
 
   const aiQuestion = await generateAdaptiveQuestionAtDifficulty(
-    role,
-    experience || 0,
-    skillFocus,
-    targetDifficulty,
-    {
+      role,
+      experience || 0,
+      skillFocus,
+      targetDifficulty,
+      {
       relatedTopics: Array.from(
         new Set(
           [skillFocus, ...semanticReferenceQuestions.map((item: any) => String(item?.topic || '').trim())]
@@ -488,24 +596,37 @@ const createNextAdaptiveQuestion = async (
           const section = String(item?.section || '').trim();
           const content = String(item?.content || '').trim();
           return [section ? `${section}:` : '', content].filter(Boolean).join(' ');
-        })
-        .filter(Boolean),
-    }
-  );
+          })
+          .filter(Boolean),
+      },
+      {
+        style: getAiQuestionStyle(role, skillFocus, aiQuestionCount),
+        variationSeed: [
+          `candidate:${Number(tokenData?.candidate_id) || 0}`,
+          `experience:${Number(experience) || 0}`,
+          `session:${sessionId}`,
+          `sequence:${aiQuestionCount + 1}`,
+          `difficulty:${targetDifficulty}`,
+        ].join('|'),
+        allowMultiSelect: shouldUseMultiSelect(role, skillFocus, aiQuestionCount),
+      }
+    );
   const inserted = await client.query(
     `
     INSERT INTO interview_questions (
-      session_id, question, options, correct_answer, difficulty, difficulty_score,
+      session_id, question, options, question_type, correct_answer, correct_answers, difficulty, difficulty_score,
       selection_mode, semantic_similarity, semantic_topic
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    RETURNING id, question, options, difficulty, difficulty_score, selection_mode, semantic_similarity, semantic_topic
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    RETURNING id, question, options, question_type, difficulty, difficulty_score, selection_mode, semantic_similarity, semantic_topic
     `,
     [
       sessionId,
       aiQuestion.question,
       JSON.stringify(aiQuestion.options),
+      aiQuestion.question_type === 'multiple' ? 'multiple' : 'single',
       aiQuestion.correct_answer,
+      JSON.stringify(aiQuestion.correct_answers || [aiQuestion.correct_answer]),
       targetDifficulty,
       difficultyScore(targetDifficulty),
       bestSemanticSimilarity ? 'semantic-grounded-ai' : 'ai',
@@ -595,6 +716,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     }
 
     const candidate = candidateResult.rows[0];
+    const candidateId = Number(candidate.candidate_id);
     const candidateName = String(name || candidate.full_name || '').trim() || candidate.full_name;
 
     // 2. Generate secure token and password
@@ -621,7 +743,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     // 3. Save in DB
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_phone) 
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         token,
@@ -636,19 +758,19 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
         Number(questionCount) || 10,
         source,
         selectedAssessmentId,
-        phone || null,
+        candidateId,
       ]
     );
 
     // 4. Generate link
     // Use environment variable for frontend URL, fallback to localhost if not set
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-    const loginUrl = `${frontendUrl}/interview-login`;
+    const loginUrl = `${frontendUrl}/interview?token=${encodeURIComponent(token)}&candidateId=${candidateId}`;
 
     // 5. Send email
     await sendInterviewLink(candidate.email, candidateName, loginUrl, plainPassword);
 
-    res.json({ success: true, message: 'Interview link sent successfully' });
+    res.json({ success: true, message: 'Interview link sent successfully', data: { candidate_id: candidateId, token, login_url: loginUrl } });
   } catch (error) {
     console.error('❌ Generate and send link overall error:', error);
     res.status(500).json({ success: false, error: 'Internal system error' });
@@ -673,6 +795,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     }
 
     const candidate = candidateResult.rows[0];
+    const candidateId = Number(candidate.candidate_id);
     const candidateName = String(name || candidate.full_name || '').trim() || candidate.full_name;
     const token = crypto.randomBytes(32).toString('hex');
     const plainPassword = generateTemporaryPassword();
@@ -688,7 +811,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
 
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_phone) 
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id) 
        VALUES ($1, $2, $3, $4, $5, $6, false, null, $7, $8, $9, $10, $11)`,
       [
         token,
@@ -701,14 +824,19 @@ export const inviteCredentials = async (req: Request, res: Response) => {
         Number(questionCount) || 10,
         source,
         selectedAssessmentId,
-        phone || null,
+        candidateId,
       ]
     );
 
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-    await sendInterviewLink(candidate.email, candidateName, `${frontendUrl}/interview`, plainPassword);
+    await sendInterviewLink(
+      candidate.email,
+      candidateName,
+      `${frontendUrl}/interview-login?candidateId=${candidateId}&email=${encodeURIComponent(candidate.email)}`,
+      plainPassword
+    );
 
-    return res.json({ success: true, message: 'Temporary interview credentials sent successfully' });
+    return res.json({ success: true, message: 'Temporary interview credentials sent successfully', data: { candidate_id: candidateId, token } });
   } catch (error: any) {
     console.error('Invite credentials error:', error);
     return res.status(400).json({ success: false, error: error.message || 'Failed to send credentials' });
@@ -720,7 +848,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
  */
 export const candidateLogin = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, candidateId } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ success: false, error: 'Email and password are required' });
@@ -741,6 +869,11 @@ export const candidateLogin = async (req: Request, res: Response) => {
     }
 
     const tokenData = result.rows[0];
+    const requestedCandidateId = Number(candidateId) || 0;
+
+    if (requestedCandidateId && Number(tokenData.candidate_id || 0) !== requestedCandidateId) {
+      return res.status(403).json({ success: false, error: 'This interview credential set does not match the selected candidate.' });
+    }
 
     // 2. Verify Password
     const isMatch = await bcrypt.compare(password, tokenData.password);
@@ -775,9 +908,10 @@ export const candidateLogin = async (req: Request, res: Response) => {
     }
 
     // 6. Generate Candidate JWT
+    const candidateProfile = await getCandidateProfileByEmail(tokenData.candidate_email);
     const candidateJwt = jwt.sign(
       { 
-        id: 0, 
+        id: Number(tokenData.candidate_id || candidateProfile?.candidate_id || 0), 
         email: tokenData.candidate_email, 
         role: 'candidate',
         interview_token: tokenData.token, // This links them back to their session
@@ -791,13 +925,16 @@ export const candidateLogin = async (req: Request, res: Response) => {
       data: {
         email: tokenData.candidate_email,
         name: tokenData.candidate_name,
-        role: tokenData.job_role,
+        role: getEffectiveInterviewRole(tokenData, tokenData.job_role, candidateProfile),
         duration: tokenData.duration_mins,
         total_questions: tokenData.total_questions || 10,
         session_id: tokenData.session_id,
         is_started: tokenData.is_used,
         token: tokenData.token,
-        jwt: candidateJwt
+        jwt: candidateJwt,
+        candidate_id: Number(tokenData.candidate_id || candidateProfile?.candidate_id || 0),
+        experience_years: getEffectiveExperience(null, candidateProfile),
+        skills: candidateProfile?.skills || [],
       }
     });
   } catch (error) {
@@ -811,7 +948,7 @@ export const candidateLogin = async (req: Request, res: Response) => {
  */
 export const validateLink = async (req: Request, res: Response) => {
   try {
-    const { token } = req.query;
+    const { token, candidateId } = req.query;
 
     if (!token) {
       return res.status(400).json({ success: false, error: 'Token is required', code: 'INVALID' });
@@ -831,6 +968,15 @@ export const validateLink = async (req: Request, res: Response) => {
     }
 
     const tokenData = result.rows[0];
+    const requestedCandidateId = Number(candidateId) || 0;
+
+    if (Number(tokenData.candidate_id || 0) > 0 && Number(tokenData.candidate_id || 0) !== requestedCandidateId) {
+      return res.status(403).json({
+        success: false,
+        error: 'This personalized interview link is not valid for this candidate.',
+        code: 'CANDIDATE_MISMATCH'
+      });
+    }
 
     // 2. Already submitted?
     if (tokenData.is_submitted) {
@@ -859,9 +1005,10 @@ export const validateLink = async (req: Request, res: Response) => {
     }
 
     // 5. Generate Candidate JWT
+    const candidateProfile = await getCandidateProfileByEmail(tokenData.candidate_email);
     const candidateJwt = jwt.sign(
       { 
-        id: 0, 
+        id: Number(tokenData.candidate_id || candidateProfile?.candidate_id || 0), 
         email: tokenData.candidate_email, 
         role: 'candidate',
         interview_token: token,
@@ -875,17 +1022,120 @@ export const validateLink = async (req: Request, res: Response) => {
       data: {
         email: tokenData.candidate_email,
         name: tokenData.candidate_name,
-        role: tokenData.job_role,
+        role: getEffectiveInterviewRole(tokenData, tokenData.job_role, candidateProfile),
         duration: tokenData.duration_mins,
         total_questions: tokenData.total_questions || 10,
         session_id: tokenData.session_id,
         is_started: tokenData.is_used,
-        jwt: candidateJwt
+        jwt: candidateJwt,
+        candidate_id: Number(tokenData.candidate_id || candidateProfile?.candidate_id || 0),
+        experience_years: getEffectiveExperience(null, candidateProfile),
+        skills: candidateProfile?.skills || [],
       }
     });
   } catch (error) {
     console.error('Validate link error:', error);
     res.status(500).json({ success: false, error: 'Failed to validate link' });
+  }
+};
+
+export const saveInterviewVerification = async (req: Request, res: Response) => {
+  try {
+    const interviewToken = String((req as any).user?.interview_token || '').trim();
+    const candidateEmail = String((req as any).user?.email || '').trim();
+    const candidateId = Number((req as any).user?.id || 0) || null;
+    const { selfieImage, idCardImage } = req.body || {};
+
+    if (!interviewToken || !candidateEmail) {
+      return res.status(401).json({ success: false, error: 'Interview session is not authenticated' });
+    }
+
+    if (!selfieImage || !idCardImage) {
+      return res.status(400).json({ success: false, error: 'Both selfieImage and idCardImage are required' });
+    }
+
+    const [selfiePath, idCardPath] = await Promise.all([
+      writeVerificationImage(interviewToken, 'selfie', String(selfieImage)),
+      writeVerificationImage(interviewToken, 'id-card', String(idCardImage)),
+    ]);
+
+    await pool.query(
+      `
+      INSERT INTO interview_verifications (token, candidate_id, candidate_email, selfie_path, id_card_path, updated_at)
+      VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+      ON CONFLICT (token)
+      DO UPDATE SET
+        candidate_id = EXCLUDED.candidate_id,
+        candidate_email = EXCLUDED.candidate_email,
+        selfie_path = EXCLUDED.selfie_path,
+        id_card_path = EXCLUDED.id_card_path,
+        updated_at = CURRENT_TIMESTAMP
+      `,
+      [interviewToken, candidateId, candidateEmail, selfiePath, idCardPath]
+    );
+
+    return res.json({ success: true, data: { selfie_path: selfiePath, id_card_path: idCardPath } });
+  } catch (error: any) {
+    console.error('Save interview verification error:', error);
+    return res.status(400).json({ success: false, error: error.message || 'Failed to save verification images' });
+  }
+};
+
+export const confirmInterviewStart = async (req: Request, res: Response) => {
+  try {
+    const interviewToken = String((req as any).user?.interview_token || '').trim();
+    const { session_id } = req.body || {};
+    if (!interviewToken || !session_id) {
+      return res.status(400).json({ success: false, error: 'session_id is required' });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE interview_sessions
+      SET started_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND token = $2
+      RETURNING id
+      `,
+      [Number(session_id), interviewToken]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Confirm interview start error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to confirm interview start' });
+  }
+};
+
+export const submitInterviewFeedback = async (req: Request, res: Response) => {
+  try {
+    const interviewToken = String((req as any).user?.interview_token || '').trim();
+    const { session_id, feedback } = req.body || {};
+    if (!interviewToken || !session_id) {
+      return res.status(400).json({ success: false, error: 'session_id is required' });
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE interview_sessions
+      SET feedback = $1
+      WHERE id = $2 AND token = $3
+      RETURNING id
+      `,
+      [String(feedback || '').trim() || null, Number(session_id), interviewToken]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Submit interview feedback error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to save feedback' });
   }
 };
 
@@ -897,13 +1147,13 @@ export const generateQuestions = async (req: Request, res: Response) => {
   try {
     const { token, experience, role } = req.body;
 
-    if (!token || !role) {
+    if (!token) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
 
     // 1. Fetch token data for question count and question source
     const tokenResult = await client.query(
-      'SELECT total_questions, candidate_email, candidate_phone, question_source, assessment_id FROM interview_tokens WHERE token = $1',
+      'SELECT total_questions, candidate_email, candidate_phone, question_source, assessment_id, job_role, candidate_id FROM interview_tokens WHERE token = $1',
       [token]
     );
     if (tokenResult.rows.length === 0) {
@@ -911,6 +1161,9 @@ export const generateQuestions = async (req: Request, res: Response) => {
     }
     const tokenData = tokenResult.rows[0];
     const totalQCount = tokenData.total_questions || 10;
+    const candidateProfile = await getCandidateProfileByEmail(tokenData.candidate_email);
+    const effectiveRole = getEffectiveInterviewRole(tokenData, role, candidateProfile);
+    const effectiveExperience = getEffectiveExperience(experience, candidateProfile);
 
     // 2. Check if session already exists
     const sessionCheck = await client.query(
@@ -921,29 +1174,30 @@ export const generateQuestions = async (req: Request, res: Response) => {
     let sessionId;
     if (sessionCheck.rows.length > 0) {
       sessionId = sessionCheck.rows[0].id;
-      const questionsCheck = await client.query('SELECT id, question, options, difficulty, difficulty_score FROM interview_questions WHERE session_id = $1 ORDER BY id ASC LIMIT 1', [sessionId]);
+      const questionsCheck = await client.query('SELECT id, question, options, question_type, difficulty, difficulty_score FROM interview_questions WHERE session_id = $1 ORDER BY id ASC LIMIT 1', [sessionId]);
       if (questionsCheck.rows.length > 0) {
         return res.json({
           success: true,
           session_id: sessionId,
           question: formatQuestionForClient(questionsCheck.rows[0]),
+          total_questions: totalQCount,
         });
       }
     } else {
-      const initialTheta = initialThetaFromExperience(experience);
+      const initialTheta = initialThetaFromExperience(effectiveExperience);
       // Create new session
       const result = await client.query(
         `INSERT INTO interview_sessions (token, candidate_email, role, experience_years, current_theta, target_questions, total_questions, candidate_phone) 
          VALUES ($1, $2, $3, $4, $5, $6, $6, $7) RETURNING id`,
-        [token, tokenData.candidate_email, role, experience || 0, initialTheta, totalQCount, tokenData.candidate_phone || null]
+        [token, tokenData.candidate_email, effectiveRole, effectiveExperience, initialTheta, totalQCount, tokenData.candidate_phone || null]
       );
       sessionId = result.rows[0].id;
       await client.query('UPDATE interview_tokens SET is_used = true WHERE token = $1', [token]);
     }
 
     const session = await client.query('SELECT current_theta FROM interview_sessions WHERE id = $1', [sessionId]);
-    const theta = Number(session.rows[0]?.current_theta) || initialThetaFromExperience(experience);
-    const firstQuestion = await createNextAdaptiveQuestion(client, sessionId, tokenData, role, Number(experience) || 0, theta);
+    const theta = Number(session.rows[0]?.current_theta) || initialThetaFromExperience(effectiveExperience);
+    const firstQuestion = await createNextAdaptiveQuestion(client, sessionId, tokenData, effectiveRole, effectiveExperience, theta);
 
     if (!firstQuestion) {
       return res.status(500).json({ success: false, error: 'No matching questions found for this adaptive level' });
@@ -968,7 +1222,8 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
     const { session_id, question_id, selected_answer } = req.body;
-    if (!session_id || !question_id || !selected_answer) {
+    const normalizedSelectedAnswers = normalizeAnswerArray(selected_answer);
+    if (!session_id || !question_id || !normalizedSelectedAnswers.length) {
       return res.status(400).json({ success: false, error: 'session_id, question_id and selected_answer are required' });
     }
 
@@ -992,7 +1247,7 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
 
     const session = sessionResult.rows[0];
     const questionResult = await client.query(
-      `SELECT id, question, options, correct_answer, difficulty_score FROM interview_questions WHERE id = $1 AND session_id = $2`,
+      `SELECT id, question, options, correct_answer, correct_answers, question_type, difficulty_score FROM interview_questions WHERE id = $1 AND session_id = $2`,
       [Number(question_id), Number(session_id)]
     );
 
@@ -1004,7 +1259,8 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
     const question = questionResult.rows[0];
     const thetaBefore = Number(session.current_theta) || 0.5;
     const itemDifficulty = Number(question.difficulty_score) || 0.5;
-    const isCorrect = String(question.correct_answer) === String(selected_answer);
+    const expectedAnswers = normalizeAnswerArray(question.correct_answers || question.correct_answer);
+    const isCorrect = areSameAnswerSets(expectedAnswers, normalizedSelectedAnswers);
     const thetaAfter = updateThetaElo(thetaBefore, itemDifficulty, isCorrect);
 
     const existingResponse = await client.query(
@@ -1014,20 +1270,34 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
 
     if (!existingResponse.rows.length) {
       const optionsArray = Array.isArray(question.options) ? question.options : [];
-      // selected_answer is often an option key (A, B, C, D) or the text itself.
-      // If it's a key, try to find the text.
-      let selectedText = selected_answer;
-      if (['A', 'B', 'C', 'D'].includes(selected_answer)) {
+      const isSingleAnswerKey =
+        typeof selected_answer === 'string' &&
+        ['A', 'B', 'C', 'D'].includes(selected_answer);
+      let selectedText = Array.isArray(selected_answer)
+        ? normalizedSelectedAnswers.join(', ')
+        : String(selected_answer);
+
+      if (isSingleAnswerKey) {
         const idx = selected_answer.charCodeAt(0) - 65;
         if (optionsArray[idx]) selectedText = optionsArray[idx];
       }
 
       await client.query(
         `
-        INSERT INTO interview_responses (session_id, question_id, selected_answer, is_correct, theta_before, theta_after, question_text, answer_text)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO interview_responses (session_id, question_id, selected_answer, selected_answers, is_correct, theta_before, theta_after, question_text, answer_text)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         `,
-        [Number(session_id), Number(question_id), selected_answer, isCorrect, thetaBefore, thetaAfter, question.question, selectedText]
+        [
+          Number(session_id),
+          Number(question_id),
+          normalizedSelectedAnswers.join(' | '),
+          JSON.stringify(normalizedSelectedAnswers),
+          isCorrect,
+          thetaBefore,
+          thetaAfter,
+          question.question,
+          selectedText
+        ]
       );
     }
 
@@ -1103,10 +1373,10 @@ export const getQuestions = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Session ID required' });
     }
 
-    const result = await pool.query(
-      'SELECT id, question, options, difficulty, selection_mode, semantic_similarity, semantic_topic FROM interview_questions WHERE session_id = $1 ORDER BY id ASC',
-      [session_id]
-    );
+      const result = await pool.query(
+        'SELECT id, question, options, question_type, difficulty FROM interview_questions WHERE session_id = $1 ORDER BY id ASC',
+        [session_id]
+      );
 
     res.json({ success: true, data: result.rows.map(formatQuestionForClient) });
   } catch (error) {
@@ -1128,14 +1398,16 @@ export const submitAnswers = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Invalid submission format' });
     }
 
-    for (const ans of answers) {
-      const qResult = await client.query(
-        'SELECT question, options, correct_answer FROM interview_questions WHERE id = $1',
-        [ans.question_id]
-      );
-      const question = qResult.rows[0];
+      for (const ans of answers) {
+        const qResult = await client.query(
+          'SELECT question, options, correct_answer, correct_answers FROM interview_questions WHERE id = $1',
+          [ans.question_id]
+        );
+        const question = qResult.rows[0];
 
-      const isCorrect = qResult.rows[0]?.correct_answer === ans.selected_answer;
+      const submittedAnswers = normalizeAnswerArray(ans.selected_answer);
+      const expectedAnswers = normalizeAnswerArray(qResult.rows[0]?.correct_answers || qResult.rows[0]?.correct_answer);
+      const isCorrect = areSameAnswerSets(expectedAnswers, submittedAnswers);
       const exists = await client.query(
         `SELECT id FROM interview_responses WHERE session_id = $1 AND question_id = $2 LIMIT 1`,
         [session_id, ans.question_id]
@@ -1149,13 +1421,13 @@ export const submitAnswers = async (req: Request, res: Response) => {
           if (optionsArray[idx]) selectedText = optionsArray[idx];
         }
 
-        await client.query(
-          `INSERT INTO interview_responses (session_id, question_id, selected_answer, is_correct, question_text, answer_text) 
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [session_id, ans.question_id, ans.selected_answer, isCorrect, question?.question || null, selectedText || null]
-        );
+          await client.query(
+            `INSERT INTO interview_responses (session_id, question_id, selected_answer, selected_answers, is_correct, question_text, answer_text) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [session_id, ans.question_id, submittedAnswers.join(' | '), JSON.stringify(submittedAnswers), isCorrect, question?.question || null, selectedText || null]
+          );
+        }
       }
-    }
 
     const scoreResult = await client.query(
       `SELECT COUNT(*)::int AS total, SUM(CASE WHEN is_correct THEN 1 ELSE 0 END)::int AS score FROM interview_responses WHERE session_id = $1`,
@@ -1482,22 +1754,26 @@ export const updateCandidateDecision = async (req: Request, res: Response) => {
       [decision, session_id]
     );
 
-    if (decision === 'selected') {
-      try {
-        const res = await pool.query(
-          `SELECT s.id, t.candidate_name, t.candidate_email, s.role
-           FROM interview_sessions s
-           JOIN interview_tokens t ON s.token = t.token
-           WHERE s.id = $1`,
-          [session_id]
-        );
-        if (res.rows.length > 0) {
-          await sendSelectionEmail(res.rows[0].candidate_email, res.rows[0].candidate_name, res.rows[0].role);
+      if (decision === 'selected' || decision === 'rejected') {
+        try {
+          const res = await pool.query(
+            `SELECT s.id, t.candidate_name, t.candidate_email, s.role
+             FROM interview_sessions s
+             JOIN interview_tokens t ON s.token = t.token
+             WHERE s.id = $1`,
+            [session_id]
+          );
+          if (res.rows.length > 0) {
+            if (decision === 'selected') {
+              await sendSelectionEmail(res.rows[0].candidate_email, res.rows[0].candidate_name, res.rows[0].role);
+            } else {
+              await sendRejectionEmail(res.rows[0].candidate_email, res.rows[0].candidate_name, res.rows[0].role);
+            }
+          }
+        } catch (err) {
+          console.error(`${decision} email failed:`, err);
         }
-      } catch (err) {
-        console.error('Selection email failed:', err);
       }
-    }
 
     res.json({ success: true, message: `Candidate marked as ${decision}` });
   } catch (error) {

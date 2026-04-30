@@ -5,6 +5,9 @@ import {
   validateLink, 
   candidateLogin,
   inviteCredentials,
+  saveInterviewVerification,
+  confirmInterviewStart,
+  submitInterviewFeedback,
   generateQuestions,
   submitAdaptiveAnswer,
   getQuestions,
@@ -35,6 +38,8 @@ router.get('/validate', validateLink);
 router.post('/login', candidateLogin);
 
 // 2. Start session & generate questions (Authenticated Candidate)
+router.post('/verification', verifyToken, saveInterviewVerification);
+router.post('/start-confirmed', verifyToken, confirmInterviewStart);
 router.post('/generate', verifyToken, generateQuestions);
 router.post('/answer', verifyToken, submitAdaptiveAnswer);
 
@@ -45,9 +50,7 @@ router.get('/questions', verifyToken, getQuestions);
 router.post('/submit', verifyToken, submitAnswers);
 
 // 5. Fallback for removed feedback feature
-router.post('/feedback', verifyToken, (req, res) => {
-  res.status(200).json({ message: "Feature removed" });
-});
+router.post('/feedback', verifyToken, submitInterviewFeedback);
 
 
 // --- Admin Report Routes ---

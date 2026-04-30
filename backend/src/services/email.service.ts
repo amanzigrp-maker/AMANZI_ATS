@@ -567,3 +567,58 @@ export const sendSelectionEmail = async (to: string, name: string, role?: string
     console.error('Error sending selection email:', err);
   }
 };
+
+export const sendRejectionEmail = async (to: string, name: string, role?: string): Promise<void> => {
+  try {
+    const transporter = createTransporter();
+
+    if (!transporter) {
+      console.log(`📧 [DEV MODE] Rejection email for ${to}`);
+      return;
+    }
+
+    const mailOptions = {
+      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
+      to,
+      subject: `Interview Update | Amanzi`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <style>
+            body { font-family: 'Segoe UI', sans-serif; line-height: 1.6; color: #1a1a1a; background-color: #fff7ed; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #fed7aa; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08); }
+            .header { background: #f97316; color: white; padding: 32px 24px; text-align: center; }
+            .header h1 { margin: 0; font-size: 28px; }
+            .content { padding: 32px 24px; }
+            .footer { text-align: center; padding: 20px; font-size: 12px; color: #64748b; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Interview Update</h1>
+            </div>
+            <div class="content">
+              <p>Dear <strong>${name}</strong>,</p>
+              <p>Thank you for taking the time to complete your assessment${role ? ` for the <strong>${role}</strong> role` : ''}.</p>
+              <p>After reviewing your performance, we will not be moving forward with your application for this position at the moment.</p>
+              <p>We appreciate your interest in Amanzi and the effort you put into the process. We encourage you to apply again in the future if another opportunity matches your profile.</p>
+              <p>We wish you all the very best in your job search.</p>
+              <p>Best regards,<br><strong>Amanzi Hiring Team</strong></p>
+            </div>
+            <div class="footer">
+              <p>&copy; ${new Date().getFullYear()} Amanzi. All rights reserved.</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: `Dear ${name}, thank you for taking the assessment${role ? ` for the ${role} role` : ''}. After review, we will not be moving forward with your application for this position at the moment. We appreciate your interest in Amanzi and wish you the best.`,
+    };
+
+    await transporter.sendMail(mailOptions);
+  } catch (err) {
+    console.error('Error sending rejection email:', err);
+  }
+};

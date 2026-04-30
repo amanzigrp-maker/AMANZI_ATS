@@ -41,13 +41,13 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
   const [candidateName, setCandidateName] = useState('');
   const [validity, setValidity] = useState(15); // Default 15 mins
   const [questionCount, setQuestionCount] = useState(10); // Default 10 questions
-  const [questionSource, setQuestionSource] = useState<'bank' | 'hybrid'>('hybrid');
+  const [questionSource, setQuestionSource] = useState<'ai' | 'bank' | 'hybrid'>('ai');
   const [assessmentId, setAssessmentId] = useState('');
   const [assessments, setAssessments] = useState<AssessmentOption[]>([]);
   const [loadingAssessments, setLoadingAssessments] = useState(false);
 
   useEffect(() => {
-    if (!candidate || !selectedRole.trim()) {
+    if (!candidate || !selectedRole.trim() || questionSource === 'ai') {
       setAssessments([]);
       setAssessmentId('');
       return;
@@ -149,7 +149,9 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     const ok = window.confirm(
       questionSource === 'bank'
         ? `Send document-only test for ${selectedRole.trim()}?`
-        : `Send mixed test from uploaded bank plus candidate skills for ${selectedRole.trim()}?`
+        : questionSource === 'hybrid'
+          ? `Send mixed test from uploaded bank plus candidate skills for ${selectedRole.trim()}?`
+          : `Send AI interview for ${selectedRole.trim()} using the candidate's experience and skills?`
     );
     if (!ok) return;
 
@@ -196,7 +198,9 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     const ok = window.confirm(
       questionSource === 'bank'
         ? `Send credentials with document-only test for ${selectedRole.trim()}?`
-        : `Send credentials with uploaded bank plus candidate skills for ${selectedRole.trim()}?`
+        : questionSource === 'hybrid'
+          ? `Send credentials with uploaded bank plus candidate skills for ${selectedRole.trim()}?`
+          : `Send credentials for an AI interview tailored to the candidate's experience and skills?`
     );
     if (!ok) return;
 
@@ -239,7 +243,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     setCandidate(null);
     setCandidateName('');
     setIsSuccess(false);
-    setQuestionSource('hybrid');
+    setQuestionSource('ai');
     setAssessmentId('');
     setAssessments([]);
   };
@@ -376,7 +380,18 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
 
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Question Source</label>
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-3 gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setQuestionSource('ai')}
+                              className={`rounded-xl border px-3 py-2 text-sm font-bold transition-all ${
+                                questionSource === 'ai'
+                                  ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                  : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                              }`}
+                            >
+                              AI by Profile
+                            </button>
                             <button
                               type="button"
                               onClick={() => setQuestionSource('bank')}
@@ -400,8 +415,12 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                               Bank + Skills
                             </button>
                           </div>
+                          <p className="text-xs text-slate-500">
+                            AI by Profile uses the candidate&apos;s experience and stored skills. Doc Only stays inside the selected bank. Bank + Skills blends both.
+                          </p>
                         </div>
 
+                        {(questionSource === 'bank' || questionSource === 'hybrid') && (
                         <div className="space-y-2">
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Select Uploaded Question Bank</label>
                           <select
@@ -431,6 +450,7 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                             </p>
                           )}
                         </div>
+                        )}
 
                         <div className="grid grid-cols-2 gap-6">
                           <div className="space-y-2">
