@@ -29,6 +29,7 @@ from services.duplicate_checker import DuplicateChecker
 from services.resume_text_cleaner import ResumeTextCleaner
 from services.job_text_cleaner import JobTextCleaner
 from services.ocr_parser import OCRResumeParser
+from services.question_service import QuestionService
 
 
 # ---------------------------------------------------------------------
@@ -85,6 +86,7 @@ job_text_cleaner = JobTextCleaner(
 )
 
 ocr_service = OCRResumeParser()
+question_service = QuestionService(db, embedding_service)
 
 
 async def warmup_services() -> None:
@@ -788,6 +790,32 @@ async def search_talent_pool(request: Request):
         "count": len(matches),
         "data": matches,
     }
+
+# ---------------------------------------------------------------------
+# Question Deduplication API
+# ---------------------------------------------------------------------
+@app.post("/check-question")
+async def check_question(request: Request):
+    """
+    Check if an interview question is a duplicate or semantically similar
+    """
+    try:
+        body = await request.json()
+        question_text = body.get("question")
+        
+        if not question_text or not isinstance(question_text, str):
+            raise HTTPException(400, "Valid 'question' string is required")
+
+        result = await question_service.check_question_duplicate(question_text)
+        
+        return {
+            "success": True,
+            **result
+        }
+
+    except Exception as e:
+        logger.error(f"Error in /check-question: {e}")
+        raise HTTPException(500, str(e))
 
 
 @app.post("/api/recommendations/generate")

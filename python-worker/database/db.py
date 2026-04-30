@@ -66,9 +66,11 @@ class Database:
         cur.execute(
             """
             CREATE TABLE IF NOT EXISTS question_embeddings (
-                question_id INTEGER PRIMARY KEY,
-                assessment_id INTEGER NOT NULL,
+                id SERIAL PRIMARY KEY,
+                question_id INTEGER,
+                assessment_id INTEGER,
                 topic TEXT,
+                question TEXT,
                 content TEXT,
                 embedding VECTOR(384),
                 model_name TEXT,
@@ -76,23 +78,25 @@ class Database:
             )
             """
         )
+        # Add columns if they don't exist (for existing tables)
         try:
-            cur.execute("ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS topic TEXT")
+            cur.execute("ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS id SERIAL")
         except Exception:
             pass
         try:
-            cur.execute("ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS content TEXT")
+            cur.execute("ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS question TEXT")
         except Exception:
             pass
         try:
-            cur.execute("ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS model_name TEXT")
+            cur.execute("ALTER TABLE question_embeddings ALTER COLUMN assessment_id DROP NOT NULL")
         except Exception:
             pass
+        
         cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_question_embeddings_assessment_id ON question_embeddings (assessment_id)"
+            "CREATE INDEX IF NOT EXISTS idx_question_embeddings_embedding ON question_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
         )
         cur.execute(
-            "CREATE INDEX IF NOT EXISTS idx_question_embeddings_topic ON question_embeddings (topic)"
+            "CREATE INDEX IF NOT EXISTS idx_question_embeddings_question ON question_embeddings (question)"
         )
 
     # ======================================================
@@ -1278,4 +1282,60 @@ class Database:
             finally:
                 self._put_conn(conn)
 
+        await self._run_sync(_store)
+
+    # ======================================================
+    # Question Deduplication
+    # ======================================================
+    async def get_recent_questions(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Fetch recent questions for quick string matching."""
+        rows = await self._run_sync(
+            self._fetchall_sync,
+            "SELECT id, COALESCE(question, content) as question FROM question_embeddings ORDER BY created_at DESC LIMIT %s",
+            (limit,)
+        )
+        return [dict(row) if row else {} for row in (rows or [])]
+
+    async def find_similar_questions(self, embedding: List[float], limit: int = 5) -> List[Dict[str, Any]]:
+        """Find similar questions using vector similarity search."""
+        vector = np.asarray(embedding, dtype=np.float32)
+        rows = await self._run_sync(
+            self._fetchall_sync,
+            """
+            SELECT 
+                id, 
+                COALESCE(question, content) as question,
+                1 - (embedding <=> %s) AS similarity
+            FROM question_embeddings
+            WHERE embedding IS NOT NULL
+            ORDER BY embedding <=> %s
+            LIMIT %s
+            """,
+            (vector, vector, limit)
+        )
+        return [dict(row) if row else {} for row in (rows or [])]
+
+    async def store_question(self, question_text: str, embedding: List[float], topic: str = "General"):
+        """Store a new question and its embedding."""
+        def _store():
+            conn = None
+            try:
+                conn = self._get_conn()
+                with conn.cursor() as cur:
+                    vector = np.asarray(embedding, dtype=np.float32)
+                    cur.execute(
+                        """
+                        INSERT INTO question_embeddings (question, content, embedding, topic)
+                        VALUES (%s, %s, %s, %s)
+                        """,
+                        (question_text, question_text, vector, topic)
+                    )
+                conn.commit()
+            except Exception as e:
+                if conn: conn.rollback()
+                logger.error(f"Error storing question: {e}")
+                raise
+            finally:
+                self._put_conn(conn)
+        
         await self._run_sync(_store)

@@ -99,8 +99,19 @@ const parseCsvRows = (csv: string): string[][] => {
   return rows;
 };
 
+<<<<<<< Updated upstream
 const normalizeCorrectOption = (value: unknown): string => {
   return String(value || "").trim().toUpperCase();
+=======
+const normalizeCorrectOption = (value: unknown): "A" | "B" | "C" | "D" => {
+  const raw = String(value || "").trim().toUpperCase();
+  // Extract first A, B, C, or D found in case AI returns "A)" or "Option A"
+  const match = raw.match(/\b([A-D])\b/);
+  const normalized = match ? match[1] : raw;
+
+  if (optionKeys.includes(normalized as any)) return normalized as "A" | "B" | "C" | "D";
+  throw new Error(`Each question needs correct_option as A, B, C, or D. Got: "${value}"`);
+>>>>>>> Stashed changes
 };
 
 const difficultyScore = (difficulty: unknown) => {
@@ -250,7 +261,7 @@ const extractPdfText = async (buffer: Buffer, originalName: string): Promise<str
     }
     return "";
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { });
   }
 };
 
@@ -338,7 +349,7 @@ output_path.write_text(text, encoding="utf-8")
     });
     return await fs.readFile(outputPath, "utf8");
   } finally {
-    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => { });
   }
 };
 
@@ -528,6 +539,7 @@ const parseInlineAnswerQuestions = (text: string): NormalizedQuestion[] => {
   // Pattern 2: Q text, A) op1 B) op2 C) op3 D) op4, Answer: A
   const pattern2 = /(?:^|\n)\s*(\d{1,4})\.\s*([\s\S]*?)\n\s*A[\).:-]\s*([\s\S]*?)\n\s*B[\).:-]\s*([\s\S]*?)\n\s*C[\).:-]\s*([\s\S]*?)\n\s*D[\).:-]\s*([\s\S]*?)\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?\s*\(?([A-D])\)?(?=\n\s*\d{1,4}\.\s|\s*$)/gi;
 
+<<<<<<< Updated upstream
   const tryMatch = (pattern: RegExp, mapIdx: (m: RegExpMatchArray) => any) => {
     for (const match of questionText.matchAll(pattern)) {
       const q = mapIdx(match);
@@ -538,6 +550,34 @@ const parseInlineAnswerQuestions = (text: string): NormalizedQuestion[] => {
           metadata: { source_parser: "inline-regex", pdf_question_number: q.number }
         }));
       } catch {}
+=======
+  for (const match of questionText.matchAll(pattern)) {
+    const questionNumber = Number(match[1]);
+    const inferredDifficulty =
+      questionNumber <= 60 ? "foundation" :
+        questionNumber <= 130 ? "developing" :
+          questionNumber <= 195 ? "advanced" :
+            "expert";
+
+    try {
+      questions.push(
+        validateQuestion({
+          question_text: String(match[2] || "").replace(/\n+/g, " ").trim(),
+          option_a: String(match[4] || "").replace(/\n+/g, " ").trim(),
+          option_b: String(match[5] || "").replace(/\n+/g, " ").trim(),
+          option_c: String(match[6] || "").replace(/\n+/g, " ").trim(),
+          option_d: String(match[7] || "").replace(/\n+/g, " ").trim(),
+          correct_option: String(match[3] || "").trim(),
+          difficulty: inferredDifficulty,
+          metadata: {
+            source_parser: "inline-answer-regex",
+            pdf_question_number: questionNumber || undefined,
+          },
+        })
+      );
+    } catch {
+      // Skip malformed blocks.
+>>>>>>> Stashed changes
     }
   };
 
@@ -593,9 +633,9 @@ const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
 
     const inferredDifficulty =
       questionNumber <= 60 ? "foundation" :
-      questionNumber <= 130 ? "developing" :
-      questionNumber <= 195 ? "advanced" :
-      "expert";
+        questionNumber <= 130 ? "developing" :
+          questionNumber <= 195 ? "advanced" :
+            "expert";
 
     try {
       const correct_option = answerFromKey || answerMatch?.[1];
@@ -655,14 +695,25 @@ const fallbackQuestions = (role: string, topic: string, count: number): Normaliz
 
 const generateAiQuestions = async (role: string, topic: string, count: number, prompt: string): Promise<NormalizedQuestion[]> => {
   const apiKey = process.env.GEMINI_API_KEY || "";
-  if (!apiKey) return fallbackQuestions(role, topic, count);
-
+  if (!apiKey) {
+    console.warn("⚠️ GEMINI_API_KEY is missing. Using fallback questions.");
+    return fallbackQuestions(role, topic, count);
+  }
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
       model: process.env.GEMINI_MODEL || "gemini-2.5-flash"
     });
 
+<<<<<<< Updated upstream
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash"
+    });
+
+=======
+>>>>>>> Stashed changes
     let retries = 0;
     const maxRetries = 3;
     let lastError: any = null;
@@ -725,7 +776,11 @@ Rules: exactly one correct_option per question (must match a key in options). No
           continue;
         }
         
+<<<<<<< Updated upstream
         // If it's a model not found error, try falling back to gemini-1.5-flash-latest
+=======
+        // If it's a model not found error, try falling back to gemini-1.5-flash-latest (more likely to be found than just 1.5-flash)
+>>>>>>> Stashed changes
         if (error.message?.includes("model") && !error.message?.includes("503")) {
            console.log("🔄 Model error detected. Retrying with gemini-1.5-flash-latest...");
            const genAI = new GoogleGenerativeAI(apiKey);
@@ -747,6 +802,7 @@ Rules: exactly one correct_option per question (must match a key in options). No
     console.error("❌ generateAiQuestions final failure:", error);
     throw error;
   }
+<<<<<<< Updated upstream
 };
 
 const parseQuestionsWithAi = async (rawText: string): Promise<NormalizedQuestion[]> => {
@@ -818,6 +874,8 @@ const parseQuestionsWithAi = async (rawText: string): Promise<NormalizedQuestion
     console.error("AI parsing failed:", error);
     return [];
   }
+=======
+>>>>>>> Stashed changes
 };
 
 const createAssessmentWithQuestions = async (
@@ -902,7 +960,7 @@ const createAssessmentWithQuestions = async (
     await client.query("COMMIT");
     return assessment.rows[0];
   } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
+    await client.query("ROLLBACK").catch(() => { });
     throw error;
   } finally {
     client.release();
@@ -1128,7 +1186,7 @@ export const submitAssessmentAttempt = async (req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    await client.query("ROLLBACK").catch(() => {});
+    await client.query("ROLLBACK").catch(() => { });
     return res.status(400).json({ error: error.message || "Failed to submit assessment" });
   } finally {
     client.release();
@@ -1137,8 +1195,11 @@ export const submitAssessmentAttempt = async (req: Request, res: Response) => {
 
 export const createAssessmentFromAi = async (req: Request, res: Response) => {
   try {
+    console.log("🚀 createAssessmentFromAi request body:", JSON.stringify(req.body));
     const count = Math.min(Math.max(Number(req.body.count) || 5, 1), 25);
     const questions = await generateAiQuestions(req.body.role || "", req.body.topic || "", count, req.body.prompt || "");
+
+    console.log(`✅ Generated ${questions.length} questions. Creating assessment...`);
     const assessment = await createAssessmentWithQuestions(req, {
       title: req.body.title || `${req.body.role || "General"} assessment`,
       description: req.body.description || req.body.prompt || "",
@@ -1153,7 +1214,11 @@ export const createAssessmentFromAi = async (req: Request, res: Response) => {
 
     return res.status(201).json({ success: true, data: assessment, question_count: questions.length });
   } catch (error: any) {
-    return res.status(400).json({ error: error.message || "Failed to generate assessment" });
+    console.error("❌ createAssessmentFromAi failed:", error);
+    return res.status(400).json({
+      error: error.message || "Failed to generate assessment",
+      details: error.stack && process.env.NODE_ENV !== "production" ? error.stack : undefined
+    });
   }
 };
 

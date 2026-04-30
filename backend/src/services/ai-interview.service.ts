@@ -6,7 +6,7 @@ let model: any = null;
 const initAI = () => {
   if (genAI) return;
   const apiKey = process.env.GEMINI_API_KEY || "";
-  const modelName = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+  const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   genAI = new GoogleGenerativeAI(apiKey);
   model = genAI.getGenerativeModel({ model: modelName });
 };
@@ -128,21 +128,36 @@ export const generateAdaptiveQuestionAtDifficulty = async (
     - No markdown, no text outside JSON.
   `;
 
-  try {
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("AI returned invalid question format");
-    const question = JSON.parse(jsonMatch[0]) as AdaptiveSequenceItem;
-    if (!question.question || !Array.isArray(question.options) || question.options.length !== 4 || !question.correct_answer) {
-      throw new Error("AI question missing required fields");
+  let retries = 0;
+  const maxRetries = 3;
+  let lastError: any = null;
+
+  while (retries < maxRetries) {
+    try {
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("AI returned invalid question format");
+      const question = JSON.parse(jsonMatch[0]) as AdaptiveSequenceItem;
+      if (!question.question || !Array.isArray(question.options) || question.options.length !== 4 || !question.correct_answer) {
+        throw new Error("AI question missing required fields");
+      }
+      return question;
+    } catch (error: any) {
+      lastError = error;
+      if (error.status === 503 || error.message?.includes("503") || error.message?.includes("high demand")) {
+        retries++;
+        const delay = Math.pow(2, retries) * 1000;
+        console.warn(`⚠️ Gemini 503 (High Demand) in adaptive question. Retry ${retries}/${maxRetries} in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      console.error("Adaptive single-question generation failed, using fallback question:", error);
+      return buildFallbackQuestion(role, skill, difficulty);
     }
-    return question;
-  } catch (error) {
-    console.error("Adaptive single-question generation failed, using fallback question:", error);
-    return buildFallbackQuestion(role, skill, difficulty);
   }
+  return buildFallbackQuestion(role, skill, difficulty);
 };
 
 /**
@@ -155,60 +170,74 @@ export const generateAdaptiveSequence = async (
   total_questions: number
 ): Promise<AdaptiveSequenceResponse> => {
   initAI();
-  try {
-    const prompt = `
-      You are an AI Adaptive Interview Question Engine. Generate a sequence of ${total_questions} questions for a ${role} with ${experience} years experience.
-      
-      Requirements:
-      1. Each question must have exactly 4 options.
-      2. The correct_answer must be the exact text of one of the options.
-      3. For a sequence of ${total_questions} questions, provide a mix of basic, medium, and advanced levels.
-      4. Each question must include a "difficulty" field with value "basic", "medium", or "advanced".
-      
-      ---
-      ## 📦 OUTPUT FORMAT (STRICT JSON)
-      {
-        "questions": [
-          {
-            "q_no": 1,
-            "difficulty": "basic" | "medium" | "advanced",
-            "question": "...",
-            "options": ["A","B","C","D"],
-            "correct_answer": "..."
-          }
-        ],
-        "summary": {
-          "total_questions": ${total_questions},
-          "difficulty_progression": ["basic", "medium", ...],
-          "score": 0
+  const prompt = `
+    You are an AI Adaptive Interview Question Engine. Generate a sequence of ${total_questions} questions for a ${role} with ${experience} years experience.
+    
+    Requirements:
+    1. Each question must have exactly 4 options.
+    2. The correct_answer must be the exact text of one of the options.
+    3. For a sequence of ${total_questions} questions, provide a mix of basic, medium, and advanced levels.
+    4. Each question must include a "difficulty" field with value "basic", "medium", or "advanced".
+    
+    ---
+    ## 📦 OUTPUT FORMAT (STRICT JSON)
+    {
+      "questions": [
+        {
+          "q_no": 1,
+          "difficulty": "basic" | "medium" | "advanced",
+          "question": "...",
+          "options": ["A","B","C","D"],
+          "correct_answer": "..."
         }
+      ],
+      "summary": {
+        "total_questions": ${total_questions},
+        "difficulty_progression": ["basic", "medium", ...],
+        "score": 0
+      }
+    }
+
+    ---
+    ## 🚫 STRICT RULES
+    * OUTPUT ONLY JSON | NO markdown | NO text outside JSON.
+  `;
+
+  let retries = 0;
+  const maxRetries = 3;
+  let lastError: any = null;
+
+  while (retries < maxRetries) {
+    try {
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.error("No JSON found in AI response:", text);
+        throw new Error("AI returned invalid question format");
       }
 
-      ---
-      ## 🚫 STRICT RULES
-      * OUTPUT ONLY JSON | NO markdown | NO text outside JSON.
-    `;
+      const sequence: AdaptiveSequenceResponse = JSON.parse(jsonMatch[0]);
 
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    
-    // Find the JSON block even if there is text before or after
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      console.error("No JSON found in AI response:", text);
-      throw new Error("AI returned invalid question format");
+      if (!sequence.questions || !Array.isArray(sequence.questions)) {
+        throw new Error("AI sequence missing questions array");
+      }
+
+      return sequence;
+    } catch (error: any) {
+      lastError = error;
+      if (error.status === 503 || error.message?.includes("503") || error.message?.includes("high demand")) {
+        retries++;
+        const delay = Math.pow(2, retries) * 1000;
+        console.warn(`⚠️ Gemini 503 (High Demand) in adaptive sequence. Retry ${retries}/${maxRetries} in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      console.error("Adaptive Sequence Generation Error:", error);
+      throw error;
     }
-    
-    const sequence: AdaptiveSequenceResponse = JSON.parse(jsonMatch[0]);
-
-    if (!sequence.questions || !Array.isArray(sequence.questions)) {
-       throw new Error("AI sequence missing questions array");
-    }
-
-    return sequence;
-  } catch (error) {
-    console.error("Adaptive Sequence Generation Error:", error);
-    throw error;
   }
+  throw lastError;
 };
