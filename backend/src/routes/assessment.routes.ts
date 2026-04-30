@@ -8,6 +8,7 @@ import {
   getAssessment,
   listAssessments,
   submitAssessmentAttempt,
+  deleteAssessment,
 } from "../controllers/assessment.controller";
 
 const router = Router();
@@ -21,5 +22,6 @@ router.get("/", listAssessments);
 router.get("/:id/candidate", getCandidateAssessment);
 router.post("/:id/attempts", submitAssessmentAttempt);
 router.get("/:id", getAssessment);
+router.delete("/:id", deleteAssessment);
 
 export default router;

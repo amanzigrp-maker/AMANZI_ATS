@@ -576,7 +576,7 @@ export const searchCandidates = async (req: Request, res: Response) => {
  */
 export const generateAndSendLink = async (req: Request, res: Response) => {
   try {
-    const { email, name, jobRole, validityMins, questionCount, questionSource, assessmentId } = req.body;
+    const { email, name, phone, jobRole, validityMins, questionCount, questionSource, assessmentId } = req.body;
 
     if (!email) {
       return res.status(400).json({ success: false, error: 'Email is required' });
@@ -621,8 +621,8 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     // 3. Save in DB
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_phone) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
       [
         token,
         candidate.email,
@@ -636,6 +636,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
         Number(questionCount) || 10,
         source,
         selectedAssessmentId,
+        phone || null,
       ]
     );
 
@@ -656,7 +657,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
 
 export const inviteCredentials = async (req: Request, res: Response) => {
   try {
-    const { email, name, jobRole, validityMins, questionCount, questionSource, assessmentId } = req.body;
+    const { email, name, phone, jobRole, validityMins, questionCount, questionSource, assessmentId } = req.body;
 
     if (!email) {
       return res.status(400).json({ success: false, error: 'Email is required' });
@@ -687,8 +688,8 @@ export const inviteCredentials = async (req: Request, res: Response) => {
 
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, false, null, $7, $8, $9, $10)`,
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_phone) 
+       VALUES ($1, $2, $3, $4, $5, $6, false, null, $7, $8, $9, $10, $11)`,
       [
         token,
         candidate.email,
@@ -700,6 +701,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
         Number(questionCount) || 10,
         source,
         selectedAssessmentId,
+        phone || null,
       ]
     );
 
@@ -901,7 +903,7 @@ export const generateQuestions = async (req: Request, res: Response) => {
 
     // 1. Fetch token data for question count and question source
     const tokenResult = await client.query(
-      'SELECT total_questions, candidate_email, question_source, assessment_id FROM interview_tokens WHERE token = $1',
+      'SELECT total_questions, candidate_email, candidate_phone, question_source, assessment_id FROM interview_tokens WHERE token = $1',
       [token]
     );
     if (tokenResult.rows.length === 0) {
@@ -931,9 +933,9 @@ export const generateQuestions = async (req: Request, res: Response) => {
       const initialTheta = initialThetaFromExperience(experience);
       // Create new session
       const result = await client.query(
-        `INSERT INTO interview_sessions (token, candidate_email, role, experience_years, current_theta, target_questions, total_questions) 
-         VALUES ($1, $2, $3, $4, $5, $6, $6) RETURNING id`,
-        [token, tokenData.candidate_email, role, experience || 0, initialTheta, totalQCount]
+        `INSERT INTO interview_sessions (token, candidate_email, role, experience_years, current_theta, target_questions, total_questions, candidate_phone) 
+         VALUES ($1, $2, $3, $4, $5, $6, $6, $7) RETURNING id`,
+        [token, tokenData.candidate_email, role, experience || 0, initialTheta, totalQCount, tokenData.candidate_phone || null]
       );
       sessionId = result.rows[0].id;
       await client.query('UPDATE interview_tokens SET is_used = true WHERE token = $1', [token]);
@@ -990,7 +992,7 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
 
     const session = sessionResult.rows[0];
     const questionResult = await client.query(
-      `SELECT id, correct_answer, difficulty_score FROM interview_questions WHERE id = $1 AND session_id = $2`,
+      `SELECT id, question, options, correct_answer, difficulty_score FROM interview_questions WHERE id = $1 AND session_id = $2`,
       [Number(question_id), Number(session_id)]
     );
 
@@ -1011,12 +1013,21 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
     );
 
     if (!existingResponse.rows.length) {
+      const optionsArray = Array.isArray(question.options) ? question.options : [];
+      // selected_answer is often an option key (A, B, C, D) or the text itself.
+      // If it's a key, try to find the text.
+      let selectedText = selected_answer;
+      if (['A', 'B', 'C', 'D'].includes(selected_answer)) {
+        const idx = selected_answer.charCodeAt(0) - 65;
+        if (optionsArray[idx]) selectedText = optionsArray[idx];
+      }
+
       await client.query(
         `
-        INSERT INTO interview_responses (session_id, question_id, selected_answer, is_correct, theta_before, theta_after)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO interview_responses (session_id, question_id, selected_answer, is_correct, theta_before, theta_after, question_text, answer_text)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `,
-        [Number(session_id), Number(question_id), selected_answer, isCorrect, thetaBefore, thetaAfter]
+        [Number(session_id), Number(question_id), selected_answer, isCorrect, thetaBefore, thetaAfter, question.question, selectedText]
       );
     }
 
@@ -1119,9 +1130,10 @@ export const submitAnswers = async (req: Request, res: Response) => {
 
     for (const ans of answers) {
       const qResult = await client.query(
-        'SELECT correct_answer FROM interview_questions WHERE id = $1',
+        'SELECT question, options, correct_answer FROM interview_questions WHERE id = $1',
         [ans.question_id]
       );
+      const question = qResult.rows[0];
 
       const isCorrect = qResult.rows[0]?.correct_answer === ans.selected_answer;
       const exists = await client.query(
@@ -1130,10 +1142,17 @@ export const submitAnswers = async (req: Request, res: Response) => {
       );
 
       if (!exists.rows.length) {
+        const optionsArray = Array.isArray(question?.options) ? question.options : [];
+        let selectedText = ans.selected_answer;
+        if (['A', 'B', 'C', 'D'].includes(ans.selected_answer)) {
+          const idx = ans.selected_answer.charCodeAt(0) - 65;
+          if (optionsArray[idx]) selectedText = optionsArray[idx];
+        }
+
         await client.query(
-          `INSERT INTO interview_responses (session_id, question_id, selected_answer, is_correct) 
-           VALUES ($1, $2, $3, $4)`,
-          [session_id, ans.question_id, ans.selected_answer, isCorrect]
+          `INSERT INTO interview_responses (session_id, question_id, selected_answer, is_correct, question_text, answer_text) 
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [session_id, ans.question_id, ans.selected_answer, isCorrect, question?.question || null, selectedText || null]
         );
       }
     }
@@ -1368,6 +1387,86 @@ export const getInterviewReport = async (req: Request, res: Response) => {
 };
 
 /**
+ * Export Interview Assessment Report as CSV
+ */
+export const exportInterviewReport = async (req: Request, res: Response) => {
+  try {
+    const from = String(req.query.from || '');
+    const to = String(req.query.to || '');
+
+    const hasDateRange =
+      /^\d{4}-\d{2}-\d{2}$/.test(from) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(to);
+
+    const dateClause = hasDateRange
+      ? `AND s.started_at >= $1::date AND s.started_at < ($2::date + INTERVAL '1 day')`
+      : '';
+
+    const query = `
+      SELECT 
+        t.candidate_name,
+        t.candidate_email,
+        t.job_role,
+        s.score,
+        s.total_questions,
+        s.completed_at,
+        s.decision,
+        CASE 
+          WHEN s.completed_at IS NOT NULL AND s.started_at IS NOT NULL 
+          THEN EXTRACT(EPOCH FROM (s.completed_at - s.started_at)) / 60 
+          ELSE NULL 
+        END as time_taken_mins
+      FROM interview_sessions s
+      JOIN interview_tokens t ON s.token = t.token
+      WHERE s.is_submitted = true
+      ${dateClause}
+      ORDER BY s.completed_at DESC NULLS LAST
+    `;
+
+    const params = hasDateRange ? [from, to] : [];
+    const result = await pool.query(query, params);
+
+    const escapeCsv = (value: string | number): string => {
+      const str = String(value ?? '');
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return '"' + str.replace(/"/g, '""') + '"';
+      }
+      return str;
+    };
+
+    const header = ["Candidate Name", "Candidate Email", "Role", "Score", "Total Questions", "Percentage", "Time Taken (mins)", "Completion Date", "Decision"];
+    
+    const csvLines = [
+      header.join(','),
+      ...result.rows.map((r: any) => {
+        const percentage = r.total_questions > 0 ? Math.round((r.score / r.total_questions) * 100) : 0;
+        return [
+          r.candidate_name,
+          r.candidate_email,
+          r.job_role || '-',
+          r.score,
+          r.total_questions,
+          `${percentage}%`,
+          r.time_taken_mins ? Math.round(r.time_taken_mins) : '-',
+          r.completed_at ? new Date(r.completed_at).toLocaleString() : '-',
+          r.decision || 'pending'
+        ].map(escapeCsv).join(',');
+      })
+    ];
+
+    const csvContent = csvLines.join('\n');
+    const filename = hasDateRange ? `interview_report_${from}_to_${to}.csv` : 'interview_report.csv';
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.status(200).send(csvContent);
+  } catch (error) {
+    console.error('Interview export error:', error);
+    res.status(500).json({ success: false, error: 'Failed to export report' });
+  }
+};
+
+/**
  * Update candidate decision (select/reject) from admin panel
  */
 export const updateCandidateDecision = async (req: Request, res: Response) => {
@@ -1404,5 +1503,27 @@ export const updateCandidateDecision = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Update decision error:', error);
     res.status(500).json({ success: false, error: 'Failed to update decision' });
+  }
+};
+
+/**
+ * Get recently sent interview invitations
+ */
+export const getRecentInvites = async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        t.token, t.candidate_name, t.candidate_email, t.job_role, 
+        t.expires_at, t.created_at, t.is_used, t.question_source,
+        a.title as assessment_title
+       FROM interview_tokens t
+       LEFT JOIN assessments a ON t.assessment_id = a.assessment_id
+       ORDER BY t.created_at DESC 
+       LIMIT 50`
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Get recent invites error:', error);
+    res.status(500).json({ success: false, error: 'Failed to load invitations' });
   }
 };
