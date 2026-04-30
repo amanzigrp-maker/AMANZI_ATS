@@ -106,11 +106,13 @@ export async function testConnection(): Promise<boolean> {
         is_used BOOLEAN DEFAULT FALSE,
         device_id TEXT,
         password TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        candidate_phone TEXT
       )
     `);
 
     // Add columns if they don't exist (for existing databases)
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS candidate_phone TEXT`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS job_role TEXT`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS duration_mins INTEGER DEFAULT 5`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS password TEXT`);
@@ -135,11 +137,13 @@ export async function testConnection(): Promise<boolean> {
         score INTEGER DEFAULT 0,
         total_questions INTEGER DEFAULT 0,
         started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        completed_at TIMESTAMP
+        completed_at TIMESTAMP,
+        candidate_phone TEXT
       )
     `);
 
     // Add new columns to interview_sessions if they don't exist
+    await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS candidate_phone TEXT`);
     await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS interview_user_id INTEGER REFERENCES interview_users(id)`);
     await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
     await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS end_time TIMESTAMP`);
@@ -180,11 +184,15 @@ export async function testConnection(): Promise<boolean> {
         selected_answer TEXT,
         response TEXT,
         is_correct BOOLEAN,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        question_text TEXT,
+        answer_text TEXT
       )
     `);
 
     // Add new columns to interview_responses if they don't exist
+    await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS question_text TEXT`);
+    await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS answer_text TEXT`);
     await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS response TEXT`);
     await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS theta_before NUMERIC(6,4)`);
     await pool.query(`ALTER TABLE interview_responses ADD COLUMN IF NOT EXISTS theta_after NUMERIC(6,4)`);
@@ -246,7 +254,7 @@ export async function testConnection(): Promise<boolean> {
         difficulty TEXT DEFAULT 'medium',
         topic TEXT,
         explanation TEXT,
-        correct_option TEXT NOT NULL CHECK (correct_option IN ('A', 'B', 'C', 'D')),
+        correct_option TEXT NOT NULL,
         review_status TEXT DEFAULT 'approved',
         metadata JSONB DEFAULT '{}'::jsonb,
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -257,7 +265,7 @@ export async function testConnection(): Promise<boolean> {
       CREATE TABLE IF NOT EXISTS question_options (
         option_id SERIAL PRIMARY KEY,
         question_id INTEGER NOT NULL REFERENCES questions(question_id) ON DELETE CASCADE,
-        option_key TEXT NOT NULL CHECK (option_key IN ('A', 'B', 'C', 'D')),
+        option_key TEXT NOT NULL,
         option_text TEXT NOT NULL,
         UNIQUE(question_id, option_key)
       )
@@ -273,22 +281,36 @@ export async function testConnection(): Promise<boolean> {
         score NUMERIC(6,2) DEFAULT 0,
         total_questions INTEGER DEFAULT 0,
         started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        submitted_at TIMESTAMPTZ
+        submitted_at TIMESTAMPTZ,
+        candidate_phone TEXT
       )
     `);
+
+    // Add phone column to candidate_attempts if it doesn't exist
+    await pool.query(`ALTER TABLE candidate_attempts ADD COLUMN IF NOT EXISTS candidate_phone TEXT`);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS candidate_answers (
         answer_id SERIAL PRIMARY KEY,
         attempt_id INTEGER NOT NULL REFERENCES candidate_attempts(attempt_id) ON DELETE CASCADE,
         question_id INTEGER NOT NULL REFERENCES questions(question_id),
-        selected_option TEXT CHECK (selected_option IN ('A', 'B', 'C', 'D')),
+        selected_option TEXT,
         is_correct BOOLEAN,
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        question_text TEXT,
+        selected_option_text TEXT,
         UNIQUE(attempt_id, question_id)
       )
     `);
 
+    // Add snapshot columns to candidate_answers if they don't exist
+    await pool.query(`ALTER TABLE candidate_answers ADD COLUMN IF NOT EXISTS question_text TEXT`);
+    await pool.query(`ALTER TABLE candidate_answers ADD COLUMN IF NOT EXISTS selected_option_text TEXT`);
+
+    await pool.query(`ALTER TABLE questions DROP CONSTRAINT IF EXISTS questions_correct_option_check`).catch(() => {});
+    await pool.query(`ALTER TABLE question_options DROP CONSTRAINT IF EXISTS question_options_option_key_check`).catch(() => {});
+    await pool.query(`ALTER TABLE candidate_answers DROP CONSTRAINT IF EXISTS candidate_answers_selected_option_check`).catch(() => {});
+    
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_metadata_gin ON questions USING GIN (metadata)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions (topic)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_sets_assessment ON question_sets (assessment_id)`);
@@ -365,6 +387,7 @@ export async function testConnection(): Promise<boolean> {
     await pool.query(`
       ALTER TABLE irt_responses ADD COLUMN IF NOT EXISTS candidate_email TEXT;
       ALTER TABLE irt_responses ALTER COLUMN candidate_id DROP NOT NULL;
+      ALTER TABLE irt_responses ADD COLUMN IF NOT EXISTS question_text TEXT;
     `).catch(() => {});
 
     return true;

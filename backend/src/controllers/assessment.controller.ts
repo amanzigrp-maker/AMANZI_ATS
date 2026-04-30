@@ -10,18 +10,15 @@ import { aiWorkerService } from "../services/ai-worker.service";
 
 type NormalizedQuestion = {
   question_text: string;
-  option_a: string;
-  option_b: string;
-  option_c: string;
-  option_d: string;
-  correct_option: "A" | "B" | "C" | "D";
+  options: Record<string, string>;
+  correct_option: string;
   difficulty?: string;
   topic?: string;
   explanation?: string;
   metadata?: Record<string, unknown>;
 };
 
-const optionKeys = ["A", "B", "C", "D"] as const;
+const optionKeys = ["A", "B", "C", "D", "E", "F", "G", "H", "1", "2", "3", "4", "5", "6", "7", "8"] as const;
 
 const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
 
@@ -102,10 +99,8 @@ const parseCsvRows = (csv: string): string[][] => {
   return rows;
 };
 
-const normalizeCorrectOption = (value: unknown): "A" | "B" | "C" | "D" => {
-  const raw = String(value || "").trim().toUpperCase();
-  if (optionKeys.includes(raw as any)) return raw as "A" | "B" | "C" | "D";
-  throw new Error("Each question needs correct_option as A, B, C, or D.");
+const normalizeCorrectOption = (value: unknown): string => {
+  return String(value || "").trim().toUpperCase();
 };
 
 const difficultyScore = (difficulty: unknown) => {
@@ -118,12 +113,29 @@ const difficultyScore = (difficulty: unknown) => {
 };
 
 const validateQuestion = (question: any): NormalizedQuestion => {
+  const options: Record<string, string> = {};
+  
+  if (typeof question.options === "object" && question.options && !Array.isArray(question.options)) {
+    Object.entries(question.options).forEach(([k, v]) => {
+      options[String(k).toUpperCase()] = String(v).trim();
+    });
+  } else if (Array.isArray(question.options)) {
+    question.options.forEach((opt: any, idx: number) => {
+      const key = String.fromCharCode(65 + idx);
+      options[key] = String(opt).trim();
+    });
+  } else {
+    // Fallback to legacy fields
+    if (question.option_a || question.A) options.A = String(question.option_a || question.A).trim();
+    if (question.option_b || question.B) options.B = String(question.option_b || question.B).trim();
+    if (question.option_c || question.C) options.C = String(question.option_c || question.C).trim();
+    if (question.option_d || question.D) options.D = String(question.option_d || question.D).trim();
+    if (question.option_e || question.E) options.E = String(question.option_e || question.E).trim();
+  }
+
   const normalized: NormalizedQuestion = {
     question_text: String(question.question_text || question.question || "").trim(),
-    option_a: String(question.option_a || question.A || question.options?.[0] || "").trim(),
-    option_b: String(question.option_b || question.B || question.options?.[1] || "").trim(),
-    option_c: String(question.option_c || question.C || question.options?.[2] || "").trim(),
-    option_d: String(question.option_d || question.D || question.options?.[3] || "").trim(),
+    options,
     correct_option: normalizeCorrectOption(question.correct_option || question.correct_answer),
     difficulty: String(question.difficulty || "medium").trim().toLowerCase(),
     topic: String(question.topic || "").trim(),
@@ -131,8 +143,8 @@ const validateQuestion = (question: any): NormalizedQuestion => {
     metadata: typeof question.metadata === "object" && question.metadata ? question.metadata : {},
   };
 
-  if (!normalized.question_text || !normalized.option_a || !normalized.option_b || !normalized.option_c || !normalized.option_d) {
-    throw new Error("Each question needs text and four options.");
+  if (!normalized.question_text || Object.keys(normalized.options).length < 2) {
+    throw new Error("Each question needs text and at least two options.");
   }
 
   return normalized;
@@ -385,18 +397,18 @@ const extractAnswerKeyMap = (answerKeyText: string) => {
     .replace(/[|]/g, " ");
 
   const patterns = [
-    /\bQ?\s*0*(\d{1,4})\s+(?:[A-Z][^\n]{0,80}\s+)?([A-D])\b/gi,
-    /\b(\d{1,4})\s*[.):-]?\s*([A-D])\b/gi,
-    /\b(\d{1,4})\b\s*([A-D])\b/gi,
-    /\bQ?(\d{1,4})[.):-]\s*([A-D])\b/gi
+    /\bQ?\s*0*(\d{1,4})\s+(?:[A-Z][^\n]{0,80}\s+)?([A-H1-8])\b/gi,
+    /\b(\d{1,4})\s*[.):-]?\s*([A-H1-8])\b/gi,
+    /\b(\d{1,4})\b\s*([A-H1-8])\b/gi,
+    /\bQ?(\d{1,4})[.):-]\s*([A-H1-8])\b/gi
   ];
 
   for (const pattern of patterns) {
     for (const match of text.matchAll(pattern)) {
       const questionNumber = Number(match[1]);
       const answer = String(match[2] || "").toUpperCase();
-      if (questionNumber > 0 && optionKeys.includes(answer as any) && !map.has(questionNumber)) {
-        map.set(questionNumber, answer as "A" | "B" | "C" | "D");
+      if (questionNumber > 0 && !map.has(questionNumber)) {
+        map.set(questionNumber, answer as any);
       }
     }
   }
@@ -427,18 +439,36 @@ const parseQuestionBlocks = (text: string) => {
     }
 
     // Matches "1.", "Q1.", "Question 1:", "1)", "(1)"
-    const questionStart = trimmed.match(/^(?:(?:Q(?:uestion)?\s*)?\(?(\d{1,4})\)?[\).:-]\s*|(\d{1,4})\.\s+)(.*)$/i);
+    const match = trimmed.match(/^(?:(?:Q(?:uestion)?\s*)?\(?(\d{1,4})\)?[\).:-]\s*|(\d{1,4})\.\s+)(.*)$/i);
     
-    // Fuzzy match for unnumbered questions: a line ending in '?' or a short line followed by A) B) C) D)
-    const isFuzzyQuestion = !questionStart && trimmed.length > 5 && (
+    let isNewQuestion = false;
+    if (match) {
+      const num = Number(match[1] || match[2]);
+      const textAfter = String(match[3] || "").trim();
+      
+      // Heuristics to distinguish Question N from Option N
+      const nextLine = (lines[i + 1] || "").trim();
+      const nextIsOption1 = nextLine.match(/^[1A][\).:-]/i);
+      const endsWithQuestionMark = textAfter.endsWith("?") || trimmed.endsWith("?");
+      
+      if (num !== currentNumber) {
+        // If it's the next logical question number, or ends in ?, or is followed by an option start
+        if (num === blocks.length + 1 || endsWithQuestionMark || nextIsOption1) {
+          isNewQuestion = true;
+        }
+      }
+    }
+
+    // Fuzzy match for unnumbered questions: a line ending in '?' or a short line followed by A-D) or 1)
+    const isFuzzyQuestion = !match && trimmed.length > 5 && (
       trimmed.endsWith("?") || 
-      (i < lines.length - 1 && lines[i+1].trim().match(/^[A-D][\).:-]/i))
+      (i < lines.length - 1 && lines[i+1].trim().match(/^[A-D1][\).:-]/i))
     );
 
-    if (questionStart || (isFuzzyQuestion && currentLines.length === 0)) {
+    if (isNewQuestion || (isFuzzyQuestion && currentLines.length === 0)) {
       flush();
-      currentNumber = questionStart ? Number(questionStart[1] || questionStart[2]) : blocks.length + 1;
-      const rest = questionStart ? String(questionStart[3] || "").trim() : trimmed;
+      currentNumber = match ? Number(match[1] || match[2]) : blocks.length + 1;
+      const rest = match ? String(match[3] || "").trim() : trimmed;
       if (rest) currentLines.push(rest);
       continue;
     }
@@ -454,33 +484,29 @@ const parseQuestionBlocks = (text: string) => {
 
 const extractOptionsFromBlock = (blockText: string) => {
   const patterns = [
-    // Matches A) text, B. text, (A) text etc.
-    /(?:^|\n|\s)\s*\(?([A-D])\)?[\).:-]?\s+([\s\S]*?)(?=\n\s*\(?[A-D]\)?[\).:-]?\s+|\s+\(?[A-D]\)?[\).:-]?\s+|\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?|\s*$)/gi,
-    // Lowercase version
-    /(?:^|\n|\s)\s*\(?([a-d])\)?[\).:-]?\s+([\s\S]*?)(?=\n\s*\(?[a-d]\)?[\).:-]?\s+|\s+\(?[a-d]\)?[\).:-]?\s+|\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?|\s*$)/gi,
+    // Matches A) text, B. text, (A) text etc. up to H
+    /(?:^|\n|\s)\s*\(?([A-H])\)?[\).:-]?\s+([\s\S]*?)(?=\n\s*\(?[A-H]\)?[\).:-]?\s+|\s+\(?[A-H]\)?[\).:-]?\s+|\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?|\s*$)/gi,
+    // Lowercase version a-h
+    /(?:^|\n|\s)\s*\(?([a-h])\)?[\).:-]?\s+([\s\S]*?)(?=\n\s*\(?[a-h]\)?[\).:-]?\s+|\s+\(?[a-h]\)?[\).:-]?\s+|\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?|\s*$)/gi,
+    // Numeric version 1-8
+    /(?:^|\n|\s)\s*\(?([1-8])\)?[\).:-]?\s+([\s\S]*?)(?=\n\s*\(?[1-8]\)?[\).:-]?\s+|\s+\(?[1-8]\)?[\).:-]?\s+|\n\s*(?:correct\s*)?ans(?:wer)?\s*[:\-]?|\s*$)/gi,
   ];
 
   for (const pattern of patterns) {
     const matches = [...blockText.matchAll(pattern)];
-    if (matches.length === 0) continue;
+    if (matches.length < 2) continue;
 
     const deduped = new Map<string, string>();
     for (const match of matches) {
       const key = String(match[1] || "").toUpperCase();
       const value = String(match[2] || "").replace(/\n+/g, " ").trim();
-      if (optionKeys.includes(key as any) && value && !deduped.has(key)) {
+      if (value && !deduped.has(key)) {
         deduped.set(key, value);
       }
     }
 
-    // If we found at least 2 options, we consider it a match (others will be filled as "Not provided")
     if (deduped.size >= 2) {
-      const byKey: Record<string, string> = {
-        A: deduped.get("A") || "Option A not provided",
-        B: deduped.get("B") || "Option B not provided",
-        C: deduped.get("C") || "Option C not provided",
-        D: deduped.get("D") || "Option D not provided",
-      };
+      const byKey = Object.fromEntries(deduped);
       return {
         byKey,
         firstIndex: matches[0]?.index || 0,
@@ -553,7 +579,7 @@ const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
   for (const block of blocks) {
     const questionNumber = Number(block.number || 0);
     const blockText = block.raw;
-    const answerMatch = blockText.match(/(?:correct\s*)?ans(?:wer)?\s*[:\-]?\s*\(?([A-D])\)?/i);
+    const answerMatch = blockText.match(/(?:correct\s*)?ans(?:wer)?\s*[:\-]?\s*\(?([A-H1-8])\)?/i);
     const answerFromKey = questionNumber > 0 ? answerKey.get(questionNumber) : undefined;
     const extractedOptions = extractOptionsFromBlock(blockText);
     if ((!answerMatch && !answerFromKey) || !extractedOptions) continue;
@@ -578,10 +604,7 @@ const parsePdfQuestions = (text: string): NormalizedQuestion[] => {
       questions.push(
         validateQuestion({
           question_text: parsedQuestionText,
-          option_a: byKey.A,
-          option_b: byKey.B,
-          option_c: byKey.C,
-          option_d: byKey.D,
+          options: byKey,
           correct_option: String(correct_option).toUpperCase(),
           difficulty: inferredDifficulty,
           topic: blockText.match(/\bCompetency\s*:\s*([^\n]+)/i)?.[1]?.trim() || "",
@@ -615,10 +638,12 @@ const fallbackQuestions = (role: string, topic: string, count: number): Normaliz
   return Array.from({ length: count }, (_, index) =>
     validateQuestion({
       question_text: `For a ${safeRole}, which approach best demonstrates practical strength in ${safeTopic}?`,
-      option_a: "Choose a solution pattern, explain tradeoffs, and validate the outcome.",
-      option_b: "Use the first familiar tool without checking requirements.",
-      option_c: "Avoid documenting assumptions or edge cases.",
-      option_d: "Optimize only for speed and ignore maintainability.",
+      options: {
+        A: "Choose a solution pattern, explain tradeoffs, and validate the outcome.",
+        B: "Use the first familiar tool without checking requirements.",
+        C: "Avoid documenting assumptions or edge cases.",
+        D: "Optimize only for speed and ignore maintainability.",
+      },
       correct_option: "A",
       difficulty: index % 3 === 0 ? "basic" : index % 3 === 1 ? "medium" : "advanced",
       topic: safeTopic,
@@ -643,10 +668,12 @@ Return only JSON:
   "questions": [
     {
       "question_text": "...",
-      "option_a": "...",
-      "option_b": "...",
-      "option_c": "...",
-      "option_d": "...",
+      "options": {
+        "A": "...",
+        "B": "...",
+        "C": "...",
+        "D": "..."
+      },
       "correct_option": "A",
       "difficulty": "basic|medium|advanced",
       "topic": "...",
@@ -655,8 +682,8 @@ Return only JSON:
   ]
 }
 
-Rules: exactly one locked correct_option per question. No ambiguous answers. No markdown.
-`);
+Rules: exactly one correct_option per question (must match a key in options). No markdown.
+` );
 
   const text = result.response.text();
   const match = text.match(/\{[\s\S]*\}/);
@@ -679,21 +706,21 @@ const parseQuestionsWithAi = async (rawText: string): Promise<NormalizedQuestion
       The text might be messy, have weird formatting, or be from a PDF/Word document.
       
       Rules:
-      1. Identify each question and its 4 options (A, B, C, D).
+      1. Identify each question and all its options.
       2. Identify the correct option for each question.
-      3. If the correct option isn't explicitly stated, try to infer it or default to "A".
-      4. Each question MUST have exactly 4 options. If fewer are found, create placeholders for missing ones.
-      5. Return as a JSON object with a "questions" array.
+      3. Return as a JSON object with a "questions" array.
 
       Format:
       {
         "questions": [
           {
             "question_text": "...",
-            "option_a": "...",
-            "option_b": "...",
-            "option_c": "...",
-            "option_d": "...",
+            "options": {
+              "A": "...",
+              "B": "...",
+              "C": "...",
+              "D": "..."
+            },
             "correct_option": "A",
             "difficulty": "medium",
             "topic": "...",
@@ -808,17 +835,10 @@ const createAssessmentWithQuestions = async (
       );
 
       const questionId = insertedQuestion.rows[0].question_id;
-      const options = {
-        A: question.option_a,
-        B: question.option_b,
-        C: question.option_c,
-        D: question.option_d,
-      };
-
-      for (const key of optionKeys) {
+      for (const [key, text] of Object.entries(question.options)) {
         await client.query(
           `INSERT INTO question_options (question_id, option_key, option_text) VALUES ($1, $2, $3)`,
-          [questionId, key, options[key]]
+          [questionId, key, text]
         );
       }
     }
@@ -880,6 +900,20 @@ export const listAssessments = async (req: Request, res: Response) => {
     return res.json({ success: true, data: result.rows });
   } catch (error: any) {
     return res.status(500).json({ error: error.message || "Failed to load assessments" });
+  }
+};
+
+export const deleteAssessment = async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(400).json({ error: "Assessment ID is required" });
+
+    const result = await pool.query(`DELETE FROM assessments WHERE assessment_id = $1 RETURNING *`, [id]);
+    if (!result.rowCount) return res.status(404).json({ error: "Assessment not found" });
+
+    return res.json({ success: true, message: "Assessment deleted successfully" });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || "Failed to delete assessment" });
   }
 };
 
@@ -961,8 +995,8 @@ export const submitAssessmentAttempt = async (req: Request, res: Response) => {
 
     const attempt = await client.query(
       `
-      INSERT INTO candidate_attempts (assessment_id, candidate_id, candidate_email, status, total_questions)
-      VALUES ($1, $2, $3, 'submitted', $4)
+      INSERT INTO candidate_attempts (assessment_id, candidate_id, candidate_email, status, total_questions, candidate_phone)
+      VALUES ($1, $2, $3, 'submitted', $4, $5)
       RETURNING attempt_id
       `,
       [
@@ -970,38 +1004,49 @@ export const submitAssessmentAttempt = async (req: Request, res: Response) => {
         req.body.candidate_id ? Number(req.body.candidate_id) : null,
         req.body.candidate_email || null,
         answers.length,
+        req.body.candidate_phone || null,
       ]
     );
 
     const questionIds = answers.map((answer: any) => Number(answer.question_id)).filter(Boolean);
     const answerKey = await client.query(
       `
-      SELECT q.question_id, q.correct_option
+      SELECT q.question_id, q.correct_option, q.question_text,
+             jsonb_object_agg(o.option_key, o.option_text ORDER BY o.option_key) AS options
       FROM question_sets qs
       JOIN questions q ON q.question_set_id = qs.question_set_id
+      JOIN question_options o ON o.question_id = q.question_id
       WHERE qs.assessment_id = $1
         AND q.question_id = ANY($2::int[])
+      GROUP BY q.question_id
       `,
       [assessmentId, questionIds]
     );
 
-    const correctByQuestionId = new Map<number, string>(
-      answerKey.rows.map((row: any) => [Number(row.question_id), String(row.correct_option)])
+    const questionDataMap = new Map<number, { correct: string; text: string; options: any }>(
+      answerKey.rows.map((row: any) => [
+        Number(row.question_id),
+        { correct: String(row.correct_option), text: String(row.question_text), options: row.options }
+      ])
     );
 
     let correctCount = 0;
     for (const answer of answers) {
       const questionId = Number(answer.question_id);
       const selected = normalizeCorrectOption(answer.selected_option);
-      const isCorrect = correctByQuestionId.get(questionId) === selected;
+      const qData = questionDataMap.get(questionId);
+      
+      const isCorrect = qData?.correct === selected;
       if (isCorrect) correctCount += 1;
+
+      const selectedOptionText = qData?.options?.[selected] || selected;
 
       await client.query(
         `
-        INSERT INTO candidate_answers (attempt_id, question_id, selected_option, is_correct)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO candidate_answers (attempt_id, question_id, selected_option, is_correct, question_text, selected_option_text)
+        VALUES ($1, $2, $3, $4, $5, $6)
         `,
-        [attempt.rows[0].attempt_id, questionId, selected, isCorrect]
+        [attempt.rows[0].attempt_id, questionId, selected, isCorrect, qData?.text || null, selectedOptionText || null]
       );
     }
 
@@ -1171,9 +1216,8 @@ export const createAssessmentFromUpload = async (req: Request, res: Response) =>
 
     if (!questions.length) {
       return res.status(400).json({
-        error: isPdf || isDocx || isDoc || isTxt
-          ? "No valid questions found. Use numbered questions with A/B/C/D options and either inline answers or an Answer Key section/table."
-          : "CSV needs headers: question_text,option_a,option_b,option_c,option_d,correct_option.",
+        success: false,
+        error: "No valid questions found. Use numbered questions with options (e.g. A/B/C/D or 1/2/3/4) and either inline answers or an Answer Key section/table.",
       });
     }
 

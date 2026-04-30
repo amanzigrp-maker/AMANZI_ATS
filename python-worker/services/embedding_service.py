@@ -162,6 +162,10 @@ class EmbeddingService:
             logger.error(f"Error generating job embeddings: {e}")
             raise
     
+    async def encode(self, text: str) -> List[float]:
+        """Encode single text string"""
+        return await self._encode_text(text)
+    
     async def _encode_text(self, text: str) -> List[float]:
         """
         Encode text into vector embedding

@@ -206,11 +206,7 @@ export default function InterviewPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-<<<<<<< Updated upstream
   }, [status, timeLeft, questions, currentQuestionIndex, answers, handleAnswerSubmit]);
-=======
-  }, [status, timeLeft, handleAnswerSubmit, answers, currentQuestionIndex, questions]);
->>>>>>> Stashed changes
 
   const fetchQuestions = async (sId: string | number, jwt: string | null = jwtToken) => {
     const res = await fetch(`/api/interview/questions?session_id=${sId}`, {

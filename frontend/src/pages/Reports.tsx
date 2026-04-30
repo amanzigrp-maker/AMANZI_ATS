@@ -174,6 +174,37 @@ const Reports: React.FC = () => {
     }
   };
 
+  const handleInterviewExport = async () => {
+    try {
+      const url = `/api/interview/report/export?from=${apiFrom}&to=${apiTo}`;
+      const token = localStorage.getItem('accessToken');
+      const res = await fetch(url, {
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Failed to export interview report');
+        return;
+      }
+
+      const blob = await res.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = `interview-report_${apiFrom}_to_${apiTo}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+    } catch (e) {
+      console.error('Export failed', e);
+      alert('Failed to export interview report');
+    }
+  };
+
   const filteredJobs = useMemo(() => {
     if (!Array.isArray(jobPerformance)) return [];
 
@@ -605,7 +636,12 @@ const Reports: React.FC = () => {
                 variant="outline"
                 size="sm"
                 className="gap-1 text-xs h-9 border-gray-200"
-                onClick={activeReportTab === 'uploads' ? handleResumeExport : activeReportTab === 'activity' ? handleStatusExport : undefined}
+                onClick={
+                  activeReportTab === 'uploads' ? handleResumeExport : 
+                  activeReportTab === 'activity' ? handleStatusExport : 
+                  activeReportTab === 'interviews' ? handleInterviewExport :
+                  undefined
+                }
               >
                 Export CSV
               </Button>

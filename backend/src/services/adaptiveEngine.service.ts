@@ -238,9 +238,9 @@ export class AdaptiveEngineService {
     // 3. Record Response
     await pool.query(
       `INSERT INTO irt_responses 
-       (candidate_email, candidate_id, question_id, is_correct, theta_before, theta_after) 
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [session.candidateEmail, session.candidateId, questionId, isCorrect, thetaBefore, thetaAfter]
+       (candidate_email, candidate_id, question_id, is_correct, theta_before, theta_after, question_text) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [session.candidateEmail, session.candidateId, questionId, isCorrect, thetaBefore, thetaAfter, question_text]
     );
 
     // 4. Update Persistent Theta

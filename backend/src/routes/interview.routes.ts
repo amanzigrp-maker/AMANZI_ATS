@@ -10,7 +10,9 @@ import {
   getQuestions,
   submitAnswers,
   getInterviewReport,
-  updateCandidateDecision
+  exportInterviewReport,
+  updateCandidateDecision,
+  getRecentInvites
 } from '../controllers/interview.controller';
 import { verifyToken } from '../middleware/auth.middleware';
 
@@ -52,6 +54,8 @@ router.post('/feedback', verifyToken, (req, res) => {
 
 // 6. Get interview assessment report (Admin)
 router.get('/report', verifyToken, getInterviewReport);
+router.get('/report/export', verifyToken, exportInterviewReport);
+router.get('/invites', verifyToken, getRecentInvites);
 
 // 7. Update candidate decision (select/reject) (Admin)
 router.post('/decision', verifyToken, updateCandidateDecision);
