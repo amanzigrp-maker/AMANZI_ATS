@@ -632,9 +632,19 @@ const generateAiQuestions = async (role: string, topic: string, count: number, p
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) return fallbackQuestions(role, topic, count);
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || "gemini-1.5-flash" });
-  const result = await model.generateContent(`
+  try {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({
+      model: process.env.GEMINI_MODEL || "gemini-2.5-flash"
+    });
+
+    let retries = 0;
+    const maxRetries = 3;
+    let lastError: any = null;
+
+    while (retries < maxRetries) {
+      try {
+        const result = await model.generateContent(`
 Generate ${count} recruiter assessment MCQs for role "${role || "General"}" and topic "${topic || "General skills"}".
 Recruiter prompt: ${prompt || "Create fair practical screening questions."}
 
@@ -658,12 +668,58 @@ Return only JSON:
 Rules: exactly one locked correct_option per question. No ambiguous answers. No markdown.
 `);
 
-  const text = result.response.text();
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) throw new Error("AI returned an invalid question format.");
-  const parsed = JSON.parse(match[0]);
-  const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
-  return questions.slice(0, count).map(validateQuestion);
+        const response = await result.response;
+        const text = response.text();
+        
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          console.error("❌ AI Response did not contain valid JSON:", text);
+          throw new Error("AI returned an invalid question format.");
+        }
+        
+        const parsed = JSON.parse(jsonMatch[0]);
+        const rawQuestions = Array.isArray(parsed.questions) ? parsed.questions : 
+                            Array.isArray(parsed) ? parsed : [];
+        
+        if (rawQuestions.length === 0) {
+          console.warn("⚠️ AI returned zero questions. Using fallback.");
+          return fallbackQuestions(role, topic, count);
+        }
+
+        return rawQuestions.slice(0, count).map(validateQuestion);
+      } catch (error: any) {
+        lastError = error;
+        // If it's a 503 (Service Unavailable/High Demand), retry after a delay
+        if (error.status === 503 || error.message?.includes("503") || error.message?.includes("high demand")) {
+          retries++;
+          const delay = Math.pow(2, retries) * 1000;
+          console.warn(`⚠️ Gemini 503 (High Demand). Retry ${retries}/${maxRetries} in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        // If it's a model not found error, try falling back to gemini-1.5-flash-latest
+        if (error.message?.includes("model") && !error.message?.includes("503")) {
+           console.log("🔄 Model error detected. Retrying with gemini-1.5-flash-latest...");
+           const genAI = new GoogleGenerativeAI(apiKey);
+           const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+           const result = await fallbackModel.generateContent(`Generate ${count} MCQs for ${role} on ${topic} as JSON.`);
+           const text = (await result.response).text();
+           const jsonMatch = text.match(/\{[\s\S]*\}/);
+           if (jsonMatch) {
+             const parsed = JSON.parse(jsonMatch[0]);
+             const qList = Array.isArray(parsed.questions) ? parsed.questions : (Array.isArray(parsed) ? parsed : []);
+             if (qList.length > 0) return qList.slice(0, count).map(validateQuestion);
+           }
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  } catch (error: any) {
+    console.error("❌ generateAiQuestions final failure:", error);
+    throw error;
+  }
 };
 
 const parseQuestionsWithAi = async (rawText: string): Promise<NormalizedQuestion[]> => {
