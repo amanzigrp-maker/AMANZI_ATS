@@ -47,6 +47,8 @@ import recommendationRoutes from "./src/routes/recommendation.routes";
 import interviewRoutes from "./src/routes/interview.routes";
 import adaptiveInterviewRoutes from "./src/routes/adaptiveInterview.routes";
 import assessmentRoutes from "./src/routes/assessment.routes";
+import certificateRoutes from "./src/routes/certificate.routes";
+
 
 // -----------------------------------------------------------------------------
 // APP SETUP
@@ -91,6 +93,8 @@ app.use("/api/recommendations", recommendationRoutes);
 app.use("/api/interview", interviewRoutes);
 app.use("/api/interview/adaptive", adaptiveInterviewRoutes);
 app.use("/api/assessments", assessmentRoutes);
+app.use("/api/certificates", certificateRoutes);
+
 
 // Setup Socket.io Handlers
 setupSocketHandlers(io);

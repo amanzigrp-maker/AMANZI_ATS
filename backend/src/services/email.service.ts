@@ -363,7 +363,9 @@ export const sendInterviewResults = async (
   role?: string,
   timeTakenMins?: number | null,
   breakdown?: Record<string, { total: number, correct: number }>,
-  report?: { correct?: number; incorrect?: number; attempted?: number }
+  report?: { correct?: number; incorrect?: number; attempted?: number },
+  certificateBuffer?: Buffer,
+  certificateId?: string
 ): Promise<void> => {
   try {
     const transporter = createTransporter();
@@ -458,6 +460,13 @@ export const sendInterviewResults = async (
                     ${performanceEmoji} ${performanceLabel} — ${percentage}%
                   </div>
                 </div>
+                ${certificateBuffer ? `
+                <div style="margin: 16px 0; padding: 12px; background: #EEF2FF; border: 1px dashed #4F46E5; border-radius: 12px; text-align: center;">
+                  <span style="font-size: 24px;">🏆</span>
+                  <p style="margin: 8px 0 0; font-weight: 700; color: #4F46E5; font-size: 14px;">Official Certificate Attached!</p>
+                  <p style="margin: 4px 0 0; font-size: 11px; color: #6366F1;">ID: ${certificateId}</p>
+                </div>
+                ` : ''}
                 <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 20px 0;">
                   <div style="background:#f8fafc; border:1px solid #e5e7eb; border-radius:12px; padding:16px;">
                     <div style="font-size:12px; text-transform:uppercase; color:#64748b;">Correct Answers</div>
@@ -496,6 +505,13 @@ export const sendInterviewResults = async (
         </html>
       `,
       text: `Assessment Results — Score: ${score}/${total} (${percentage}%). Correct: ${correct}. Incorrect: ${incorrect}. Questions Assigned: ${attempted}.${timeTakenMins !== null && timeTakenMins !== undefined ? ` Time Taken: ${timeTakenMins} minutes.` : ''} If selected, you will receive a mail regarding next steps.`,
+      attachments: certificateBuffer ? [
+        {
+          filename: `Certificate_${certificateId || 'Amanzi'}.pdf`,
+          content: certificateBuffer,
+          contentType: 'application/pdf',
+        }
+      ] : [],
     };
 
     await transporter.sendMail(mailOptions);
@@ -620,5 +636,46 @@ export const sendRejectionEmail = async (to: string, name: string, role?: string
     await transporter.sendMail(mailOptions);
   } catch (err) {
     console.error('Error sending rejection email:', err);
+  }
+};
+
+/**
+ * Send certificate email with PDF attachment
+ */
+export const sendCertificateEmail = async (to: string, name: string, testName: string, certificateBuffer: Buffer, certificateId: string): Promise<void> => {
+  try {
+    const transporter = createTransporter();
+
+    if (!transporter) {
+      console.log(`📧 [DEV MODE] Certificate for ${to} | ID: ${certificateId}`);
+      return;
+    }
+
+    const mailOptions = {
+      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
+      to: to,
+      subject: `Your Certificate for ${testName} - Amanzi`,
+      html: `
+        <div style="font-family: sans-serif; line-height: 1.6; color: #1e293b;">
+          <h2>Congratulations ${name}!</h2>
+          <p>You have successfully completed the <b>${testName}</b> assessment.</p>
+          <p>Your official certificate is attached to this email.</p>
+          <p>Certificate ID: <b>${certificateId}</b></p>
+          <br/>
+          <p>Best regards,<br/>Amanzi Team</p>
+        </div>
+      `,
+      attachments: [
+        {
+          filename: `Certificate_${certificateId}.pdf`,
+          content: certificateBuffer,
+          contentType: 'application/pdf',
+        },
+      ],
+    };
+
+    await transporter.sendMail(mailOptions);
+  } catch (error) {
+    console.error('[EMAIL] Error sending certificate email:', error);
   }
 };

@@ -26,6 +26,8 @@ import {
 import { toast } from "sonner";
 import Proctoring from "@/components/proctoring/Proctoring";
 import QuestionContent from "@/components/QuestionContent";
+import { WebcamCapture } from "@/components/WebcamCapture";
+
 
 interface Question {
   id: number;
@@ -78,6 +80,10 @@ export default function InterviewPage() {
   const [feedbackDone, setFeedbackDone] = useState(false);
   const [isFeedbackSubmitting, setIsFeedbackSubmitting] = useState(false);
   const preparePromiseRef = useRef<Promise<void> | null>(null);
+  const [candidatePhoto, setCandidatePhoto] = useState<string | null>(null);
+  const [certId, setCertId] = useState<string | null>(null);
+  const [isGeneratingCert, setIsGeneratingCert] = useState(false);
+
 
   // 1. Validate Token on Mount (Fallback for old flow)
   useEffect(() => {
@@ -244,8 +250,8 @@ export default function InterviewPage() {
   }, [preparedSession, jwtToken, interviewToken, token, setupData.role, totalQuestions]);
 
   const handleVerificationSubmit = async () => {
-    if (!verificationImages.selfie || !verificationImages.idCard) {
-      toast.error("Please capture both your selfie and your ID card before continuing.");
+    if (!verificationImages.selfie) {
+      toast.error("Please capture your live photo before continuing.");
       return;
     }
 
@@ -264,7 +270,7 @@ export default function InterviewPage() {
         },
         body: JSON.stringify({
           selfieImage: verificationImages.selfie,
-          idCardImage: verificationImages.idCard
+          idCardImage: verificationImages.selfie // Use selfie as fallback if backend requires both
         })
       });
       const data = await res.json();
@@ -358,13 +364,17 @@ export default function InterviewPage() {
       }
 
       if (data.isFinished) {
-        setScore(typeof data.score === "number" ? data.score : null);
+        const finalScore = typeof data.score === "number" ? data.score : 0;
+        setScore(finalScore);
         if (typeof data.total === "number") {
           setTotalQuestions(data.total);
         }
         localStorage.removeItem("interviewToken");
         localStorage.removeItem("interviewUser");
         setStatus("completed");
+        
+        // Auto-trigger certificate generation
+        handleGenerateCertificate(finalScore);
         return;
       }
 
@@ -424,6 +434,37 @@ export default function InterviewPage() {
 
     return () => clearInterval(timer);
   }, [status]);
+
+  const handleGenerateCertificate = async (finalScore: number) => {
+    if (!sessionId || !candidateInfo) return;
+    setIsGeneratingCert(true);
+    try {
+      const res = await fetch("/api/certificates/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          score: finalScore,
+          testName: setupData.role || "Technical Assessment",
+          candidateName: candidateInfo.name,
+          candidateEmail: candidateInfo.email,
+          candidatePhoto: candidatePhoto || verificationImages.selfie
+        })
+      });
+      const data = await res.json();
+      if (data.certificateId) {
+        setCertId(data.certificateId);
+        toast.success("Certificate generated and sent to your email!");
+      } else {
+        throw new Error(data.error || "Generation failed without error message");
+      }
+    } catch (error: any) {
+      console.error("Certificate generation error:", error);
+      toast.error("Could not generate certificate: " + (error?.message || "Server error"));
+    } finally {
+      setIsGeneratingCert(false);
+    }
+  };
 
   const fetchQuestions = async (sId: string | number, jwt: string | null = jwtToken) => {
     const res = await fetch(`/api/interview/questions?session_id=${sId}`, {
@@ -596,7 +637,7 @@ export default function InterviewPage() {
               </div>
               <CardTitle className="text-white text-3xl font-bold">Welcome, {candidateInfo?.name}</CardTitle>
               <CardDescription className="text-slate-400">
-                Before the interview begins, please capture a selfie and a clear image of your ID card.
+                Before the interview begins, please capture a clear live photo for your official certificate.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -606,48 +647,18 @@ export default function InterviewPage() {
                   {setupData.role || "Assigned interview"}
                 </div>
               </div>
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <label className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
+              <div className="flex flex-col items-center justify-center">
+                <div className="w-full max-w-sm space-y-4 rounded-2xl border border-white/10 bg-white/5 p-6 flex flex-col items-center">
+                  <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400 self-start">
                     <Camera className="h-4 w-4 text-blue-400" />
-                    Your Selfie
+                    Live Photo Capture
                   </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="user"
-                    onChange={(event) => void handleVerificationFileChange("selfie", event)}
-                    className="block w-full text-xs text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-blue-500"
-                  />
-                  {verificationImages.selfie ? (
-                    <img src={verificationImages.selfie} alt="Selfie preview" className="h-40 w-full rounded-xl object-cover" />
-                  ) : (
-                    <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-white/10 text-sm text-slate-500">
-                      Capture a clear face photo
-                    </div>
-                  )}
-                </label>
-
-                <label className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <span className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-slate-400">
-                    <FileImage className="h-4 w-4 text-blue-400" />
-                    ID Card
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={(event) => void handleVerificationFileChange("idCard", event)}
-                    className="block w-full text-xs text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-600 file:px-3 file:py-2 file:text-xs file:font-bold file:text-white hover:file:bg-blue-500"
-                  />
-                  {verificationImages.idCard ? (
-                    <img src={verificationImages.idCard} alt="ID card preview" className="h-40 w-full rounded-xl object-cover" />
-                  ) : (
-                    <div className="flex h-40 items-center justify-center rounded-xl border border-dashed border-white/10 text-sm text-slate-500">
-                      Capture the front of your ID card
-                    </div>
-                  )}
-                </label>
+                  
+                  <WebcamCapture onCapture={(image) => {
+                    setCandidatePhoto(image);
+                    setVerificationImages(prev => ({ ...prev, selfie: image }));
+                  }} />
+                </div>
               </div>
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
@@ -661,7 +672,7 @@ export default function InterviewPage() {
               </Button>
               <div className="flex items-center gap-2 justify-center">
                 <ShieldCheck className="w-4 h-4 text-emerald-500 opacity-60" />
-                <span className="text-[10px] text-slate-500 uppercase font-bold">Captured images stay tied to your secure interview token</span>
+                <span className="text-[10px] text-slate-500 uppercase font-bold">Your captured photo stays tied to your secure interview token</span>
               </div>
             </CardFooter>
           </Card>
@@ -675,8 +686,8 @@ export default function InterviewPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <ul className="text-[11px] space-y-2 text-slate-400 list-disc pl-4">
-                <li>Use a well-lit environment so both images are readable.</li>
-                <li>Make sure your face is visible and your ID text is not blurry.</li>
+                <li>Use a well-lit environment for a clear photo.</li>
+                <li>Make sure your face is clearly visible in the frame.</li>
                 <li>The next page will explain the full exam structure before the timer starts.</li>
               </ul>
             </CardContent>
@@ -955,14 +966,34 @@ export default function InterviewPage() {
                 <p className="text-sm font-medium text-emerald-200">
                   You may now close the window.
                 </p>
-                <Button
-                  onClick={() => window.close()}
-                  className="mt-4 w-full h-12 bg-white hover:bg-slate-200 text-black font-bold rounded-xl transition-all"
-                >
-                  Close Window
-                </Button>
               </div>
             )}
+
+            <div className="mt-8 space-y-4">
+              {certId && (
+                <Button 
+                  asChild
+                  className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.2)] transition-all flex items-center justify-center gap-2"
+                >
+                  <a href={`/api/certificates/download/${certId}`} target="_blank" rel="noopener noreferrer">
+                    Download Certificate
+                  </a>
+                </Button>
+              )}
+              {isGeneratingCert && (
+                <div className="flex items-center justify-center gap-2 text-blue-400 text-sm font-bold animate-pulse">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Preparing Your Certificate...
+                </div>
+              )}
+              <Button 
+                onClick={() => navigate("/")}
+                variant="outline"
+                className="w-full h-12 border-white/10 hover:bg-white/5 text-white font-bold rounded-xl transition-all"
+              >
+                Close & Exit
+              </Button>
+            </div>
           </Card>
         </motion.div>
       </div>

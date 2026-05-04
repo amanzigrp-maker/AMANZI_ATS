@@ -415,6 +415,23 @@ export async function testConnection(): Promise<boolean> {
       ALTER TABLE irt_responses ADD COLUMN IF NOT EXISTS question_text TEXT;
     `).catch(() => {});
 
+    // Ensure certificates table exists
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS certificates (
+        id SERIAL PRIMARY KEY,
+        certificate_id TEXT UNIQUE NOT NULL,
+        interview_session_id INTEGER REFERENCES interview_sessions(id),
+        candidate_name TEXT NOT NULL,
+        candidate_email TEXT NOT NULL,
+        candidate_photo TEXT,
+        test_name TEXT NOT NULL,
+        score NUMERIC(6,2) NOT NULL,
+        issued_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        verification_token TEXT,
+        metadata JSONB DEFAULT '{}'::jsonb
+      )
+    `);
+
     return true;
   } catch (error: any) {
     console.error("\n❌ DATABASE CONNECTION FAILED\n");

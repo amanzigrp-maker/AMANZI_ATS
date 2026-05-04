@@ -31,6 +31,8 @@ import InterviewPage from "./pages/InterviewPage";
 import InterviewLogin from "./pages/InterviewLogin";
 import InterviewSession from "./pages/InterviewSession";
 import NotFound from "./pages/NotFound";
+import VerifyCertificate from "./pages/VerifyCertificate";
+
 
 // Admin Components & Pages
 import AdminRoute from "./components/AdminRoute";
@@ -149,6 +151,7 @@ const App: React.FC = () => {
                 />
 
                 {/* Catch-All (404) */}
+                <Route path="/verify/:certificateId" element={<VerifyCertificate />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>

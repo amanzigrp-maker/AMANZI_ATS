@@ -9,6 +9,8 @@ import { generateAdaptiveQuestionAtDifficulty } from '../services/ai-interview.s
 import { aiWorkerService } from '../services/ai-worker.service';
 import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../middleware/auth.middleware';
+import { CertificateService } from '../services/certificate.service';
+import { v4 as uuidv4 } from 'uuid';
 
 const validateSelectedAssessment = async (req: Request, assessmentId: number | null) => {
   if (!assessmentId) {
@@ -328,6 +330,52 @@ const sendCompletionReport = async (sessionId: number) => {
     const completedAt = sess.completed_at ? new Date(sess.completed_at) : new Date();
     const timeTakenMins = startedAt ? Math.round((completedAt.getTime() - startedAt.getTime()) / 60000) : null;
 
+    // --- Certificate Integration ---
+    const certificateId = uuidv4();
+    let certificateBuffer: Buffer | undefined;
+
+    try {
+      // Fetch selfie from verification
+      const verifyRes = await pool.query(
+        'SELECT selfie_path FROM interview_verifications WHERE token = $1',
+        [sess.token]
+      );
+      
+      let candidatePhoto: string | undefined;
+      if (verifyRes.rows[0]?.selfie_path) {
+        try {
+          const photoData = await fs.readFile(verifyRes.rows[0].selfie_path);
+          candidatePhoto = `data:image/jpeg;base64,${photoData.toString('base64')}`;
+        } catch (photoErr) {
+          console.warn('Could not read selfie for certificate:', photoErr);
+        }
+      }
+
+      certificateBuffer = await CertificateService.generatePDF({
+        candidateName: sess.candidate_name,
+        candidateEmail: sess.candidate_email,
+        candidatePhoto,
+        testName: sess.role || sess.job_role || 'Technical Assessment',
+        companyName: process.env.COMPANY_NAME || 'Amanzi Tech',
+        score: Math.round((correctCount / configuredTotal) * 100),
+        certificateId,
+        issuedAt: new Date()
+      });
+
+      // Save to DB
+      await CertificateService.saveCertificate({
+        certificateId,
+        interviewSessionId: sessionId,
+        candidateName: sess.candidate_name,
+        candidateEmail: sess.candidate_email,
+        candidatePhoto,
+        testName: sess.role || sess.job_role || 'Technical Assessment',
+        score: Math.round((correctCount / configuredTotal) * 100)
+      });
+    } catch (certErr) {
+      console.error('Failed to generate certificate for report:', certErr);
+    }
+
     await sendInterviewResults(
       sess.candidate_email,
       sess.candidate_name,
@@ -340,7 +388,9 @@ const sendCompletionReport = async (sessionId: number) => {
         correct: correctCount,
         incorrect: incorrectCount,
         attempted: configuredTotal,
-      }
+      },
+      certificateBuffer,
+      certificateId
     );
   } catch (emailErr) {
     console.error('Failed to send completion report email:', emailErr);

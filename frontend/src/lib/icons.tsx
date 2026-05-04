@@ -9,6 +9,7 @@ import {
   Briefcase as PhBriefcase,
   Building as PhBuilding,
   Buildings as PhBuildings,
+  Camera as PhCamera,
   Calendar as PhCalendar,
   CalendarBlank as PhCalendarBlank,
   CalendarCheck as PhCalendarCheck,
@@ -135,10 +136,11 @@ export const BarChart3 = alias(PhChartBar);
 export const Bell = alias(PhBell);
 export const Brain = alias(PhBrain);
 export const BrainCircuit = alias(PhBrain);
+export const Camera = alias(PhCamera);
+
 export const Briefcase = alias(PhBriefcase);
 export const Building = alias(PhBuilding);
 export const Building2 = alias(PhBuildings);
-export const Camera = alias(PhVideoCamera);
 export const Calendar = alias(PhCalendarBlank);
 export const CalendarCheck = alias(PhCalendarCheck);
 export const CalendarDays = alias(PhCalendar);
