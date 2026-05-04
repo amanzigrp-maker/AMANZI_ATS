@@ -13,6 +13,10 @@ import { CertificateService } from '../services/certificate.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 /**
  * Helper to check if a user is authorized to manage a candidate's interview.
  * Admin: All
@@ -367,7 +371,7 @@ const sendCompletionReport = async (sessionId: number) => {
     const timeTakenMins = startedAt ? Math.round((completedAt.getTime() - startedAt.getTime()) / 60000) : null;
 
     // --- Certificate Integration ---
-    const certificateId = uuidv4();
+    const certificateId = CertificateService.generateCertificateId();
     let certificateBuffer: Buffer | undefined;
 
     try {
@@ -388,14 +392,11 @@ const sendCompletionReport = async (sessionId: number) => {
       }
 
       certificateBuffer = await CertificateService.generatePDF({
-        candidateName: sess.candidate_name,
-        candidateEmail: sess.candidate_email,
-        candidatePhoto,
-        testName: sess.role || sess.job_role || 'Technical Assessment',
-        companyName: process.env.COMPANY_NAME || 'Amanzi Tech',
-        score: Math.round((correctCount / configuredTotal) * 100),
+        name: sess.candidate_name,
+        test: sess.role || sess.job_role || 'Technical Assessment',
+        date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
         certificateId,
-        issuedAt: new Date()
+        photoPath: verifyRes.rows[0]?.selfie_path || candidatePhoto || '',
       });
 
       // Save to DB
@@ -921,6 +922,11 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     if (!isAuthorized) {
       return res.status(403).json({ success: false, error: 'Access denied: You are not authorized to schedule an interview for this candidate.' });
     }
+<<<<<<< Updated upstream
+=======
+
+    // 1. Get or create candidate
+>>>>>>> Stashed changes
     let candidate;
     const candidateResult = await pool.query(
       'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',

@@ -30,14 +30,11 @@ export const generateAndSendCertificate = async (req: Request, res: Response) =>
 
     // 2. Generate PDF
     const pdfBuffer = await CertificateService.generatePDF({
-      candidateName,
-      candidateEmail,
-      candidatePhoto,
-      testName,
-      companyName,
-      score,
+      name: candidateName,
+      test: testName,
+      date: issuedAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
       certificateId,
-      issuedAt
+      photoPath: candidatePhoto || ''
     });
 
     // 3. Send Email
@@ -65,14 +62,11 @@ export const downloadCertificate = async (req: Request, res: Response) => {
     const companyName = process.env.COMPANY_NAME || 'Amanzi Tech';
     
     const pdfBuffer = await CertificateService.generatePDF({
-      candidateName: cert.candidate_name,
-      candidateEmail: cert.candidate_email,
-      candidatePhoto: cert.candidate_photo,
-      testName: cert.test_name,
-      companyName,
-      score: parseFloat(cert.score),
+      name: cert.candidate_name,
+      test: cert.test_name,
+      date: new Date(cert.issued_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
       certificateId: cert.certificate_id,
-      issuedAt: new Date(cert.issued_at)
+      photoPath: cert.candidate_photo || ''
     });
 
     res.setHeader('Content-Type', 'application/pdf');

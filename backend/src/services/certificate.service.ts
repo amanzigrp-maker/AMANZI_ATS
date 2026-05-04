@@ -1,17 +1,33 @@
 import PDFDocument from 'pdfkit';
 import QRCode from 'qrcode';
-import { v4 as uuidv4 } from 'uuid';
+import path from 'path';
+import fs from 'fs/promises';
 import pool from '../lib/database.js';
 
 export class CertificateService {
   /**
-   * Generates a QR code for certificate verification
+   * Generates a custom certificate ID in the format AMZ-YYYY-MM-DD-XXXX
    */
-  static async generateQRCode(certificateId: string): Promise<string> {
-    const baseUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+  static generateCertificateId(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const random = Math.floor(1000 + Math.random() * 9000);
+    return `AMZ-${year}-${month}-${day}-${random}`;
+  }
+
+  /**
+   * Generates a QR code for certificate verification as a Buffer
+   */
+  static async generateQRCode(certificateId: string): Promise<Buffer> {
+    const baseUrl = process.env.FRONTEND_URL || 'https://yourdomain.com';
     const verificationUrl = `${baseUrl}/verify/${certificateId}`;
-    return await QRCode.toDataURL(verificationUrl, {
+
+    // Generate QR code as a buffer for direct PDF insertion
+    return await QRCode.toBuffer(verificationUrl, {
       margin: 1,
+      width: 400,
       color: {
         dark: '#000000',
         light: '#ffffff',
@@ -20,17 +36,14 @@ export class CertificateService {
   }
 
   /**
-   * Generates a dynamic PDF certificate
+   * Generates a professional A4 landscape certificate using a template image
    */
   static async generatePDF(data: {
-    candidateName: string;
-    candidateEmail: string;
-    candidatePhoto?: string;
-    testName: string;
-    companyName: string;
-    score: number;
+    name: string;
+    test: string;
+    date: string;
     certificateId: string;
-    issuedAt: Date;
+    photoPath: string;
   }): Promise<Buffer> {
     return new Promise(async (resolve, reject) => {
       try {
@@ -42,108 +55,98 @@ export class CertificateService {
 
         const buffers: Buffer[] = [];
         doc.on('data', (chunk) => buffers.push(chunk));
-        doc.on('end', () => {
-          const finalBuffer = Buffer.concat(buffers);
-          console.log(`[PDF] Generated buffer for cert: ${data.certificateId} | Size: ${finalBuffer.length}`);
-          resolve(finalBuffer);
-        });
-        doc.on('error', (err) => {
-          console.error('[PDF] Document error:', err);
-          reject(err);
-        });
+        doc.on('end', () => resolve(Buffer.concat(buffers)));
+        doc.on('error', (err) => reject(err));
 
         const width = doc.page.width;
         const height = doc.page.height;
 
-        // --- Background & Border ---
-        doc.rect(0, 0, width, height).fill('#FFFFFF');
-        
-        // Subtle blue-gold gradient border
-        doc.rect(20, 20, width - 40, height - 40).lineWidth(1).strokeColor('#E2E8F0').stroke();
-        doc.rect(30, 30, width - 60, height - 60).lineWidth(3).strokeColor('#C5A059').stroke(); // Gold inner border
+        // 1. Load template image as background
+        // Path: backend/src/assets/certificate_template.png
+        const templatePath = path.join(process.cwd(), 'src', 'assets', 'certificate_template.png');
 
-        // Watermark (if logo path is available, we'd use it. For now, a soft text watermark)
-        doc.opacity(0.03)
-           .fillColor('#000000')
-           .font('Helvetica-Bold')
-           .fontSize(100)
-           .text(data.companyName, 0, height / 2 - 50, { align: 'center', width: width });
-        doc.opacity(1);
-
-        // --- Header ---
-        // Logo Placeholder or Text
-        doc.fillColor('#1E293B')
-           .font('Times-Bold')
-           .fontSize(36)
-           .text(data.companyName, 0, 70, { align: 'center', width: width });
-
-        doc.fillColor('#C5A059')
-           .font('Helvetica-Bold')
-           .fontSize(14)
-           .text('CERTIFICATE OF COMPLETION', 0, 120, { align: 'center', width: width, characterSpacing: 2 });
-
-        // --- Main Body ---
-        doc.fillColor('#64748B')
-           .font('Times-Italic')
-           .fontSize(18)
-           .text('This is to certify that', 0, 170, { align: 'center', width: width });
-
-        doc.fillColor('#1E293B')
-           .font('Helvetica-Bold')
-           .fontSize(52)
-           .text(data.candidateName, 0, 210, { align: 'center', width: width });
-
-        doc.fillColor('#64748B')
-           .font('Times-Roman')
-           .fontSize(18)
-           .text(`has successfully completed the ${data.testName} assessment`, 0, 280, { align: 'center', width: width });
-           
-        doc.text(`conducted by ${data.companyName}.`, 0, 305, { align: 'center', width: width });
-
-        doc.fillColor('#1E293B')
-           .font('Helvetica-Bold')
-           .fontSize(22)
-           .text(`Achievement Score: ${data.score}%`, 0, 350, { align: 'center', width: width });
-
-        // --- Signatures ---
-        const sigY = height - 120;
-        
-        // Left: Date
-        doc.moveTo(100, sigY).lineTo(250, sigY).lineWidth(1).strokeColor('#94A3B8').stroke();
-        doc.fillColor('#1E293B')
-           .font('Helvetica')
-           .fontSize(12)
-           .text(data.issuedAt.toLocaleDateString(), 100, sigY + 10, { width: 150, align: 'center' });
-        doc.fontSize(10).fillColor('#64748B').text('Date of Issue', 100, sigY + 25, { width: 150, align: 'center' });
-
-        // Right: Authorized Signatory
-        doc.moveTo(width - 250, sigY).lineTo(width - 100, sigY).stroke();
-        doc.fillColor('#1E293B')
-           .font('Times-BoldItalic')
-           .fontSize(14)
-           .text('Amanzi Systems', width - 250, sigY - 20, { width: 150, align: 'center' });
-        doc.font('Helvetica')
-           .fontSize(12)
-           .text('Authorized Signatory', width - 250, sigY + 10, { width: 150, align: 'center' });
-
-        // --- QR Code & Metadata ---
-        const qrCodeDataUrl = await this.generateQRCode(data.certificateId);
-        doc.image(qrCodeDataUrl, width - 110, height - 110, { width: 80 });
-
-        doc.fillColor('#94A3B8')
-           .font('Courier')
-           .fontSize(8)
-           .text(`VERIFICATION ID: ${data.certificateId}`, 50, height - 40);
-
-        // --- Candidate Photo (Small circular or square in top corner) ---
-        if (data.candidatePhoto) {
+        try {
+          await fs.access(templatePath);
+          doc.image(templatePath, 0, 0, { width, height });
+        } catch (e) {
+          // Fallback to .jpeg if .png is not found (per existing assets)
+          const jpegPath = templatePath.replace('.png', '.jpeg');
           try {
-            const photoBuffer = Buffer.from(data.candidatePhoto.split(',')[1] || data.candidatePhoto, 'base64');
-            doc.image(photoBuffer, 50, 50, { width: 60, height: 60 });
-            doc.rect(50, 50, 60, 60).lineWidth(1).strokeColor('#C5A059').stroke();
-          } catch (e) {}
+            await fs.access(jpegPath);
+            doc.image(jpegPath, 0, 0, { width, height });
+          } catch (err) {
+            console.warn('Certificate template image not found at', templatePath);
+            // Optional: Draw a simple border if template is missing entirely
+            doc.rect(0, 0, width, height).fill('#FFFFFF');
+          }
         }
 
+        // 2. Candidate Photo (center circle)
+        // Position: Center horizontally, y: 180, size: 130x130 (clip to circle)
+        if (data.photoPath) {
+          try {
+            let photoBuffer: Buffer;
+            if (data.photoPath.startsWith('data:image')) {
+              photoBuffer = Buffer.from(data.photoPath.split(',')[1], 'base64');
+            } else if (data.photoPath.startsWith('http')) {
+              // Note: If this is a URL, you'd normally fetch it. 
+              // Assuming for this implementation it's a local path or base64.
+              // If it's a path, read it:
+              photoBuffer = await fs.readFile(data.photoPath);
+            } else {
+              photoBuffer = await fs.readFile(data.photoPath);
+            }
+
+            const photoSize = 130;
+            const photoX = (width - photoSize) / 2;
+            const photoY = 170;
+
+            doc.save();
+            // Create circular clipping path
+            doc.circle(width / 2, photoY + photoSize / 2, photoSize / 2).clip();
+            doc.image(photoBuffer, photoX, photoY, {
+              width: photoSize,
+              height: photoSize,
+              align: 'center',
+              valign: 'center'
+            });
+            doc.restore();
+          } catch (photoErr) {
+            console.error('Failed to overlay candidate photo:', photoErr.message);
+          }
+        }
+
+        // 3. Candidate Name
+        // Position: y: 330, width: full page, align: center, fontSize: 38, font: serif bold
+        doc.fillColor('#0A2540') // Navy blue
+          .font('Times-Bold') // Built-in Serif Bold font
+          .fontSize(38)
+          .text(data.name, 0, 330, { align: 'center', width: width });
+
+        // 4. Test Name
+        // Position: y: 400, width: full page, align: center, fontSize: 18
+        doc.fillColor('#1E293B')
+          .font('Helvetica')
+          .fontSize(18)
+          .text(data.test, 0, 400, { align: 'center', width: width });
+
+        // 5. Completion Date
+        // Position: x: 140, y: 500, fontSize: 12
+        doc.fillColor('#1E293B')
+          .font('Helvetica')
+          .fontSize(12)
+          .text(data.date, 140, 520);
+
+        // 6. Certificate ID
+        // Position: x: 540, y: 500
+        doc.text(data.certificateId, 540, 500);
+
+        // 7. QR Code
+        // Position: x: 700, y: 440, width: 100
+        const qrBuffer = await this.generateQRCode(data.certificateId);
+        doc.image(qrBuffer, 680, 440, { width: 100 });
+
+        // Finalize PDF
         doc.end();
       } catch (err) {
         reject(err);
@@ -184,7 +187,7 @@ export class CertificateService {
       data.testName,
       data.score
     ];
-    
+
     const result = await pool.query(query, values);
     return result.rows[0];
   }
