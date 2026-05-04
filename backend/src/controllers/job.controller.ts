@@ -859,18 +859,6 @@ export const getJobs = async (req: Request, res: Response) => {
       LEFT JOIN clients c ON c.client_id = j.client_id
       LEFT JOIN applications a 
              ON a.job_id = j.job_id
-            AND a.status IN (
-              'pending',
-              'screening',
-              'interview',
-              'offered',
-              'accepted',
-              'rejected',
-              'vendor_applied',
-              'vendor_reviewing',
-              'vendor_shortlisted',
-              'vendor_rejected'
-            )
       ${whereClause}
       GROUP BY j.job_id, u.email, c.client_id, c.client_name
       ORDER BY posted_date DESC

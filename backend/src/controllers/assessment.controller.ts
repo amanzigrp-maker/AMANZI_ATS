@@ -101,13 +101,21 @@ const parseCsvRows = (csv: string): string[][] => {
 
 const normalizeCorrectOption = (value: unknown): string => {
   const raw = String(value || "").trim().toUpperCase();
+<<<<<<< Updated upstream
   // Extract first A, B, C, or D found in case AI returns "A)" or "Option A"
+=======
+  // Extract first valid key found in case AI returns "A)" or "Option A"
+>>>>>>> Stashed changes
   const match = raw.match(/\b([A-H1-8])\b/);
   const normalized = match ? match[1] : raw;
 
   if (optionKeys.includes(normalized as any)) return normalized;
+<<<<<<< Updated upstream
   // If it's not in our known keys, just return the raw trimmed value and let validation handle it
   return normalized;
+=======
+  throw new Error(`Each question needs correct_option as A, B, C, or D. Got: "${value}"`);
+>>>>>>> Stashed changes
 };
 
 const difficultyScore = (difficulty: unknown) => {
@@ -538,11 +546,21 @@ const parseInlineAnswerQuestions = (text: string): NormalizedQuestion[] => {
   const tryMatch = (pattern: RegExp, mapIdx: (m: RegExpMatchArray) => any) => {
     for (const match of questionText.matchAll(pattern)) {
       const q = mapIdx(match);
+      const questionNumber = q.number;
+      const inferredDifficulty =
+        questionNumber <= 60 ? "foundation" :
+        questionNumber <= 130 ? "developing" :
+        questionNumber <= 195 ? "advanced" :
+        "expert";
+
       try {
         questions.push(validateQuestion({
           ...q,
-          difficulty: q.number <= 60 ? "foundation" : q.number <= 130 ? "developing" : q.number <= 195 ? "advanced" : "expert",
-          metadata: { source_parser: "inline-regex", pdf_question_number: q.number }
+          difficulty: inferredDifficulty,
+          metadata: { 
+            source_parser: "inline-regex", 
+            pdf_question_number: questionNumber || undefined 
+          }
         }));
       } catch {}
     }
@@ -828,6 +846,10 @@ const parseQuestionsWithAi = async (rawText: string): Promise<NormalizedQuestion
     console.error("AI parsing failed:", error);
     return [];
   }
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes
 };
 
 const createAssessmentWithQuestions = async (
