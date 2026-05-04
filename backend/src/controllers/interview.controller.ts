@@ -12,9 +12,7 @@ import { getJwtSecret } from '../middleware/auth.middleware';
 import { CertificateService } from '../services/certificate.service';
 import { v4 as uuidv4 } from 'uuid';
 
-<<<<<<< Updated upstream
 const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
-=======
 /**
  * Helper to check if a user is authorized to manage a candidate's interview.
  * Admin: All
@@ -49,7 +47,6 @@ const checkInterviewAuthorization = async (req: Request, candidateEmail: string)
   const result = await pool.query(query, [candidateEmail, userId, role]);
   return result.rows.length > 0;
 };
->>>>>>> Stashed changes
 
 const validateSelectedAssessment = async (req: Request, assessmentId: number | null) => {
   if (!assessmentId) {
@@ -919,17 +916,12 @@ export const inviteCredentials = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
 
-<<<<<<< Updated upstream
-    // 1. Get or create candidate
-    let candidate;
-=======
     // Authorization check
     const isAuthorized = await checkInterviewAuthorization(req, email);
     if (!isAuthorized) {
       return res.status(403).json({ success: false, error: 'Access denied: You are not authorized to schedule an interview for this candidate.' });
     }
-
->>>>>>> Stashed changes
+    let candidate;
     const candidateResult = await pool.query(
       'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',
       [email]
@@ -2018,16 +2010,6 @@ export const updateCandidateDecision = async (req: Request, res: Response) => {
  */
 export const getRecentInvites = async (req: Request, res: Response) => {
   try {
-<<<<<<< Updated upstream
-    const userId = getUserId(req);
-    const userRole = String((req as any).user?.role || '').toLowerCase();
-    const params: any[] = [];
-    let whereClause = '';
-
-    if (userId && userRole !== 'admin' && userRole !== 'lead') {
-      params.push(userId);
-      whereClause = `WHERE t.created_by = $1`;
-=======
     // Role-based visibility filtering
     const user = (req as any).user;
     const userId = Number(user?.userid ?? user?.id ?? 0);
@@ -2057,23 +2039,18 @@ export const getRecentInvites = async (req: Request, res: Response) => {
           )
         `;
       }
->>>>>>> Stashed changes
     }
 
     const result = await pool.query(
       `SELECT 
         t.token, t.candidate_name, t.candidate_email, t.job_role, 
         t.expires_at, t.created_at, t.is_used, t.question_source,
-        t.candidate_id,
+       t.candidate_id,
         a.title as assessment_title
        FROM interview_tokens t
        LEFT JOIN assessments a ON t.assessment_id = a.assessment_id
-<<<<<<< Updated upstream
-       ${whereClause}
-=======
        WHERE 1=1
        ${roleClause}
->>>>>>> Stashed changes
        ORDER BY t.created_at DESC 
        LIMIT 50`,
       params

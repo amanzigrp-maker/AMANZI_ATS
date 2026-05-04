@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { maskEmail, maskSecret, shouldShowSensitiveDevLogs } from '../lib/logging';
 
 /**
  * Email service for sending emails using nodemailer
@@ -26,6 +27,10 @@ const createTransporter = () => {
       rejectUnauthorized: false,   // <---- FIXES "self-signed certificate" error
     },
   });
+};
+
+const logDevEmailEvent = (label: string, to: string) => {
+  console.log(`[DEV EMAIL] ${label} prepared for ${maskEmail(to)}`);
 };
 
 /**
