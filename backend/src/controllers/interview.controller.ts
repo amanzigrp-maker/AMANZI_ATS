@@ -10,6 +10,8 @@ import { aiWorkerService } from '../services/ai-worker.service';
 import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../middleware/auth.middleware';
 
+const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
+
 const validateSelectedAssessment = async (req: Request, assessmentId: number | null) => {
   if (!assessmentId) {
     throw new Error('Please choose a question bank before sending.');
@@ -646,8 +648,8 @@ const createNextAdaptiveQuestion = async (
  */
 export const searchCandidates = async (req: Request, res: Response) => {
   try {
-    const { query, email } = req.query;
-    const searchTerm = (query || email) as string;
+    const { query, email, search } = req.query;
+    const searchTerm = (query || email || search) as string;
     const tokens = searchTerm.trim().split(/\s+/).filter(Boolean);
 
     if (!searchTerm) {
@@ -705,17 +707,24 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
 
     const duration = validityMins || 5;
 
-    // 1. Validate candidate exists (case-insensitive)
+    // 1. Get or create candidate (case-insensitive)
+    let candidate;
     const candidateResult = await pool.query(
       'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',
       [email]
     );
 
     if (candidateResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Candidate not found' });
+      // Create new candidate if not found
+      const newCandidate = await pool.query(
+        'INSERT INTO candidates (full_name, email, phone, created_at) VALUES ($1, $2, $3, NOW()) RETURNING candidate_id, full_name, email',
+        [name || email.split('@')[0], email, phone || null]
+      );
+      candidate = newCandidate.rows[0];
+    } else {
+      candidate = candidateResult.rows[0];
     }
 
-    const candidate = candidateResult.rows[0];
     const candidateId = Number(candidate.candidate_id);
     const candidateName = String(name || candidate.full_name || '').trim() || candidate.full_name;
 
@@ -743,8 +752,8 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     // 3. Save in DB
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         token,
         candidate.email,
@@ -759,6 +768,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
         source,
         selectedAssessmentId,
         candidateId,
+        getUserId(req),
       ]
     );
 
@@ -785,16 +795,23 @@ export const inviteCredentials = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
 
+    // 1. Get or create candidate
+    let candidate;
     const candidateResult = await pool.query(
       'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',
       [email]
     );
 
     if (candidateResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Candidate not found' });
+      const newCandidate = await pool.query(
+        'INSERT INTO candidates (full_name, email, phone, created_at) VALUES ($1, $2, $3, NOW()) RETURNING candidate_id, full_name, email',
+        [name || email.split('@')[0], email, phone || null]
+      );
+      candidate = newCandidate.rows[0];
+    } else {
+      candidate = candidateResult.rows[0];
     }
 
-    const candidate = candidateResult.rows[0];
     const candidateId = Number(candidate.candidate_id);
     const candidateName = String(name || candidate.full_name || '').trim() || candidate.full_name;
     const token = crypto.randomBytes(32).toString('hex');
@@ -811,8 +828,8 @@ export const inviteCredentials = async (req: Request, res: Response) => {
 
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, false, null, $7, $8, $9, $10, $11)`,
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id, created_by) 
+       VALUES ($1, $2, $3, $4, $5, $6, false, null, $7, $8, $9, $10, $11, $12)`,
       [
         token,
         candidate.email,
@@ -825,6 +842,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
         source,
         selectedAssessmentId,
         candidateId,
+        getUserId(req),
       ]
     );
 
@@ -1787,15 +1805,28 @@ export const updateCandidateDecision = async (req: Request, res: Response) => {
  */
 export const getRecentInvites = async (req: Request, res: Response) => {
   try {
+    const userId = getUserId(req);
+    const userRole = String((req as any).user?.role || '').toLowerCase();
+    const params: any[] = [];
+    let whereClause = '';
+
+    if (userId && userRole !== 'admin' && userRole !== 'lead') {
+      params.push(userId);
+      whereClause = `WHERE t.created_by = $1`;
+    }
+
     const result = await pool.query(
       `SELECT 
         t.token, t.candidate_name, t.candidate_email, t.job_role, 
         t.expires_at, t.created_at, t.is_used, t.question_source,
+        t.candidate_id,
         a.title as assessment_title
        FROM interview_tokens t
        LEFT JOIN assessments a ON t.assessment_id = a.assessment_id
+       ${whereClause}
        ORDER BY t.created_at DESC 
-       LIMIT 50`
+       LIMIT 50`,
+      params
     );
     res.json({ success: true, data: result.rows });
   } catch (error) {
