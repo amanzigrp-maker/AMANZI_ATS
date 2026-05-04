@@ -12,6 +12,45 @@ import { getJwtSecret } from '../middleware/auth.middleware';
 import { CertificateService } from '../services/certificate.service';
 import { v4 as uuidv4 } from 'uuid';
 
+<<<<<<< Updated upstream
+const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
+=======
+/**
+ * Helper to check if a user is authorized to manage a candidate's interview.
+ * Admin: All
+ * Recruiter: Candidates they uploaded
+ * Lead: Candidates they or their team uploaded
+ */
+const checkInterviewAuthorization = async (req: Request, candidateEmail: string) => {
+  const user = (req as any).user;
+  const userId = Number(user?.userid ?? user?.id ?? 0);
+  const role = String(user?.role || '').toLowerCase();
+
+  if (role === 'admin') return true;
+  if (!userId) return false;
+
+  // Check if this candidate was uploaded by the user or their team
+  const query = `
+    SELECT 1 
+    FROM candidates c
+    WHERE c.email ILIKE $1
+      AND EXISTS (
+        SELECT 1 FROM resumes r 
+        JOIN users u ON r.uploaded_by = u.userid
+        WHERE r.candidate_id = c.candidate_id 
+        AND (
+          r.uploaded_by = $2 
+          OR ($3 = 'lead' AND u.created_by = $2)
+        )
+      )
+    LIMIT 1
+  `;
+  
+  const result = await pool.query(query, [candidateEmail, userId, role]);
+  return result.rows.length > 0;
+};
+>>>>>>> Stashed changes
+
 const validateSelectedAssessment = async (req: Request, assessmentId: number | null) => {
   if (!assessmentId) {
     throw new Error('Please choose a question bank before sending.');
@@ -696,8 +735,8 @@ const createNextAdaptiveQuestion = async (
  */
 export const searchCandidates = async (req: Request, res: Response) => {
   try {
-    const { query, email } = req.query;
-    const searchTerm = (query || email) as string;
+    const { query, email, search } = req.query;
+    const searchTerm = (query || email || search) as string;
     const tokens = searchTerm.trim().split(/\s+/).filter(Boolean);
 
     if (!searchTerm) {
@@ -706,6 +745,36 @@ export const searchCandidates = async (req: Request, res: Response) => {
 
     // Build prefix-compatible tsquery
     const tsQuery = tokens.map(t => `${t.replace(/[^\w]/g, '')}:*`).join(' & ');
+
+    // Role-based visibility filtering
+    const user = (req as any).user;
+    const userId = Number(user?.userid ?? user?.id ?? 0);
+    const role = String(user?.role || '').toLowerCase();
+
+    let roleFilter = '';
+    const params = [tsQuery, `%${searchTerm}%`];
+
+    if (role !== 'admin') {
+      params.push(userId);
+      if (role === 'lead') {
+        roleFilter = `
+          AND EXISTS (
+            SELECT 1 FROM resumes r_vis 
+            JOIN users u_vis ON r_vis.uploaded_by = u_vis.userid
+            WHERE r_vis.candidate_id = c.candidate_id 
+            AND (r_vis.uploaded_by = $3 OR u_vis.created_by = $3)
+          )
+        `;
+      } else {
+        roleFilter = `
+          AND EXISTS (
+            SELECT 1 FROM resumes r_vis 
+            WHERE r_vis.candidate_id = c.candidate_id 
+            AND r_vis.uploaded_by = $3
+          )
+        `;
+      }
+    }
 
     const result = await pool.query(
       `SELECT c.candidate_id, c.full_name, c.email, c.phone, c.location, 
@@ -727,12 +796,13 @@ export const searchCandidates = async (req: Request, res: Response) => {
        LEFT JOIN applications a ON c.candidate_id = a.candidate_id
        LEFT JOIN jobs j ON a.job_id = j.job_id
        WHERE 
-         c.email ILIKE $2 OR c.full_name ILIKE $2 OR
-         to_tsvector('english', coalesce(c.full_name, '') || ' ' || coalesce(c.email, '') || ' ' || coalesce(c.current_designation, '')) @@ to_tsquery('english', $1)
+         (c.email ILIKE $2 OR c.full_name ILIKE $2 OR
+          to_tsvector('english', coalesce(c.full_name, '') || ' ' || coalesce(c.email, '') || ' ' || coalesce(c.current_designation, '')) @@ to_tsquery('english', $1))
+         ${roleFilter}
        GROUP BY c.candidate_id
        ORDER BY rank DESC, c.full_name ASC
        LIMIT 10`,
-      [tsQuery, `%${searchTerm}%`]
+      params
     );
 
     res.json({ success: true, data: result.rows });
@@ -753,19 +823,32 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
 
+    // Authorization check
+    const isAuthorized = await checkInterviewAuthorization(req, email);
+    if (!isAuthorized) {
+      return res.status(403).json({ success: false, error: 'Access denied: You are not authorized to schedule an interview for this candidate.' });
+    }
+
     const duration = validityMins || 5;
 
-    // 1. Validate candidate exists (case-insensitive)
+    // 1. Get or create candidate (case-insensitive)
+    let candidate;
     const candidateResult = await pool.query(
       'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',
       [email]
     );
 
     if (candidateResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Candidate not found' });
+      // Create new candidate if not found
+      const newCandidate = await pool.query(
+        'INSERT INTO candidates (full_name, email, phone, created_at) VALUES ($1, $2, $3, NOW()) RETURNING candidate_id, full_name, email',
+        [name || email.split('@')[0], email, phone || null]
+      );
+      candidate = newCandidate.rows[0];
+    } else {
+      candidate = candidateResult.rows[0];
     }
 
-    const candidate = candidateResult.rows[0];
     const candidateId = Number(candidate.candidate_id);
     const candidateName = String(name || candidate.full_name || '').trim() || candidate.full_name;
 
@@ -793,8 +876,8 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     // 3. Save in DB
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         token,
         candidate.email,
@@ -809,6 +892,7 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
         source,
         selectedAssessmentId,
         candidateId,
+        getUserId(req),
       ]
     );
 
@@ -835,16 +919,32 @@ export const inviteCredentials = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Email is required' });
     }
 
+<<<<<<< Updated upstream
+    // 1. Get or create candidate
+    let candidate;
+=======
+    // Authorization check
+    const isAuthorized = await checkInterviewAuthorization(req, email);
+    if (!isAuthorized) {
+      return res.status(403).json({ success: false, error: 'Access denied: You are not authorized to schedule an interview for this candidate.' });
+    }
+
+>>>>>>> Stashed changes
     const candidateResult = await pool.query(
       'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',
       [email]
     );
 
     if (candidateResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Candidate not found' });
+      const newCandidate = await pool.query(
+        'INSERT INTO candidates (full_name, email, phone, created_at) VALUES ($1, $2, $3, NOW()) RETURNING candidate_id, full_name, email',
+        [name || email.split('@')[0], email, phone || null]
+      );
+      candidate = newCandidate.rows[0];
+    } else {
+      candidate = candidateResult.rows[0];
     }
 
-    const candidate = candidateResult.rows[0];
     const candidateId = Number(candidate.candidate_id);
     const candidateName = String(name || candidate.full_name || '').trim() || candidate.full_name;
     const token = crypto.randomBytes(32).toString('hex');
@@ -861,8 +961,8 @@ export const inviteCredentials = async (req: Request, res: Response) => {
 
     await pool.query(
       `INSERT INTO interview_tokens 
-       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id) 
-       VALUES ($1, $2, $3, $4, $5, $6, false, null, $7, $8, $9, $10, $11)`,
+       (token, candidate_email, candidate_name, job_role, duration_mins, expires_at, is_used, device_id, password, total_questions, question_source, assessment_id, candidate_id, created_by) 
+       VALUES ($1, $2, $3, $4, $5, $6, false, null, $7, $8, $9, $10, $11, $12)`,
       [
         token,
         candidate.email,
@@ -875,6 +975,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
         source,
         selectedAssessmentId,
         candidateId,
+        getUserId(req),
       ]
     );
 
@@ -1594,6 +1695,38 @@ export const getInterviewReport = async (req: Request, res: Response) => {
       ? `AND s.started_at >= $1::date AND s.started_at < ($2::date + INTERVAL '1 day')`
       : '';
 
+    // Role-based visibility filtering
+    const user = (req as any).user;
+    const userId = Number(user?.userid ?? user?.id ?? 0);
+    const role = String(user?.role || '').toLowerCase();
+    let roleClause = '';
+    const params = hasDateRange ? [from, to] : [];
+
+    if (role !== 'admin') {
+      const pIdx = params.length + 1;
+      params.push(userId);
+      if (role === 'lead') {
+        roleClause = `
+          AND EXISTS (
+            SELECT 1 FROM resumes r_vis 
+            JOIN users u_vis ON r_vis.uploaded_by = u_vis.userid
+            JOIN candidates c_vis ON r_vis.candidate_id = c_vis.candidate_id
+            WHERE c_vis.email = t.candidate_email 
+            AND (r_vis.uploaded_by = $${pIdx} OR u_vis.created_by = $${pIdx})
+          )
+        `;
+      } else {
+        roleClause = `
+          AND EXISTS (
+            SELECT 1 FROM resumes r_vis 
+            JOIN candidates c_vis ON r_vis.candidate_id = c_vis.candidate_id
+            WHERE c_vis.email = t.candidate_email 
+            AND r_vis.uploaded_by = $${pIdx}
+          )
+        `;
+      }
+    }
+
     const query = `
       SELECT 
         s.id as session_id,
@@ -1618,10 +1751,11 @@ export const getInterviewReport = async (req: Request, res: Response) => {
       JOIN interview_tokens t ON s.token = t.token
       WHERE s.is_submitted = true
       ${dateClause}
+      ${roleClause}
       ORDER BY s.completed_at DESC NULLS LAST
     `;
 
-    const params = hasDateRange ? [from, to] : [];
+
     const result = await pool.query(query, params);
 
     const data = result.rows.map((r: any) => ({
@@ -1724,6 +1858,38 @@ export const exportInterviewReport = async (req: Request, res: Response) => {
       ? `AND s.started_at >= $1::date AND s.started_at < ($2::date + INTERVAL '1 day')`
       : '';
 
+    // Role-based visibility filtering
+    const user = (req as any).user;
+    const userId = Number(user?.userid ?? user?.id ?? 0);
+    const role = String(user?.role || '').toLowerCase();
+    let roleClause = '';
+    const params = hasDateRange ? [from, to] : [];
+
+    if (role !== 'admin') {
+      const pIdx = params.length + 1;
+      params.push(userId);
+      if (role === 'lead') {
+        roleClause = `
+          AND EXISTS (
+            SELECT 1 FROM resumes r_vis 
+            JOIN users u_vis ON r_vis.uploaded_by = u_vis.userid
+            JOIN candidates c_vis ON r_vis.candidate_id = c_vis.candidate_id
+            WHERE c_vis.email = t.candidate_email 
+            AND (r_vis.uploaded_by = $${pIdx} OR u_vis.created_by = $${pIdx})
+          )
+        `;
+      } else {
+        roleClause = `
+          AND EXISTS (
+            SELECT 1 FROM resumes r_vis 
+            JOIN candidates c_vis ON r_vis.candidate_id = c_vis.candidate_id
+            WHERE c_vis.email = t.candidate_email 
+            AND r_vis.uploaded_by = $${pIdx}
+          )
+        `;
+      }
+    }
+
     const query = `
       SELECT 
         t.candidate_name,
@@ -1742,10 +1908,11 @@ export const exportInterviewReport = async (req: Request, res: Response) => {
       JOIN interview_tokens t ON s.token = t.token
       WHERE s.is_submitted = true
       ${dateClause}
+      ${roleClause}
       ORDER BY s.completed_at DESC NULLS LAST
     `;
 
-    const params = hasDateRange ? [from, to] : [];
+
     const result = await pool.query(query, params);
 
     const escapeCsv = (value: string | number): string => {
@@ -1799,6 +1966,20 @@ export const updateCandidateDecision = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Invalid session_id or decision' });
     }
 
+    // Authorization check
+    const sessionRes = await pool.query(
+      `SELECT t.candidate_email FROM interview_sessions s JOIN interview_tokens t ON s.token = t.token WHERE s.id = $1`,
+      [session_id]
+    );
+    if (sessionRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Session not found' });
+    }
+
+    const isAuthorized = await checkInterviewAuthorization(req, sessionRes.rows[0].candidate_email);
+    if (!isAuthorized) {
+      return res.status(403).json({ success: false, error: 'Access denied: You are not authorized to update this candidate decision.' });
+    }
+
     await pool.query(
       'UPDATE interview_sessions SET decision = $1 WHERE id = $2',
       [decision, session_id]
@@ -1837,15 +2018,65 @@ export const updateCandidateDecision = async (req: Request, res: Response) => {
  */
 export const getRecentInvites = async (req: Request, res: Response) => {
   try {
+<<<<<<< Updated upstream
+    const userId = getUserId(req);
+    const userRole = String((req as any).user?.role || '').toLowerCase();
+    const params: any[] = [];
+    let whereClause = '';
+
+    if (userId && userRole !== 'admin' && userRole !== 'lead') {
+      params.push(userId);
+      whereClause = `WHERE t.created_by = $1`;
+=======
+    // Role-based visibility filtering
+    const user = (req as any).user;
+    const userId = Number(user?.userid ?? user?.id ?? 0);
+    const role = String(user?.role || '').toLowerCase();
+    let roleClause = '';
+    const params = [];
+
+    if (role !== 'admin') {
+      params.push(userId);
+      if (role === 'lead') {
+        roleClause = `
+          AND EXISTS (
+            SELECT 1 FROM resumes r_vis 
+            JOIN users u_vis ON r_vis.uploaded_by = u_vis.userid
+            JOIN candidates c_vis ON r_vis.candidate_id = c_vis.candidate_id
+            WHERE c_vis.email = t.candidate_email 
+            AND (r_vis.uploaded_by = $1 OR u_vis.created_by = $1)
+          )
+        `;
+      } else {
+        roleClause = `
+          AND EXISTS (
+            SELECT 1 FROM resumes r_vis 
+            JOIN candidates c_vis ON r_vis.candidate_id = c_vis.candidate_id
+            WHERE c_vis.email = t.candidate_email 
+            AND r_vis.uploaded_by = $1
+          )
+        `;
+      }
+>>>>>>> Stashed changes
+    }
+
     const result = await pool.query(
       `SELECT 
         t.token, t.candidate_name, t.candidate_email, t.job_role, 
         t.expires_at, t.created_at, t.is_used, t.question_source,
+        t.candidate_id,
         a.title as assessment_title
        FROM interview_tokens t
        LEFT JOIN assessments a ON t.assessment_id = a.assessment_id
+<<<<<<< Updated upstream
+       ${whereClause}
+=======
+       WHERE 1=1
+       ${roleClause}
+>>>>>>> Stashed changes
        ORDER BY t.created_at DESC 
-       LIMIT 50`
+       LIMIT 50`,
+      params
     );
     res.json({ success: true, data: result.rows });
   } catch (error) {

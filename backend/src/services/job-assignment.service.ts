@@ -99,18 +99,6 @@ class JobAssignmentService {
         LEFT JOIN clients c ON c.client_id = j.client_id
         LEFT JOIN applications a 
                ON a.job_id = j.job_id
-              AND a.status IN (
-                'pending',
-                'screening',
-                'interview',
-                'offered',
-                'accepted',
-                'rejected',
-                'vendor_applied',
-                'vendor_reviewing',
-                'vendor_shortlisted',
-                'vendor_rejected'
-              )
         WHERE 
           j.status = 'active'
           AND (

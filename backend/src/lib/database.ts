@@ -107,12 +107,14 @@ export async function testConnection(): Promise<boolean> {
         device_id TEXT,
         password TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        candidate_phone TEXT
+        candidate_phone TEXT,
+        created_by INTEGER
       )
     `);
 
     // Add columns if they don't exist (for existing databases)
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS candidate_phone TEXT`);
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS created_by INTEGER`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS job_role TEXT`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS duration_mins INTEGER DEFAULT 5`);
     await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS password TEXT`);

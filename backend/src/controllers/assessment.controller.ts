@@ -99,14 +99,15 @@ const parseCsvRows = (csv: string): string[][] => {
   return rows;
 };
 
-const normalizeCorrectOption = (value: unknown): "A" | "B" | "C" | "D" => {
+const normalizeCorrectOption = (value: unknown): string => {
   const raw = String(value || "").trim().toUpperCase();
-  // Extract first A, B, C, or D found in case AI returns "A)" or "Option A"
-  const match = raw.match(/\b([A-D])\b/);
+  // Extract first valid key found in case AI returns "A)" or "Option A"
+  const match = raw.match(/\b([A-H1-8])\b/);
   const normalized = match ? match[1] : raw;
 
-  if (optionKeys.includes(normalized as any)) return normalized as "A" | "B" | "C" | "D";
-  throw new Error(`Each question needs correct_option as A, B, C, or D. Got: "${value}"`);
+  if (optionKeys.includes(normalized as any)) return normalized;
+  // If it's not in our known keys, just return the raw trimmed value and let validation handle it
+  return normalized;
 };
 
 const difficultyScore = (difficulty: unknown) => {
@@ -540,12 +541,13 @@ const parseInlineAnswerQuestions = (text: string): NormalizedQuestion[] => {
       const questionNumber = Number(q.number || 0);
       const inferredDifficulty =
         questionNumber <= 60 ? "foundation" :
-          questionNumber <= 130 ? "developing" :
-            questionNumber <= 195 ? "advanced" :
-              "expert";
+        questionNumber <= 130 ? "developing" :
+        questionNumber <= 195 ? "advanced" :
+        "expert";
 
       try {
         questions.push(validateQuestion({
+          ...q,
           question_text: String(q.question_text || "").replace(/\n+/g, " ").trim(),
           option_a: String(q.option_a || "").replace(/\n+/g, " ").trim(),
           option_b: String(q.option_b || "").replace(/\n+/g, " ").trim(),
@@ -554,9 +556,9 @@ const parseInlineAnswerQuestions = (text: string): NormalizedQuestion[] => {
           correct_option: String(q.correct_option || "").toUpperCase().trim(),
           difficulty: inferredDifficulty,
           metadata: {
-            source_parser: "inline-answer-regex",
+            source_parser: "inline-regex",
             pdf_question_number: questionNumber || undefined,
-          },
+          }
         }));
       } catch (err) {
         // Skip malformed blocks.
@@ -687,6 +689,7 @@ const generateAiQuestions = async (role: string, topic: string, count: number, p
     const model = genAI.getGenerativeModel({
       model: process.env.GEMINI_MODEL || "gemini-2.5-flash"
     });
+
 
 
     let retries = 0;

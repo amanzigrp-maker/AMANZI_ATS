@@ -608,12 +608,47 @@ export const updateApplicationStatus = async (req: AuthenticatedRequest, res: Re
   try {
     const { applicationId } = req.params;
     const { status, notes } = req.body;
-    const role = req.user?.role;
+    const userId = req.user?.id;
+    const roleNormalized = role?.toLowerCase();
 
-    if (role?.toLowerCase() !== "admin" && role?.toLowerCase() !== "lead" && role?.toLowerCase() !== "recruiter") {
+    if (roleNormalized !== "admin" && roleNormalized !== "lead" && roleNormalized !== "recruiter") {
       return res
         .status(403)
         .json({ error: "Only admins, leads, and recruiters can update application status" });
+    }
+
+    // Authorization check for non-admins
+    if (roleNormalized !== "admin") {
+      let authQuery = '';
+      const authParams = [applicationId, userId];
+
+      if (roleNormalized === 'lead') {
+        authQuery = `
+          SELECT 1 FROM applications a
+          WHERE a.application_id = $1
+          AND (
+            a.uploaded_by_user_id = $2
+            OR a.vendor_id = $2
+            OR EXISTS (
+              SELECT 1 FROM users u_sub 
+              WHERE u_sub.userid = COALESCE(a.uploaded_by_user_id, a.vendor_id)
+              AND u_sub.created_by = $2
+            )
+          )
+        `;
+      } else {
+        // Recruiter
+        authQuery = `
+          SELECT 1 FROM applications a
+          WHERE a.application_id = $1
+          AND (a.uploaded_by_user_id = $2 OR a.vendor_id = $2)
+        `;
+      }
+
+      const authCheck = await pool.query(authQuery, authParams);
+      if (authCheck.rowCount === 0) {
+        return res.status(403).json({ error: "Access denied: You are not authorized to update this application status." });
+      }
     }
 
     const result = await pool.query(

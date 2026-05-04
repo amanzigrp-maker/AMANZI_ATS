@@ -409,17 +409,60 @@ export default function Assessments() {
                             onChange={(e) => searchCandidates(e.target.value)} 
                           />
                         </div>
-                        {!selectedCandidate && candidateResults.length > 0 && (
-                          <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-100 bg-white shadow-sm divide-y">
-                            {candidateResults.map(c => (
-                              <div key={c.candidate_id} className="p-3 hover:bg-slate-50 cursor-pointer flex items-center justify-between" onClick={() => setSelectedCandidate(c)}>
-                                <div>
-                                  <p className="text-sm font-medium">{c.full_name}</p>
-                                  <p className="text-[10px] text-slate-400">{c.email}</p>
-                                </div>
-                                <CheckCircle2 className="h-4 w-4 text-emerald-500 opacity-0 group-hover:opacity-100" />
+                        {!selectedCandidate && (candidateSearch.length > 0 || recentInvites.length > 0) && (
+                          <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl divide-y z-50 absolute w-full mt-1">
+                            {candidateSearch.length > 0 ? (
+                              candidateResults.length > 0 ? (
+                                candidateResults.map(c => (
+                                  <div key={c.candidate_id} className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group" onClick={() => setSelectedCandidate(c)}>
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                                        {c.full_name.charAt(0)}
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-medium">{c.full_name}</p>
+                                        <p className="text-[10px] text-slate-400">{c.email}</p>
+                                      </div>
+                                    </div>
+                                    <CheckCircle2 className="h-4 w-4 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                  </div>
+                                ))
+                              ) : !searchingCandidates && (
+                                <div className="p-4 text-center text-xs text-slate-400 italic">No candidates found.</div>
+                              )
+                            ) : (
+                              <>
+                                <div className="px-3 py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Recent Recipients</div>
+                                {recentInvites.slice(0, 5).map((invite, idx) => (
+                                  <div 
+                                    key={invite.token || idx} 
+                                    className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group" 
+                                    onClick={() => setSelectedCandidate({ 
+                                      candidate_id: invite.candidate_id, 
+                                      full_name: invite.candidate_name, 
+                                      email: invite.candidate_email,
+                                      phone: invite.candidate_phone
+                                    })}
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <div className="h-7 w-7 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-[10px] font-bold">
+                                        {invite.candidate_name.charAt(0)}
+                                      </div>
+                                      <div>
+                                        <p className="text-sm font-medium">{invite.candidate_name}</p>
+                                        <p className="text-[10px] text-slate-400">{invite.candidate_email}</p>
+                                      </div>
+                                    </div>
+                                    <Send className="h-3 w-3 text-slate-300 group-hover:text-blue-500 transition-colors" />
+                                  </div>
+                                ))}
+                              </>
+                            )}
+                            {searchingCandidates && (
+                              <div className="p-4 flex items-center justify-center gap-2 text-xs text-slate-400">
+                                <Loader2 className="h-3 w-3 animate-spin" /> Searching...
                               </div>
-                            ))}
+                            )}
                           </div>
                         )}
                       </div>
