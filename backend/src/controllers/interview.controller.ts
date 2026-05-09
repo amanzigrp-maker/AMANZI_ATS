@@ -13,10 +13,7 @@ import { CertificateService } from '../services/certificate.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
 /**
  * Helper to check if a user is authorized to manage a candidate's interview.
  * Admin: All
@@ -922,11 +919,8 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     if (!isAuthorized) {
       return res.status(403).json({ success: false, error: 'Access denied: You are not authorized to schedule an interview for this candidate.' });
     }
-<<<<<<< Updated upstream
-=======
 
     // 1. Get or create candidate
->>>>>>> Stashed changes
     let candidate;
     const candidateResult = await pool.query(
       'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',
