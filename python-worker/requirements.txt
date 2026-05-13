@@ -31,9 +31,7 @@ rapidfuzz==3.14.3
 # -------------------------
 # Required for local sentence-transformers embeddings when
 # EMBEDDING_PROVIDER=sentence-transformers
-numpy==1.24.3
-torch==2.5.1
-sentence-transformers==3.3.1
+
 
 # -------------------------
 # Database & Vector Search

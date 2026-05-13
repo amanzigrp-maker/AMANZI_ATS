@@ -213,15 +213,15 @@ export async function testConnection(): Promise<boolean> {
       `);
 
     // Add difficulty column if it doesn't exist
-     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'medium'`);
-     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS options JSONB`);
-     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'single'`);
-     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS source_question_id INTEGER`);
-     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(6,4) DEFAULT 0.5`);
-     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS selection_mode TEXT`);
-     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS semantic_similarity NUMERIC(8,6)`);
-     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS semantic_topic TEXT`);
-     await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS correct_answers JSONB`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'medium'`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS options JSONB`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS question_type VARCHAR(20) DEFAULT 'single'`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS source_question_id INTEGER`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(6,4) DEFAULT 0.5`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS selection_mode TEXT`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS semantic_similarity NUMERIC(8,6)`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS semantic_topic TEXT`);
+    await pool.query(`ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS correct_answers JSONB`);
 
     // Ensure interview_responses table exists
     await pool.query(`
@@ -375,39 +375,39 @@ export async function testConnection(): Promise<boolean> {
     await pool.query(`ALTER TABLE candidate_answers ADD COLUMN IF NOT EXISTS question_text TEXT`);
     await pool.query(`ALTER TABLE candidate_answers ADD COLUMN IF NOT EXISTS selected_option_text TEXT`);
 
-    await pool.query(`ALTER TABLE questions DROP CONSTRAINT IF EXISTS questions_correct_option_check`).catch(() => {});
-    await pool.query(`ALTER TABLE question_options DROP CONSTRAINT IF EXISTS question_options_option_key_check`).catch(() => {});
-    await pool.query(`ALTER TABLE candidate_answers DROP CONSTRAINT IF EXISTS candidate_answers_selected_option_check`).catch(() => {});
-    
+    await pool.query(`ALTER TABLE questions DROP CONSTRAINT IF EXISTS questions_correct_option_check`).catch(() => { });
+    await pool.query(`ALTER TABLE question_options DROP CONSTRAINT IF EXISTS question_options_option_key_check`).catch(() => { });
+    await pool.query(`ALTER TABLE candidate_answers DROP CONSTRAINT IF EXISTS candidate_answers_selected_option_check`).catch(() => { });
+
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_metadata_gin ON questions USING GIN (metadata)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions (topic)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_sets_assessment ON question_sets (assessment_id)`);
     await pool.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(6,4) DEFAULT 0.5`);
 
-    await pool.query(`CREATE EXTENSION IF NOT EXISTS vector`).catch((error) => {
-      console.warn('Vector extension check skipped:', error instanceof Error ? error.message : error);
-    });
+    // await pool.query(`CREATE EXTENSION IF NOT EXISTS vector`).catch((error) => {
+    //   console.warn('Vector extension check skipped:', error instanceof Error ? error.message : error);
+    // });
 
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS question_embeddings (
-        question_id INTEGER PRIMARY KEY REFERENCES questions(question_id) ON DELETE CASCADE,
-        assessment_id INTEGER NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
-        topic TEXT,
-        content TEXT,
-        embedding VECTOR(384),
-        model_name TEXT,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
+    // await pool.query(`
+    //   CREATE TABLE IF NOT EXISTS question_embeddings (
+    //     question_id INTEGER PRIMARY KEY REFERENCES questions(question_id) ON DELETE CASCADE,
+    //     assessment_id INTEGER NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
+    //     topic TEXT,
+    //     content TEXT,
+    //     embedding VECTOR(384),
+    //     model_name TEXT,
+    //     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    //   )
+    // `);
 
-    await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS topic TEXT`);
-    await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS content TEXT`);
-    await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS model_name TEXT`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_embeddings_assessment ON question_embeddings (assessment_id)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_embeddings_topic ON question_embeddings (topic)`);
+    // await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS topic TEXT`);
+    // await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS content TEXT`);
+    // await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS model_name TEXT`);
+    // await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_embeddings_assessment ON question_embeddings (assessment_id)`);
+    // await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_embeddings_topic ON question_embeddings (topic)`);
 
     // --- IRT (Item Response Theory) TABLES ---
-    
+
     // 1. Update questions table with IRT parameters
     await pool.query(`
       ALTER TABLE questions 
@@ -435,7 +435,7 @@ export async function testConnection(): Promise<boolean> {
     await pool.query(`
       ALTER TABLE candidate_skill_theta ADD COLUMN IF NOT EXISTS candidate_email TEXT;
       ALTER TABLE candidate_skill_theta ALTER COLUMN candidate_id DROP NOT NULL;
-    `).catch(() => {});
+    `).catch(() => { });
 
     // 3. Normalized IRT Responses for Calibration
     await pool.query(`
@@ -456,7 +456,7 @@ export async function testConnection(): Promise<boolean> {
       ALTER TABLE irt_responses ADD COLUMN IF NOT EXISTS candidate_email TEXT;
       ALTER TABLE irt_responses ALTER COLUMN candidate_id DROP NOT NULL;
       ALTER TABLE irt_responses ADD COLUMN IF NOT EXISTS question_text TEXT;
-    `).catch(() => {});
+    `).catch(() => { });
 
     // Ensure certificates table exists
     await pool.query(`

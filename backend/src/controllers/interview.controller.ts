@@ -14,7 +14,6 @@ import { v4 as uuidv4 } from 'uuid';
 
 const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
 
-
 /**
  * Helper to check if a user is authorized to manage a candidate's interview.
  * Admin: All
@@ -954,7 +953,6 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     }
 
     // 1. Get or create candidate
-
     let candidate;
     const candidateResult = await pool.query(
       'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',
