@@ -1,0 +1,53 @@
+<svg width="1440" height="1024" viewBox="0 0 1440 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1440" height="1024" fill="#020617"/>
+  
+  <!-- Left Volumetric Beam -->
+  <g style="mix-blend-mode: screen" opacity="0.7">
+    <ellipse cx="100" cy="-50" rx="300" ry="900" transform="rotate(25 100 -50)" fill="url(#beam_grad_left)" />
+  </g>
+  
+  <!-- Right Volumetric Beam -->
+  <g style="mix-blend-mode: screen" opacity="0.7">
+    <ellipse cx="1340" cy="-50" rx="300" ry="900" transform="rotate(-25 1340 -50)" fill="url(#beam_grad_right)" />
+  </g>
+  
+  <!-- Central Glow for Headline -->
+  <circle cx="720" cy="512" r="500" fill="url(#center_glow)" opacity="0.15" style="mix-blend-mode: screen" />
+
+  <!-- Bottom "Earth" Horizon Glow -->
+  <g style="mix-blend-mode: screen">
+    <ellipse cx="720" cy="1100" rx="1200" ry="500" fill="url(#horizon_glow)" opacity="0.6" />
+    <!-- Sharp Horizon Rim -->
+    <path d="M-100 1000 Q 720 700 1540 1000" stroke="url(#horizon_rim)" stroke-width="4" opacity="0.8" style="filter: blur(2px);" />
+  </g>
+
+  <defs>
+    <radialGradient id="beam_grad_left" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(100 -50) rotate(90) scale(900 300)">
+      <stop offset="0" stop-color="#E0F2FE" stop-opacity="1"/>
+      <stop offset="0.4" stop-color="#38BDF8" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="beam_grad_right" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1340 -50) rotate(90) scale(900 300)">
+      <stop offset="0" stop-color="#E0F2FE" stop-opacity="1"/>
+      <stop offset="0.4" stop-color="#38BDF8" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="center_glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(720 512) scale(500)">
+      <stop offset="0" stop-color="#38BDF8" stop-opacity="0.4"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="horizon_glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(720 1100) scale(500 1200) rotate(-90)">
+      <stop offset="0" stop-color="#0EA5E9" stop-opacity="0.8"/>
+      <stop offset="1" stop-color="#020617" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="horizon_rim" x1="-100" y1="1000" x2="1540" y2="1000" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0EA5E9" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#E0F2FE" stop-opacity="1"/>
+      <stop offset="1" stop-color="#0EA5E9" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+</svg>
