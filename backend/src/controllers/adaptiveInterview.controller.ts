@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
 import { AdaptiveEngineService, AdaptiveSessionState } from '../services/adaptiveEngine.service';
-import { sendInterviewResults } from '../services/email.service';
+import { pool } from '../lib/database';
+import { sendCompletionReport } from './interview.controller';
+
+// ... (sessionStore stays the same)
+
 
 // Use a simple in-memory session store for this demo. 
 // In production, use Redis or a sessions table.
@@ -14,7 +18,6 @@ export const startInterview = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Email and Skill are required' });
     }
 
-    const { pool } = await import('../lib/database');
     const tokenRes = await pool.query(
       'SELECT total_questions FROM interview_tokens WHERE candidate_email ILIKE $1 ORDER BY created_at DESC LIMIT 1',
       [email]
@@ -53,8 +56,6 @@ export const submitAnswer = async (req: Request, res: Response) => {
     }
 
     // 1. Verify answer (simplified check against DB)
-    // In production, retrieve the correct_answer from DB
-    const { pool } = await import('../lib/database');
     const qResult = await pool.query('SELECT correct_option, difficulty_b FROM questions WHERE question_id = $1', [questionId]);
     
     if (qResult.rows.length === 0) {
@@ -67,23 +68,42 @@ export const submitAnswer = async (req: Request, res: Response) => {
     const { newTheta, isFinished } = await AdaptiveEngineService.submitAnswer(session, questionId, isCorrect);
 
     if (isFinished) {
-      // Send completion email (simplified score calculation for legacy compatibility)
       const proficiency = Math.round((1 / (1 + Math.exp(-1.702 * newTheta))) * 100);
+      const candidateName = session.candidateEmail.split('@')[0];
       
-      try {
-        await sendInterviewResults(
-          session.candidateEmail,
-          session.candidateEmail.split('@')[0], // Fallback name
-          proficiency,
-          100, // Total possible scale
-          session.skill,
-          null, // Time taken optional
-          {} // Breakdown optional
-        );
-        console.log(`\x1b[32m✅ Adaptive Results email sent to ${session.candidateEmail} (Proficiency: ${proficiency}%)\x1b[0m`);
-      } catch (e) {
-        console.error('Failed to send adaptive email:', e);
-      }
+      // Fire and forget: Generate certificate and send email
+      (async () => {
+        try {
+          console.log(`[AdaptiveInterview] Generating certificate for ${session.candidateEmail}...`);
+          const certId = CertificateService.generateCertificateId();
+          
+          const certificateBuffer = await CertificateService.generatePDF({
+            certificateId: certId,
+            name: candidateName,
+            test: session.skill,
+            date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+            photoPath: '', // No photo in this flow currently
+            score: proficiency,
+            analytics: { theta: newTheta }
+          });
+
+          await sendInterviewResults(
+            session.candidateEmail,
+            candidateName,
+            proficiency,
+            100,
+            session.skill,
+            null,
+            {},
+            { correct: proficiency, attempted: 100 }, // Manual stats
+            certificateBuffer,
+            certId
+          );
+          console.log(`[AdaptiveInterview] Certificate and email sent for ${session.candidateEmail}`);
+        } catch (err) {
+          console.error('[AdaptiveInterview] Failed to send completion report:', err);
+        }
+      })();
 
       sessionStore.delete(sessionId);
       return res.json({
@@ -94,6 +114,7 @@ export const submitAnswer = async (req: Request, res: Response) => {
         message: 'Interview completed successfully'
       });
     }
+
 
     // 3. Get Next Question
     const nextQuestion = await AdaptiveEngineService.getNextQuestion(session);
@@ -113,6 +134,7 @@ export const submitAnswer = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to process answer' });
   }
 };
+
 
 export const getReport = async (req: Request, res: Response) => {
   try {

@@ -13,10 +13,8 @@ import { CertificateService } from '../services/certificate.service';
 import { v4 as uuidv4 } from 'uuid';
 
 const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
-<<<<<<< Updated upstream
-=======
 
->>>>>>> Stashed changes
+
 /**
  * Helper to check if a user is authorized to manage a candidate's interview.
  * Admin: All
@@ -322,8 +320,19 @@ const shouldUseMultiSelect = (role: string, skillFocus: string, aiQuestionCount:
   return aiQuestionCount % 4 === 2 || aiQuestionCount % 4 === 3;
 };
 
-const sendCompletionReport = async (sessionId: number) => {
+export const sendCompletionReport = async (sessionId: number) => {
+  console.log(`[sendCompletionReport] Starting for session ${sessionId}...`);
   try {
+    // PREVENT DUPLICATE EMAILS: Check if report already sent/certificate exists
+    const existingCert = await pool.query(
+      'SELECT id FROM certificates WHERE interview_session_id = $1 LIMIT 1',
+      [sessionId]
+    );
+    if (existingCert.rows.length) {
+      console.log(`[sendCompletionReport] Report already sent for session ${sessionId}. Skipping email dispatch.`);
+      return;
+    }
+
     const sessionResult = await pool.query(
       `SELECT s.*, t.candidate_name, t.job_role, t.duration_mins, t.candidate_email
        FROM interview_sessions s
@@ -332,7 +341,10 @@ const sendCompletionReport = async (sessionId: number) => {
       [sessionId]
     );
 
-    if (!sessionResult.rows.length) return;
+    if (!sessionResult.rows.length) {
+      console.error(`[sendCompletionReport] Session ${sessionId} not found.`);
+      return;
+    }
     const sess = sessionResult.rows[0];
     const configuredTotal = Number(sess.total_questions) || 0;
     const correctCount = Number(sess.score) || 0;
@@ -374,6 +386,7 @@ const sendCompletionReport = async (sessionId: number) => {
     const certificateId = CertificateService.generateCertificateId();
     let certificateBuffer: Buffer | undefined;
 
+    console.log(`[sendCompletionReport] Generating certificate ${certificateId} for ${sess.candidate_name}...`);
     try {
       // Fetch selfie from verification
       const verifyRes = await pool.query(
@@ -387,9 +400,13 @@ const sendCompletionReport = async (sessionId: number) => {
           const photoData = await fs.readFile(verifyRes.rows[0].selfie_path);
           candidatePhoto = `data:image/jpeg;base64,${photoData.toString('base64')}`;
         } catch (photoErr) {
-          console.warn('Could not read selfie for certificate:', photoErr);
+          console.warn('[sendCompletionReport] Could not read selfie for certificate:', photoErr);
         }
       }
+
+      const precisionScore = configuredTotal > 0 
+        ? Number(((correctCount / configuredTotal) * 100).toFixed(2)) 
+        : 0;
 
       certificateBuffer = await CertificateService.generatePDF({
         name: sess.candidate_name,
@@ -397,22 +414,34 @@ const sendCompletionReport = async (sessionId: number) => {
         date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
         certificateId,
         photoPath: verifyRes.rows[0]?.selfie_path || candidatePhoto || '',
+        score: precisionScore,
+        analytics: {
+          breakdown: breakdownMap
+        }
       });
 
+      console.log(`[sendCompletionReport] Saving certificate to DB...`);
       // Save to DB
-      await CertificateService.saveCertificate({
+      await CertificateService.saveCertificate(String(sessionId), {
         certificateId,
-        interviewSessionId: sessionId,
-        candidateName: sess.candidate_name,
-        candidateEmail: sess.candidate_email,
-        candidatePhoto,
-        testName: sess.role || sess.job_role || 'Technical Assessment',
-        score: Math.round((correctCount / configuredTotal) * 100)
+        name: sess.candidate_name,
+        candidate_email: sess.candidate_email,
+        test: sess.role || sess.job_role || 'Technical Assessment',
+        date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+        photoUrl: verifyRes.rows[0]?.selfie_path || candidatePhoto || '',
+        score: precisionScore,
+        analytics: {
+          breakdown: breakdownMap
+        }
       });
+
+      console.log(`[sendCompletionReport] Certificate saved successfully in DB.`);
     } catch (certErr) {
-      console.error('Failed to generate certificate for report:', certErr);
+      console.error('❌ [sendCompletionReport] Failed to generate/save certificate:', certErr);
     }
 
+
+    console.log(`[sendCompletionReport] Dispatching email to ${sess.candidate_email}...`);
     await sendInterviewResults(
       sess.candidate_email,
       sess.candidate_name,
@@ -429,8 +458,9 @@ const sendCompletionReport = async (sessionId: number) => {
       certificateBuffer,
       certificateId
     );
-  } catch (emailErr) {
-    console.error('Failed to send completion report email:', emailErr);
+    console.log(`[sendCompletionReport] Successfully completed for session ${sessionId}.`);
+  } catch (err) {
+    console.error(`❌ [sendCompletionReport] Fatal error for session ${sessionId}:`, err);
   }
 };
 
@@ -750,7 +780,7 @@ export const searchCandidates = async (req: Request, res: Response) => {
     const role = String(user?.role || '').toLowerCase();
 
     let roleFilter = '';
-    const params = [tsQuery, `%${searchTerm}%`];
+    const params: any[] = [tsQuery, `%${searchTerm}%`];
 
     if (role !== 'admin') {
       params.push(userId);
@@ -922,11 +952,9 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     if (!isAuthorized) {
       return res.status(403).json({ success: false, error: 'Access denied: You are not authorized to schedule an interview for this candidate.' });
     }
-<<<<<<< Updated upstream
-=======
 
     // 1. Get or create candidate
->>>>>>> Stashed changes
+
     let candidate;
     const candidateResult = await pool.query(
       'SELECT candidate_id, full_name, email FROM candidates WHERE email ILIKE $1',
@@ -1646,24 +1674,10 @@ export const submitAnswers = async (req: Request, res: Response) => {
         const completedAt = sess.completed_at ? new Date(sess.completed_at) : new Date();
         const timeTakenMins = startedAt ? Math.round((completedAt.getTime() - startedAt.getTime()) / 60000) : null;
 
-        await sendInterviewResults(
-          sess.candidate_email,
-          sess.candidate_name,
-          sess.score,
-          configuredTotal,
-          sess.role,
-          timeTakenMins,
-          breakdownMap,
-          {
-            correct: Number(sess.score) || 0,
-            incorrect: Math.max(0, configuredTotal - (Number(sess.score) || 0)),
-            attempted: configuredTotal,
-          }
-        );
-        console.log(`✅ Results email sent to ${sess.candidate_email}`);
+        await sendCompletionReport(Number(session_id));
       }
     } catch (emailErr) {
-      console.error('⚠️ Failed to send results email (non-fatal):', emailErr);
+      console.error('Failed to trigger completion report from submitAnswers:', emailErr);
     }
 
     res.json({ success: true, score });
@@ -1698,7 +1712,7 @@ export const getInterviewReport = async (req: Request, res: Response) => {
     const userId = Number(user?.userid ?? user?.id ?? 0);
     const role = String(user?.role || '').toLowerCase();
     let roleClause = '';
-    const params = hasDateRange ? [from, to] : [];
+    const params: any[] = hasDateRange ? [from, to] : [];
 
     if (role !== 'admin') {
       const pIdx = params.length + 1;
@@ -1744,9 +1758,11 @@ export const getInterviewReport = async (req: Request, res: Response) => {
           WHEN s.completed_at IS NOT NULL AND s.started_at IS NOT NULL 
           THEN EXTRACT(EPOCH FROM (s.completed_at - s.started_at)) / 60 
           ELSE NULL 
-        END as time_taken_mins
+        END as time_taken_mins,
+        c.id as certificate_id
       FROM interview_sessions s
       JOIN interview_tokens t ON s.token = t.token
+      LEFT JOIN certificates c ON s.id = c.interview_session_id
       WHERE s.is_submitted = true
       ${dateClause}
       ${roleClause}
@@ -1770,6 +1786,7 @@ export const getInterviewReport = async (req: Request, res: Response) => {
       started_at: r.started_at ? new Date(r.started_at).toISOString() : null,
       completed_at: r.completed_at ? new Date(r.completed_at).toISOString() : null,
       decision: r.decision || 'pending',
+      certificate_id: r.certificate_id,
     }));
 
     const sessionIds = data.map((row: any) => Number(row.session_id)).filter(Boolean);
@@ -1861,7 +1878,7 @@ export const exportInterviewReport = async (req: Request, res: Response) => {
     const userId = Number(user?.userid ?? user?.id ?? 0);
     const role = String(user?.role || '').toLowerCase();
     let roleClause = '';
-    const params = hasDateRange ? [from, to] : [];
+    const params: any[] = hasDateRange ? [from, to] : [];
 
     if (role !== 'admin') {
       const pIdx = params.length + 1;

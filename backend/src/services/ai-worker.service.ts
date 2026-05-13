@@ -238,7 +238,19 @@ export class AIWorkerService {
 
       this.pythonProcess.stderr?.on('data', (d) => {
         const text = d.toString().trim();
-        if (text) console.error(`[Python ERROR] ${text}`);
+        if (!text) return;
+
+        // Uvicorn/FastAPI often log startup info to stderr
+        const isActuallyInfo = text.includes('INFO:') || 
+                              text.includes('Started server process') || 
+                              text.includes('Waiting for application startup') || 
+                              text.includes('Application startup complete');
+
+        if (isActuallyInfo) {
+          logDebug(`[Python] ${text}`);
+        } else {
+          console.error(`[Python ERROR] ${text}`);
+        }
       });
 
       this.pythonProcess.on('error', reject);

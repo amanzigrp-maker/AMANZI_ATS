@@ -36,7 +36,7 @@ interface Question {
   question_type?: "single" | "multiple";
 }
 
-const INSTRUCTION_SECONDS = 30;
+const INSTRUCTION_SECONDS = 10;
 const INTERVIEW_SECONDS = 60;
 
 export default function InterviewPage() {
@@ -404,15 +404,23 @@ export default function InterviewPage() {
     }
   }, [status]);
 
+  // Reset timer on new question
   useEffect(() => {
-    if (status !== "interviewing" || timeLeft <= 0) return;
+    if (status === "interviewing") {
+      setTimeLeft(INTERVIEW_SECONDS);
+    }
+  }, [currentQuestionIndex, status]);
+
+  // Timer Effect
+  useEffect(() => {
+    if (status !== "interviewing" || timeLeft <= 0 || isSubmitting) return;
     const currentQuestion = questions[currentQuestionIndex];
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
           clearInterval(timer);
-          // When time runs out, try to submit current answer if selected, or just finish
+          // When time runs out, try to submit current answer if selected
           if (currentQuestion) {
             handleAnswerSubmit(answers[currentQuestion.id] || "");
           }
@@ -423,7 +431,7 @@ export default function InterviewPage() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [status, timeLeft, questions, currentQuestionIndex, answers, handleAnswerSubmit]);
+  }, [status, timeLeft, questions, currentQuestionIndex, answers, handleAnswerSubmit, isSubmitting]);
 
   useEffect(() => {
     if (status !== "instructions") return;
@@ -465,6 +473,7 @@ export default function InterviewPage() {
       setIsGeneratingCert(false);
     }
   };
+
 
   const fetchQuestions = async (sId: string | number, jwt: string | null = jwtToken) => {
     const res = await fetch(`/api/interview/questions?session_id=${sId}`, {

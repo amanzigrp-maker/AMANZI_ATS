@@ -31,7 +31,6 @@ import InterviewPage from "./pages/InterviewPage";
 import InterviewLogin from "./pages/InterviewLogin";
 import InterviewSession from "./pages/InterviewSession";
 import NotFound from "./pages/NotFound";
-import VerifyCertificate from "./pages/VerifyCertificate";
 
 
 // Admin Components & Pages
@@ -51,6 +50,7 @@ import BulkUpload from "./pages/admin/BulkUpload";
 import CandidateDetail from "./pages/admin/CandidateDetail";
 import JobApplications from "./pages/admin/JobApplications";
 import Analytics from "./pages/admin/Analytics";
+import VerifyCertificate from "./pages/VerifyCertificate";
 import AdminNotifications from "./pages/admin/AdminNotifications";
 import JobRecommendations from "./pages/admin/JobRecommendations";
 import AdminProctoringPage from "./pages/admin/AdminProctoringPage";
@@ -80,6 +80,7 @@ const App: React.FC = () => {
                 <Route path="/" element={<Landing />} />
                 <Route path="/login" element={<Login />} />
                 <Route path="/forgot-password" element={<PasswordReset />} />
+                <Route path="/verify-certificate/:id" element={<VerifyCertificate />} />
                 <Route path="/interview" element={<InterviewPage />} />
                 <Route path="/interview-login" element={<InterviewLogin />} />
                 <Route path="/interview-session" element={<InterviewSession />} />
@@ -151,7 +152,6 @@ const App: React.FC = () => {
                 />
 
                 {/* Catch-All (404) */}
-                <Route path="/verify/:certificateId" element={<VerifyCertificate />} />
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </BrowserRouter>

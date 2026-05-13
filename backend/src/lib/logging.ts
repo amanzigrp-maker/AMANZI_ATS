@@ -1,4 +1,4 @@
-const normalizedLogLevel = String(process.env.APP_LOG_LEVEL || process.env.LOG_LEVEL || 'warn').toLowerCase();
+const normalizedLogLevel = String(process.env.APP_LOG_LEVEL || process.env.LOG_LEVEL || 'info').toLowerCase();
 
 const levelOrder: Record<string, number> = {
   silent: 0,

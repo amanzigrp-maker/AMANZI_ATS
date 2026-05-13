@@ -182,10 +182,17 @@ export default function Login() {
         body: JSON.stringify(formData),
       });
 
-      const result = await response.json();
+      const text = await response.text();
+      let result;
+      try {
+        result = JSON.parse(text);
+      } catch (e) {
+        console.error('Failed to parse JSON response. Status:', response.status, 'Raw text:', text);
+        throw new Error(`Server error (${response.status}): Unexpected response format.`);
+      }
 
       if (!response.ok) {
-        throw new Error(result.message || 'Failed to log in');
+        throw new Error(result.message || result.error || 'Failed to log in');
       }
 
       localStorage.setItem('accessToken', result.accessToken);
@@ -200,6 +207,7 @@ export default function Login() {
       setTimeout(() => navigate("/dashboard"), 500);
 
     } catch (error) {
+      console.error('Login error full details:', error);
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
       toast({
         variant: "destructive",

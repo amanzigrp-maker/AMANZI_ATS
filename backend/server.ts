@@ -53,7 +53,6 @@ import adaptiveInterviewRoutes from "./src/routes/adaptiveInterview.routes";
 import assessmentRoutes from "./src/routes/assessment.routes";
 import certificateRoutes from "./src/routes/certificate.routes";
 
-
 // -----------------------------------------------------------------------------
 // APP SETUP
 // -----------------------------------------------------------------------------
@@ -74,6 +73,7 @@ const PORT = Number(process.env.PORT) || 3003;
 app.use(cors());
 
 app.get("/favicon.ico", (_, res) => res.sendStatus(204));
+app.get("/api/health", (_, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
 
 app.use(express.json({ limit: "100mb" }));
 app.use(express.urlencoded({ limit: "100mb", extended: true }));
@@ -98,6 +98,7 @@ app.use("/api/interview", interviewRoutes);
 app.use("/api/interview/adaptive", adaptiveInterviewRoutes);
 app.use("/api/assessments", assessmentRoutes);
 app.use("/api/certificates", certificateRoutes);
+
 
 
 // Setup Socket.io Handlers
@@ -145,9 +146,16 @@ if (process.env.NODE_ENV === "production") {
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n🔄 Received ${signal}. Shutting down...`);
 
+  // Force exit after 5 seconds if cleanup hangs
+  const forceExit = setTimeout(() => {
+    console.log("⚠️ Shutdown timed out, forcing exit.");
+    process.exit(1);
+  }, 5000);
+
   try {
     await aiWorkerService.shutdown();
     await pool.end();
+    clearTimeout(forceExit);
     console.log("✅ Shutdown complete");
     process.exit(0);
   } catch (err) {
@@ -161,31 +169,33 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 
 const bootstrapServer = async () => {
   try {
+    console.log("🚀 Starting bootstrap...");
     console.log("Initializing database connection...");
 
     const connected = await testConnection();
 
     if (!connected) {
-      console.error("Database connection failed.");
+      console.error("❌ Database connection failed.");
       process.exit(1);
     }
+    console.log("✅ Database connection verified.");
 
     httpServer.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Accessible at http://<YOUR-EC2-IP>:${PORT}`);
-      console.log("ATS Monolithic Application ready with Socket.io!");
+      console.log(`📡 Server running on port ${PORT}`);
+      console.log(`🌍 Accessible at http://<YOUR-EC2-IP>:${PORT}`);
+      console.log("⚡ ATS Monolithic Application ready with Socket.io!");
     });
 
-    console.log("Initializing AI Worker in background...");
+    console.log("🤖 Initializing AI Worker in background...");
     void aiWorkerService.initialize()
       .then(() => {
-        console.log("AI Worker ready");
+        console.log("✅ AI Worker ready");
       })
       .catch((err) => {
-        console.error("AI Worker failed to initialize:", err);
+        console.error("❌ AI Worker failed to initialize:", err);
       });
   } catch (error) {
-    console.error("Failed to start server:", error);
+    console.error("💥 Failed to start server:", error);
     process.exit(1);
   }
 };

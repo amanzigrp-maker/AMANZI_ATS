@@ -81,7 +81,46 @@ export async function testConnection(): Promise<boolean> {
 
     console.log('✅ Database connected successfully');
 
+    // Ensure core authentication tables exist
+    console.log('📦 Verifying core auth tables...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        userid SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        passwordhash TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'recruiter',
+        status TEXT DEFAULT 'active',
+        createdat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updatedat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        lastlogin TIMESTAMP,
+        created_by INTEGER
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS refresh_tokens (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER REFERENCES users(userid) ON DELETE CASCADE,
+        token TEXT UNIQUE NOT NULL,
+        expiry TIMESTAMP NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS loginaudit (
+        auditid SERIAL PRIMARY KEY,
+        userid INTEGER,
+        ipaddress TEXT,
+        deviceinfo TEXT,
+        loginstatus TEXT,
+        attempted_email TEXT,
+        logintime TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Ensure interview_users table exists
+    console.log('📦 Verifying interview tables...');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS interview_users (
         id SERIAL PRIMARY KEY,
@@ -93,6 +132,8 @@ export async function testConnection(): Promise<boolean> {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    
+    console.log('📦 Verifying interview tokens and session tables...');
 
     // Ensure interview_tokens table exists with new columns
     await pool.query(`

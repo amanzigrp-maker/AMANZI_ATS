@@ -26,35 +26,38 @@ const getJwtSecrets = () => {
 // POST /api/auth/login
 // -----------------------------------------------------------------------------
 router.post('/login', async (req, res) => {
+  console.log(`[AUTH] 📥 Login request received for: ${req.body?.email}`);
+  res.setHeader('Content-Type', 'application/json');
   try {
     const { email, password } = req.body;
     if (!email || !password) {
+      console.log(`[AUTH] ❌ Missing email or password`);
       return res.status(400).json({ message: 'Email and password are required.' });
     }
 
     const user = await findUserByEmail(email);
     if (!user) {
+      console.log(`[AUTH] ❌ User not found: ${email}`);
       await logAudit(null, req, false, 'LOGIN_FAILED', email);
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
-
+    
+    console.log(`[AUTH] 👤 User found: ${user.email}, Role: ${user.role}`);
+    
     const status = String(user.status || '').toLowerCase();
     if (status === 'disabled') {
       await logAudit(user.userid, req, false, 'LOGIN_DISABLED', email);
       return res.status(403).json({ message: 'Your account has been disabled.' });
     }
 
-    if (status === 'blocked' || status === 'locked') {
-      await logAudit(user.userid, req, false, 'LOGIN_BLOCKED', email);
-      return res.status(403).json({ message: 'Your account has been locked.' });
-    }
-
     const isPasswordValid = await bcrypt.compare(password, user.passwordhash);
     if (!isPasswordValid) {
+      console.log(`[AUTH] ❌ Password mismatch for: ${email}`);
       await logAudit(user.userid, req, false, 'LOGIN_FAILED', email);
       return res.status(401).json({ message: 'Invalid credentials.' });
     }
 
+    console.log(`[AUTH] ✅ Password verified for: ${email}`);
     const { jwtSecret, refreshSecret } = getJwtSecrets();
 
     const accessToken = jwt.sign(
@@ -69,13 +72,10 @@ router.post('/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    const expiryDate = new Date();
-    expiryDate.setDate(expiryDate.getDate() + 7);
-
     await pool.query(
       `INSERT INTO refresh_tokens (user_id, token, expiry)
-       VALUES ($1, $2, $3)`,
-      [user.userid, refreshToken, expiryDate]
+       VALUES ($1, $2, NOW() + INTERVAL '7 days')`,
+      [user.userid, refreshToken]
     );
 
     await pool.query(
@@ -85,7 +85,8 @@ router.post('/login', async (req, res) => {
 
     await logAudit(user.userid, req, true, 'LOGIN', email);
 
-    res.json({
+    console.log(`[AUTH] 🚀 Sending success response for: ${email}`);
+    return res.status(200).json({
       message: 'Login successful',
       accessToken,
       refreshToken,
@@ -95,9 +96,12 @@ router.post('/login', async (req, res) => {
         role: user.role,
       },
     });
-  } catch (error) {
-    console.error('[AUTH] /login error:', error);
-    res.status(500).json({ message: 'Authentication error on server.' });
+  } catch (error: any) {
+    console.error('[AUTH] 💥 /login error:', error);
+    return res.status(500).json({ 
+      success: false,
+      message: 'Authentication error on server: ' + error.message 
+    });
   }
 });
 

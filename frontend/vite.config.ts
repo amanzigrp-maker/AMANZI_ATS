@@ -8,17 +8,15 @@ export default defineConfig(() => ({
     port: 8080,
     proxy: {
       // Node.js backend routes
-      "/api/auth": {
-        target: "http://localhost:3003",
-        changeOrigin: true,
-      },
-      "/api/admin": {
-        target: "http://localhost:3003",
-        changeOrigin: true,
-      },
       "/api": {
-        target: "http://localhost:3003",
+        target: "http://127.0.0.1:3003",
         changeOrigin: true,
+        secure: false,
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('proxy error', err);
+          });
+        },
       },
 
       // Python AI Worker (FastAPI) routes

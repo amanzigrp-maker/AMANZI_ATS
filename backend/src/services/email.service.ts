@@ -519,11 +519,24 @@ export const sendInterviewResults = async (
       ] : [],
     };
 
+    if (!transporter) {
+      logDevEmailEvent('Interview Results', to);
+      console.log('----------------------------------------------');
+      console.log(`Score: ${score}/${total} (${percentage}%)`);
+      console.log(`Role: ${role}`);
+      console.log(`Certificate: ${certificateId || 'None'}`);
+      console.log('----------------------------------------------');
+      return;
+    }
+
+    console.log(`[EmailService] Sending email to ${to} with certificate ${certificateId || 'none'}...`);
     await transporter.sendMail(mailOptions);
+    console.log(`[EmailService] Email successfully sent to ${to}`);
   } catch (err) {
-    console.error('Error sending interview results:', err);
+    console.error(`❌ [EmailService] Failed to send results to ${to}:`, err);
   }
 };
+
 
 /**
  * Send congratulations email to selected candidate
@@ -647,40 +660,3 @@ export const sendRejectionEmail = async (to: string, name: string, role?: string
 /**
  * Send certificate email with PDF attachment
  */
-export const sendCertificateEmail = async (to: string, name: string, testName: string, certificateBuffer: Buffer, certificateId: string): Promise<void> => {
-  try {
-    const transporter = createTransporter();
-
-    if (!transporter) {
-      console.log(`📧 [DEV MODE] Certificate for ${to} | ID: ${certificateId}`);
-      return;
-    }
-
-    const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
-      to: to,
-      subject: `Your Certificate for ${testName} - Amanzi`,
-      html: `
-        <div style="font-family: sans-serif; line-height: 1.6; color: #1e293b;">
-          <h2>Congratulations ${name}!</h2>
-          <p>You have successfully completed the <b>${testName}</b> assessment.</p>
-          <p>Your official certificate is attached to this email.</p>
-          <p>Certificate ID: <b>${certificateId}</b></p>
-          <br/>
-          <p>Best regards,<br/>Amanzi Team</p>
-        </div>
-      `,
-      attachments: [
-        {
-          filename: `Certificate_${certificateId}.pdf`,
-          content: certificateBuffer,
-          contentType: 'application/pdf',
-        },
-      ],
-    };
-
-    await transporter.sendMail(mailOptions);
-  } catch (error) {
-    console.error('[EMAIL] Error sending certificate email:', error);
-  }
-};
