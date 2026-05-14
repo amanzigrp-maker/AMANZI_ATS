@@ -43,23 +43,16 @@ class Settings(BaseSettings):
     redis_db: int = int(os.getenv("REDIS_DB", "0"))
     redis_enabled: bool = os.getenv("REDIS_ENABLED", "false" if IS_WINDOWS else "true").lower() == "true"
     
-    # ML Models
-    embedding_provider: str = os.getenv("EMBEDDING_PROVIDER", "sentence-transformers")
-    # Options: "sentence-transformers" (default, local, free) or "gemini" (cloud, requires API key)
-    
-    embedding_model: str = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
-    ml_model_cache_dir: Path = Path(os.getenv("MODEL_CACHE_DIR", "./models"))
-    
-    # Gemini Embeddings (only used if embedding_provider=gemini)
-    gemini_embedding_model: str = os.getenv("GEMINI_EMBEDDING_MODEL", "text-embedding-004")
+    # Gemini AI Configuration
+    gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
+    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+    gemini_embedding_model: str = os.getenv("GEMINI_EMBEDDING_MODEL", "embedding-001")
+    enable_semantic_search: bool = os.getenv("ENABLE_SEMANTIC_SEARCH", "true").lower() == "true"
     
     # Processing
     max_workers: int = int(os.getenv("MAX_WORKERS", "4"))
     batch_size: int = int(os.getenv("BATCH_SIZE", "10"))
     max_file_size_mb: int = int(os.getenv("MAX_FILE_SIZE_MB", "10"))
-    
-    # Tesseract OCR
-    tesseract_cmd: Optional[str] = os.getenv("TESSERACT_CMD")
     
     # Logging
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
@@ -69,22 +62,14 @@ class Settings(BaseSettings):
     worker_api_port: int = int(os.getenv("WORKER_API_PORT", "8001"))
     worker_api_host: str = os.getenv("WORKER_API_HOST", "127.0.0.1")
 
-    # Gemini (optional)
-    gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
-    gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-
-   
-
 # Global settings instance
 settings = Settings()
 
-# Create necessary directories (works on both Windows and Linux)
+# Create necessary directories
 try:
-    settings.ml_model_cache_dir.mkdir(parents=True, exist_ok=True)
     settings.storage_path.mkdir(parents=True, exist_ok=True)
     settings.upload_path.mkdir(parents=True, exist_ok=True)
     settings.temp_path.mkdir(parents=True, exist_ok=True)
     Path("logs").mkdir(exist_ok=True)
-    print(f"✅ Storage directories created: {settings.storage_path}")
 except Exception as e:
     print(f"⚠️ Warning: Could not create some directories: {e}")

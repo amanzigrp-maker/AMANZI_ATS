@@ -61,8 +61,7 @@ class AdvancedHybridParser:
     # ------------------------------------------------------------------
 
     async def load_models(self):
-        """Load spaCy helpers only (NO parsing fallback)"""
-        await self.regex_helper.load_models()
+        """No local models to load in LLM-only mode"""
         return {
             "llm": True,
             "regex_parsing": False,
@@ -94,22 +93,8 @@ class AdvancedHybridParser:
 
             # Images (OCR → LLM)
             if file_ext in [".jpg", ".jpeg", ".png", ".bmp", ".tiff"]:
-                if not self.ocr_parser.ocr_enabled:
-                    raise RuntimeError("OCR requested but Tesseract not installed")
-
-                logger.info("🖼️ OCR → LLM pipeline")
-                ocr_result = await self.ocr_parser.parse_file(file_path, filename)
-                raw_text = (ocr_result.get("raw_text") or "").strip()
-
-                if not raw_text:
-                    raise RuntimeError("OCR produced empty text")
-
-                parsed = await self.gemini_parser.parse_resume(raw_text, filename)
-                parsed["extraction_method"] = "ocr+gemini"
-                parsed = self._validate_and_enhance(parsed, raw_text)
-
-                self.cache.set(cache_key, parsed)
-                return parsed
+                logger.warning(f"⚠️ Image parsing requested for {filename} but local OCR is disabled.")
+                raise RuntimeError("Image parsing (OCR) is currently disabled. Please upload PDF or DOCX files.")
 
             # PDF / DOCX / DOC → LLM ONLY
             if file_ext in [".pdf", ".doc", ".docx"]:

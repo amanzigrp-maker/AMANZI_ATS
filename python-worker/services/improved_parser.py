@@ -165,32 +165,13 @@ class ImprovedResumeParser:
                 logger.info(f"✅ PDF text extracted successfully using direct text layer ({len(full_text)} chars)")
                 return full_text
             
-            # If text extraction returned empty, use OCR fallback
-            logger.warning("PDF text extraction returned empty/insufficient text, switching to OCR fallback...")
-            return await self._extract_with_ocr(abs_path)
-            
         except Exception as e:
-            logger.warning(f"PDF extraction encountered issue ({e}), using OCR fallback...")
-            return await self._extract_with_ocr(abs_path)
+            logger.error(f"PDF extraction failed: {e}")
+            raise RuntimeError(f"Could not extract text from PDF: {e}")
     
     async def _extract_with_ocr(self, file_path: str) -> str:
-        """Extract text using OCR fallback for scanned/image PDFs"""
-        abs_path = self._ensure_abs_under_storage(file_path)
-        try:
-            from services.ocr_parser import OCRParser
-            ocr_parser = OCRParser()
-            logger.info("🔄 Attempting OCR extraction for image-based PDF...")
-            ocr_text = await ocr_parser.extract_text(abs_path)
-            
-            if ocr_text and len(ocr_text.strip()) > 50:
-                logger.info(f"✅ OCR extraction successful: {len(ocr_text)} characters")
-                return ocr_text
-            else:
-                raise ValueError("OCR extraction returned empty text")
-                
-        except Exception as ocr_error:
-            logger.error(f"❌ OCR fallback failed: {ocr_error}")
-            raise ValueError(f"Both PDF text extraction and OCR fallback failed: {ocr_error}")
+        """OCR is disabled"""
+        raise RuntimeError("OCR extraction is disabled.")
     
     async def _extract_from_docx(self, file_path: str) -> str:
         """Extract text from DOCX file"""

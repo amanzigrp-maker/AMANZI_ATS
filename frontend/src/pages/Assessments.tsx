@@ -44,16 +44,14 @@ export default function Assessments() {
   const [selectedAssessmentTitle, setSelectedAssessmentTitle] = useState("");
   const [questions, setQuestions] = useState<AssessmentQuestion[]>([]);
   const [aiForm, setAiForm] = useState({
-    title: "Frontend Developer Screening",
-    role: "Frontend Developer",
-    topic: "React, TypeScript, API integration",
+    title: "MCQ Assessment Generator",
+    topic: "General Knowledge",
     count: "5",
     duration_minutes: "30",
     prompt: "Create practical MCQs for recruiter screening. Keep questions fair and unambiguous.",
   });
   const [csvForm, setCsvForm] = useState({
     title: "Uploaded MCQ Assessment",
-    role: "Software Engineer",
     duration_minutes: "30",
     source_file: "questions.csv",
     csv: sampleCsv,
@@ -331,10 +329,7 @@ export default function Assessments() {
                         <Label className="text-xs font-bold text-slate-500 uppercase">Assessment Title</Label>
                         <Input placeholder="e.g. Senior Frontend Test" value={aiForm.title} onChange={(e) => setAiForm({ ...aiForm, title: e.target.value })} required />
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-xs font-bold text-slate-500 uppercase">Job Role</Label>
-                        <Input placeholder="e.g. React Developer" value={aiForm.role} onChange={(e) => setAiForm({ ...aiForm, role: e.target.value })} />
-                      </div>
+
                       <div className="space-y-2">
                         <Label className="text-xs font-bold text-slate-500 uppercase">Topic</Label>
                         <Input placeholder="e.g. React Hooks" value={aiForm.topic} onChange={(e) => setAiForm({ ...aiForm, topic: e.target.value })} />
@@ -532,9 +527,7 @@ export default function Assessments() {
                           <div>
                             <h3 className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{a.title}</h3>
                             <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500">
-                              <span className="flex items-center gap-1"><Sparkles className="h-3 w-3" /> {a.role || 'General'}</span>
-                              <span className="h-1 w-1 rounded-full bg-slate-300" />
-                              <span className="flex items-center gap-1"><ClipboardList className="h-3 w-3" /> {a.question_count} Questions</span>
+                              <span className="flex items-center gap-1"><Sparkles className="h-3 w-3" /> {a.question_count} Questions</span>
                             </div>
                           </div>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

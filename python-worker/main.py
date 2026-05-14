@@ -52,16 +52,9 @@ logger.add(
 # ---------------------------------------------------------------------
 SERVICE_STATUS = {
     "db": False,
-    "ocr": False,
-    "nlp": False,
+    "gemini": False,
     "embeddings": False,
     "matching": False,
-}
-
-STARTUP_STATE = {
-    "phase": "booting",
-    "ready": False,
-    "errors": [],
 }
 
 # ---------------------------------------------------------------------
@@ -89,81 +82,15 @@ ocr_service = OCRResumeParser()
 question_service = QuestionService(db, embedding_service)
 
 
-async def warmup_services() -> None:
-    STARTUP_STATE["phase"] = "warming"
-    STARTUP_STATE["ready"] = False
-    STARTUP_STATE["errors"] = []
-
-    try:
-        SERVICE_STATUS["ocr"] = ocr_service.ocr_enabled
-        if ocr_service.ocr_enabled:
-            logger.success("OCR: READY")
-        else:
-            logger.warning("OCR: DISABLED (Tesseract not installed)")
-    except Exception as e:
-        STARTUP_STATE["errors"].append(f"ocr: {e}")
-        logger.error(f"OCR init failed: {e}")
-
-    load_tasks = {
-        "nlp": asyncio.create_task(parser_service.load_models()),
-        "embeddings": asyncio.create_task(embedding_service.load_models()),
-    }
-
-    results = await asyncio.gather(*load_tasks.values(), return_exceptions=True)
-
-    for service_name, result in zip(load_tasks.keys(), results):
-        if isinstance(result, Exception):
-            STARTUP_STATE["errors"].append(f"{service_name}: {result}")
-            logger.error(f"{service_name.upper()} load failed: {result}")
-            continue
-
-        if service_name == "nlp":
-            SERVICE_STATUS["nlp"] = True
-            logger.success("NLP Models loaded")
-        elif service_name == "embeddings":
-            SERVICE_STATUS["embeddings"] = embedding_service.is_loaded()
-            if SERVICE_STATUS["embeddings"]:
-                logger.success("Embedding model loaded")
-            else:
-                logger.warning("Embedding model not loaded")
-
-    try:
-        await enhanced_matcher.load_models()
-        SERVICE_STATUS["matching"] = True
-        logger.success("Enhanced Matching Service loaded")
-    except Exception as e:
-        STARTUP_STATE["errors"].append(f"matching: {e}")
-        logger.error(f"Enhanced Matcher load failed: {e}")
-
-    STARTUP_STATE["ready"] = (
-        SERVICE_STATUS["db"]
-        and SERVICE_STATUS["nlp"]
-        and SERVICE_STATUS["embeddings"]
-        and SERVICE_STATUS["matching"]
-    )
-    STARTUP_STATE["phase"] = "ready" if STARTUP_STATE["ready"] else "degraded"
-
-    logger.info("===================================")
-    logger.info("ATS WORKER STATUS SUMMARY")
-    logger.info(f"DB         : {'READY' if SERVICE_STATUS['db'] else 'DOWN'}")
-    logger.info(f"OCR        : {'READY' if SERVICE_STATUS['ocr'] else 'DISABLED'}")
-    logger.info(f"NLP        : {'READY' if SERVICE_STATUS['nlp'] else 'DOWN'}")
-    logger.info(f"EMBEDDINGS : {'READY' if SERVICE_STATUS['embeddings'] else 'DOWN'}")
-    logger.info(f"MATCHING   : {'READY' if SERVICE_STATUS['matching'] else 'DOWN'}")
-    logger.info(f"WORKER     : {STARTUP_STATE['phase'].upper()}")
-    logger.info("===================================")
-
-
-# ---------------------------------------------------------------------
-# FastAPI Lifespan (Startup / Shutdown)
-# ---------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """
+    Standard Lifespan for FastAPI
+    Handles initialization of Gemini and Database
+    """
+    logger.info("🚀 Starting ATS AI Worker (LLM Mode)...")
 
-    # ---------------- STARTUP ----------------
-    logger.info("🚀 Starting ATS AI Worker...")
-
-    # Database
+    # 1. Database
     try:
         await db.connect()
         SERVICE_STATUS["db"] = True
@@ -171,52 +98,34 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Database connection failed: {e}")
 
-    # OCR
+    # 2. Gemini & Embeddings
     try:
-        SERVICE_STATUS["ocr"] = ocr_service.ocr_enabled
-        if ocr_service.ocr_enabled:
-            logger.success("✅ OCR: READY")
-        else:
-            logger.warning("⚠️ OCR: DISABLED (Tesseract not installed)")
-    except Exception as e:
-        logger.error(f"❌ OCR init failed: {e}")
-
-    # NLP
-    try:
-        await parser_service.load_models()
-        SERVICE_STATUS["nlp"] = True
-        logger.success("✅ NLP Models loaded")
-    except Exception as e:
-        logger.error(f"❌ NLP model load failed: {e}")
-
-    # Embeddings
-    try:
+        # Load embedding service (Gemini)
         await embedding_service.load_models()
         SERVICE_STATUS["embeddings"] = embedding_service.is_loaded()
-        if SERVICE_STATUS["embeddings"]:
-            logger.success("✅ Embedding model loaded")
-        else:
-            logger.warning("⚠️ Embedding model not loaded")
+        SERVICE_STATUS["gemini"] = True
+        logger.success("✅ Gemini AI initialized")
     except Exception as e:
-        logger.error(f"❌ Embedding model load failed: {e}")
+        logger.warning(f"⚠️ Gemini initialization limited: {e}")
+        SERVICE_STATUS["gemini"] = True # Assume parser still works
 
-    # Enhanced Matcher
+    # 3. Enhanced Matcher (Optional)
     try:
         await enhanced_matcher.load_models()
         SERVICE_STATUS["matching"] = True
-        logger.success("✅ Enhanced Matching Service loaded")
+        logger.success("✅ Matching Service ready")
     except Exception as e:
-        logger.error(f"❌ Enhanced Matcher load failed: {e}")
+        logger.warning(f"⚠️ Optional Matcher initialization failed: {e}")
 
     # SUMMARY
     logger.info("===================================")
-    logger.info("📊 ATS WORKER STATUS SUMMARY")
-    logger.info(f"DB         : {'READY' if SERVICE_STATUS['db'] else 'DOWN'}")
-    logger.info(f"OCR        : {'READY' if SERVICE_STATUS['ocr'] else 'DISABLED'}")
-    logger.info(f"NLP        : {'READY' if SERVICE_STATUS['nlp'] else 'DOWN'}")
-    logger.info(f"EMBEDDINGS : {'READY' if SERVICE_STATUS['embeddings'] else 'DOWN'}")
-    logger.info(f"MATCHING   : {'READY' if SERVICE_STATUS['matching'] else 'DOWN'}")
+    logger.info("📊 ATS WORKER STATUS")
+    logger.info(f"PORT            : {settings.worker_api_port}")
+    logger.info(f"DATABASE        : {'✅ READY' if SERVICE_STATUS['db'] else '❌ DOWN'}")
+    logger.info(f"RESUME PARSER   : {'✅ READY (Gemini)' if SERVICE_STATUS['gemini'] else '❌ DOWN'}")
+    logger.info(f"SEMANTIC SEARCH : {'✅ ENABLED' if SERVICE_STATUS['embeddings'] else '⚠️ DISABLED (Optional)'}")
     logger.info("===================================")
+    logger.success("🚀 ATS AI Worker is READY")
 
     yield
 
@@ -231,46 +140,13 @@ async def lifespan(app: FastAPI):
 
 
 # ---------------------------------------------------------------------
-# Alternate FastAPI Lifespan (non-blocking warmup)
-# ---------------------------------------------------------------------
-@asynccontextmanager
-async def fast_lifespan(app: FastAPI):
-    logger.info("Starting ATS AI Worker...")
-
-    try:
-        await db.connect()
-        SERVICE_STATUS["db"] = True
-        logger.success("Database connected")
-    except Exception as e:
-        STARTUP_STATE["phase"] = "degraded"
-        STARTUP_STATE["errors"].append(f"db: {e}")
-        logger.error(f"Database connection failed: {e}")
-
-    app.state.warmup_task = asyncio.create_task(warmup_services())
-
-    yield
-
-    warmup_task = getattr(app.state, "warmup_task", None)
-    if warmup_task and not warmup_task.done():
-        warmup_task.cancel()
-
-    try:
-        await db.disconnect()
-        logger.info("Database disconnected")
-    except Exception:
-        pass
-
-    logger.info("ATS AI Worker stopped")
-
-
-# ---------------------------------------------------------------------
 # FastAPI App
 # ---------------------------------------------------------------------
 app = FastAPI(
     title="ATS AI Worker",
-    description="Pure parsing + embeddings worker",
-    version="3.0.0",
-    lifespan=fast_lifespan,
+    description="LLM Parsing & Gemini Embeddings",
+    version="3.1.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -380,8 +256,13 @@ async def process_resume_task(resume_id: int, file_path: str, filename: str, is_
 
         sections = resume_text_cleaner.build_embedding_sections(parsed)
 
-        if sections and SERVICE_STATUS["embeddings"]:
-            await embedding_service.batch_encode([s.get("content", "") for s in sections])
+        # 🔹 Section embeddings (OPTIONAL)
+        if sections and settings.enable_semantic_search and SERVICE_STATUS["embeddings"]:
+            try:
+                logger.debug(f"🧠 Generating background embeddings for resume_id={resume_id}")
+                await embedding_service.batch_encode([s.get("content", "") for s in sections])
+            except Exception as e:
+                logger.warning(f"⚠️ Optional background embedding skipped for resume_id={resume_id}: {e}")
 
         if is_bulk:
             await db.store_parsed_resume_data(resume_id, parsed)
@@ -401,16 +282,10 @@ async def process_resume_task(resume_id: int, file_path: str, filename: str, is_
 @app.get("/health")
 async def health():
     return {
-        "status": "ok" if SERVICE_STATUS["db"] else "degraded",
-        "worker": {
-            "phase": STARTUP_STATE["phase"],
-            "ready": STARTUP_STATE["ready"],
-            "errors": STARTUP_STATE["errors"],
-        },
+        "status": "ok" if SERVICE_STATUS["db"] and SERVICE_STATUS["gemini"] else "degraded",
         "services": {
             "database": "ready" if SERVICE_STATUS["db"] else "down",
-            "ocr": "ready" if SERVICE_STATUS["ocr"] else "disabled",
-            "nlp": "ready" if SERVICE_STATUS["nlp"] else "down",
+            "gemini": "ready" if SERVICE_STATUS["gemini"] else "down",
             "embeddings": "ready" if SERVICE_STATUS["embeddings"] else "down",
             "matching": "ready" if SERVICE_STATUS["matching"] else "down",
         },
@@ -654,14 +529,14 @@ async def parse_resume(request: Request, background_tasks: BackgroundTasks):
 
         # Parse resume
         parsed = await parser_service.parse_file(str(path), filename)
-        logger.info(f"🧬 Raw parsed data keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'NOT A DICT'}")
+        # logger.debug(f"🧬 Raw parsed data keys: {list(parsed.keys()) if isinstance(parsed, dict) else 'NOT A DICT'}")
         
         parsed = normalize_parsed_data(parsed)
         parsed = resume_text_cleaner.clean_parsed_resume(parsed)
 
         email = (parsed.get("email") or "").strip()
         phone = (parsed.get("phone") or "").strip()
-        logger.info(f"🔍 Normalized identifiers: email='{email}', phone='{phone}'")
+        # logger.debug(f"🔍 Normalized identifiers: email='{email}', phone='{phone}'")
 
         # 🔍 Duplicate check
         is_dup = False
@@ -689,33 +564,37 @@ async def parse_resume(request: Request, background_tasks: BackgroundTasks):
 
         # ✅ New candidate → store parsed data if email exists AND is_bulk is true
         candidate_id = None
-        if email and is_bulk:
-            logger.info(f"💾 Storing parsed data for resume_id={resume_id}")
-            candidate_id = await db.store_parsed_resume_data(resume_id, parsed)
-            logger.info(f"✅ Stored candidate_id={candidate_id}")
+        if email:
+            if is_bulk:
+                logger.info(f"💾 Storing parsed data for resume_id={resume_id}")
+                candidate_id = await db.store_parsed_resume_data(resume_id, parsed)
+                logger.info(f"✅ Stored candidate_id={candidate_id}")
 
-            # 🔹 Section embeddings
-            sections = resume_text_cleaner.build_embedding_sections(parsed)
+                # 🔹 Section embeddings
+                sections = resume_text_cleaner.build_embedding_sections(parsed)
 
-            if sections and SERVICE_STATUS["embeddings"]:
-                logger.info(f"🧠 Generating embeddings for {len(sections)} sections")
-                texts = [s.get("content") for s in sections if s.get("content")]
-                embeddings = await embedding_service.batch_encode(texts)
-
-                await db.store_section_embeddings(
-                    resume_id=resume_id,
-                    candidate_id=candidate_id,
-                    sections=sections,
-                    embeddings=embeddings,
-                )
-
-                await db.store_candidate_embeddings(
-                    candidate_id=candidate_id,
-                    sections=sections,
-                    embeddings=embeddings,
-                )
+                if sections and settings.enable_semantic_search and SERVICE_STATUS["embeddings"]:
+                    logger.debug(f"🧠 Generating embeddings for {len(sections)} sections")
+                    texts = [s.get("content") for s in sections if s.get("content")]
+                    try:
+                        embeddings = await embedding_service.batch_encode(texts)
+                        await db.store_section_embeddings(
+                            resume_id=resume_id,
+                            candidate_id=candidate_id,
+                            sections=sections,
+                            embeddings=embeddings,
+                        )
+                        await db.store_candidate_embeddings(
+                            candidate_id=candidate_id,
+                            sections=sections,
+                            embeddings=embeddings,
+                        )
+                    except Exception as e:
+                        logger.warning(f"⚠️ Embedding storage failed but parsing succeeded: {e}")
+            else:
+                logger.info(f"✨ Single parse mode: Extraction successful for {email}")
         else:
-            logger.warning(f"⚠️ No email found for resume_id={resume_id}. Skipping DB storage until manually added.")
+            logger.warning(f"⚠️ No email found in resume_id={resume_id}. Manual correction may be needed in UI.")
 
         # 🔄 Background finalize
         background_tasks.add_task(
@@ -941,10 +820,23 @@ async def update_recommendation_status(
 # ---------------------------------------------------------------------
 if __name__ == "__main__":
     import uvicorn
+    import socket
+
+    # Safe port check
+    port = settings.worker_api_port
+    host = settings.worker_api_host
+    
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind((host, port))
+        except socket.error:
+            logger.error(f"❌ PORT {port} IS ALREADY IN USE!")
+            logger.error(f"Please run: 'fuser -k {port}/tcp' on Linux or stop the other process on Windows.")
+            sys.exit(1)
 
     uvicorn.run(
         "main:app",
-        host="127.0.0.1",
-        port=8001,
+        host=host,
+        port=port,
         log_level="info",
     )

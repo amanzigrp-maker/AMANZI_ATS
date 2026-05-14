@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Search, Mail, Send, CheckCircle2, Loader2, X, User, Lock, Phone, MapPin, Building2, Award, Star, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import { authenticatedFetch } from '@/lib/api';
 import { toast } from 'sonner';
 
@@ -113,8 +114,10 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
     // Auto-select first job if available
     if (c.applied_jobs && c.applied_jobs.length > 0) {
       setSelectedRole(c.applied_jobs[0].title);
+    } else if (c.current_designation) {
+      setSelectedRole(c.current_designation);
     } else {
-      setSelectedRole('');
+      setSelectedRole('General');
     }
   };
 
@@ -355,27 +358,11 @@ export default function SendInterviewLinkModal({ isOpen, onClose }: { isOpen: bo
                           />
                         </div>
                         <div className="space-y-2">
-                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Interview Role (Question Domain)</label>
-                          <Input
-                            placeholder="Type role, for example Software Engineer"
-                            value={selectedRole}
-                            onChange={(e) => setSelectedRole(e.target.value)}
-                            className="text-sm"
-                          />
-                          {candidate.applied_jobs && candidate.applied_jobs.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {candidate.applied_jobs.map((job) => (
-                                <button
-                                  key={job.id}
-                                  type="button"
-                                  onClick={() => setSelectedRole(job.title)}
-                                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                                >
-                                  {job.title}
-                                </button>
-                              ))}
-                            </div>
-                          )}
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Target Role</label>
+                          <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-bold text-slate-700 flex items-center justify-between">
+                            {selectedRole || 'General'}
+                            <Badge variant="outline" className="text-[10px] bg-white border-slate-200 font-normal">Auto-detected</Badge>
+                          </div>
                         </div>
 
                         <div className="space-y-2">
