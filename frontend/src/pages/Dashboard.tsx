@@ -44,6 +44,7 @@ import {
   FileIcon,
   MessageSquare,
   ChevronDown,
+  Sparkles,
 } from 'lucide-react';
 
 import {
@@ -218,6 +219,9 @@ export default function Dashboard() {
   const [newStatus, setNewStatus] = useState('');
   const [adminNotes, setAdminNotes] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+
+  // AI Ranking states
+
 
   // Helper: format dates as dd/mm/yyyy (for jobs and applicants)
   const formatDMY = (value: string | Date) => {
@@ -722,6 +726,35 @@ export default function Dashboard() {
       alert('Failed to update status. Please try again.');
     } finally {
       setIsUpdatingStatus(false);
+    }
+  };
+
+  const handleRankApplicants = async () => {
+    const jobId = jobViewData?.job_id || jobViewData?.id;
+    if (!jobId) return;
+
+    setIsRanking(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const response = await fetch(`/api/jobs/${jobId}/rank-applicants`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setRankedResults(data.data || []);
+        setIsRankModalOpen(true);
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to rank applicants');
+      }
+    } catch (error: any) {
+      console.error('Ranking error:', error);
+      alert('AI ranking service is currently unavailable.');
+    } finally {
+      setIsRanking(false);
     }
   };
 
@@ -2393,9 +2426,11 @@ export default function Dashboard() {
 
               {/* Applicants section */}
               <div className="mt-2 mb-4">
-                <h3 className="text-lg font-semibold mb-2">
-                  Applicants ({loadingApplicants ? '...' : jobApplicants.length})
-                </h3>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-lg font-semibold">
+                    Applicants ({loadingApplicants ? '...' : jobApplicants.length})
+                  </h3>
+                </div>
 
                 {loadingApplicants ? (
                   <div className="py-4 text-sm text-muted-foreground">Loading applicants...</div>
@@ -2505,6 +2540,8 @@ export default function Dashboard() {
             )}
           </DialogContent>
         </Dialog>
+
+
       </main>
     </div>
   );

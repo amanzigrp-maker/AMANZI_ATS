@@ -4,7 +4,7 @@ import { authenticatedFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, User, Building, Calendar, FileText, MessageSquare, Mail, Phone } from 'lucide-react';
+import { ArrowLeft, User, Building, Calendar, FileText, MessageSquare, Mail, Phone, TrendingUp, Sparkles, Award } from 'lucide-react';
 import {
   Avatar,
   AvatarFallback,
@@ -32,7 +32,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreVertical, CheckCircle, XCircle } from 'lucide-react';
+import { MoreVertical, CheckCircle, XCircle, Loader2 } from 'lucide-react';
 
 interface JobApplication {
   application_id: number;

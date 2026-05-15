@@ -26,7 +26,8 @@ import {
   Share2,
   MoreVertical,
   Briefcase,
-  CheckCircle2
+  CheckCircle2,
+  Sparkles,
 } from 'lucide-react';
 import {
   Avatar,
@@ -263,14 +264,17 @@ function JobMatches({
               Find ranked candidates using semantic matching (pgvector)
             </CardDescription>
           </div>
-          <Button onClick={handleFindMatches} disabled={loading}>
+          <Button onClick={handleFindMatches} disabled={loading} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white">
             {loading ? (
               <span className="flex items-center">
                 <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                Loading...
+                Ranking...
               </span>
             ) : (
-              'Find Matches'
+              <>
+                <Sparkles className="h-4 w-4" />
+                AI Rank Top 10
+              </>
             )}
           </Button>
         </div>
@@ -398,20 +402,23 @@ function CandidateMatchesCard({ jobId }: { jobId: number }) {
               Find ranked candidates using semantic matching (pgvector)
             </CardDescription>
           </div>
-          <Button
-            onClick={handleFindMatches}
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-          >
-            {loading ? (
-              <span className="flex items-center">
-                <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                Searching...
-              </span>
-            ) : (
-              'Find Matches'
-            )}
-          </Button>
+            <Button
+              onClick={handleFindMatches}
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-2"
+            >
+              {loading ? (
+                <span className="flex items-center">
+                  <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
+                  Ranking...
+                </span>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  AI Rank Top 10
+                </>
+              )}
+            </Button>
         </div>
       </CardHeader>
       <CardContent>
@@ -460,25 +467,20 @@ function CandidateMatchesCard({ jobId }: { jobId: number }) {
               const skillsScore = Number(m.skills_score) || 0;
               const expScore = Number(m.experience_score) || 0;
 
-              // Determine strongest factor
-              let rankingReason = '';
-              if (skillsScore > expScore) {
-                rankingReason = `Strong skills match (${(skillsScore * 100).toFixed(0)}%)`;
-              } else if (expScore > skillsScore) {
-                rankingReason = `Relevant experience (${(expScore * 100).toFixed(0)}%)`;
-              } else {
-                rankingReason = `Balanced profile (${(finalScore * 100).toFixed(0)}%)`;
-              }
-
-              // Add context based on rank
-              if (idx === 0) {
-                rankingReason = `🥇 Highest overall score - ${rankingReason}`;
-              } else if (idx === 1) {
-                const scoreDiff = ((matches[0].final_score - finalScore) * 100).toFixed(0);
-                rankingReason = `🥈 ${scoreDiff}% below #1 - ${rankingReason}`;
-              } else if (idx === 2) {
-                const scoreDiff = ((matches[0].final_score - finalScore) * 100).toFixed(0);
-                rankingReason = `🥉 ${scoreDiff}% below #1 - ${rankingReason}`;
+              // Use AI ranking reason if available
+              const rankingReason = (m as any).match_reason || (m as any).reason || '';
+              const strengths = (m as any).strengths || [];
+              const concerns = (m as any).concerns || [];
+              
+              let fallbackReason = '';
+              if (!rankingReason) {
+                if (skillsScore > expScore) {
+                  fallbackReason = `Strong skills match (${(skillsScore * 100).toFixed(0)}%)`;
+                } else if (expScore > skillsScore) {
+                  fallbackReason = `Relevant experience (${(expScore * 100).toFixed(0)}%)`;
+                } else {
+                  fallbackReason = `Balanced profile (${(finalScore * 100).toFixed(0)}%)`;
+                }
               }
 
               return (
@@ -511,8 +513,20 @@ function CandidateMatchesCard({ jobId }: { jobId: number }) {
                   <CardContent className="pt-0">
                     <div className="space-y-3">
                       <div>
-                        <p className="text-xs text-muted-foreground mb-1">Why Ranked Here?</p>
-                        <p className="text-xs text-gray-700" title={rankingReason}>{rankingReason}</p>
+                        <p className="text-xs text-muted-foreground mb-1">AI Insight</p>
+                        <p className="text-xs text-blue-800 bg-blue-50 p-2 rounded border border-blue-100 line-clamp-3" title={rankingReason || fallbackReason}>
+                          {rankingReason || fallbackReason}
+                        </p>
+                        
+                        {strengths.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {strengths.slice(0, 2).map((s: string, i: number) => (
+                              <span key={i} className="text-[9px] px-1 py-0.5 bg-green-50 text-green-700 rounded border border-green-100">
+                                + {s}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
 
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
