@@ -11,6 +11,9 @@ import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../middleware/auth.middleware';
 import { CertificateService } from '../services/certificate.service';
 import { v4 as uuidv4 } from 'uuid';
+import { TimerEngineService } from '../modules/interview-session/timer-engine.service';
+import { RecoveryEngineService } from '../modules/interview-session/recovery-engine.service';
+import { SessionState } from '../common/types';
 
 const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
 
@@ -1067,15 +1070,18 @@ export const candidateLogin = async (req: Request, res: Response) => {
     //   return res.status(400).json({ success: false, error: 'Interview time has expired' });
     // }
 
-    // 5. Device locking
-    const deviceId = `${req.ip}-${req.headers['user-agent']}`;
+    // 5. Device locking & Fingerprinting
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const fingerprint = req.body.fingerprint || `${req.ip}-${userAgent}`;
+    const fingerprintHash = crypto.createHash("sha256").update(fingerprint).digest("hex");
 
     if (!tokenData.device_id) {
       await pool.query(
-        'UPDATE interview_tokens SET device_id = $1 WHERE token = $2',
-        [deviceId, tokenData.token]
+        'UPDATE interview_tokens SET device_id = $1, fingerprint_hash = $2 WHERE token = $3',
+        [fingerprint, fingerprintHash, tokenData.token]
       );
-    } else if (tokenData.device_id !== deviceId) {
+    } else if (tokenData.device_id !== fingerprint && tokenData.fingerprint_hash !== fingerprintHash) {
+      // Allow slight variations in UA if fingerprint matches, but here we are strict for production
       return res.status(403).json({
         success: false,
         error: 'Security alert: Access restricted to original device.'
@@ -1264,19 +1270,14 @@ export const confirmInterviewStart = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'session_id is required' });
     }
 
-    const result = await pool.query(
-      `
-      UPDATE interview_sessions
-      SET started_at = CURRENT_TIMESTAMP
-      WHERE id = $1 AND token = $2
-      RETURNING id
-      `,
-      [Number(session_id), interviewToken]
-    );
+    const sessionRes = await pool.query("SELECT duration_mins FROM interview_tokens WHERE token = $1", [interviewToken]);
+    const durationMins = sessionRes.rows[0]?.duration_mins || 30;
 
-    if (!result.rows.length) {
-      return res.status(404).json({ success: false, error: 'Session not found' });
-    }
+    // Initialize Server-Authoritative Timer
+    await TimerEngineService.initializeTimer(Number(session_id), durationMins);
+    
+    // Create Initial Snapshot
+    await RecoveryEngineService.createSnapshot(Number(session_id), "START");
 
     return res.json({ success: true });
   } catch (error) {
@@ -1485,17 +1486,28 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
     const targetCount = Number(session.total_questions || session.target_questions) || 10;
 
     await client.query(
-      `UPDATE interview_sessions SET current_theta = $1, score = $2 WHERE id = $3`,
+      `UPDATE interview_sessions SET current_theta = $1, score = $2, last_activity_at = CURRENT_TIMESTAMP WHERE id = $3`,
       [thetaAfter, score, Number(session_id)]
     );
 
+    // Update Runtime State
+    await client.query(`
+      INSERT INTO interview_session_runtime (session_id, current_question_index, adaptive_state, last_sync_at)
+      VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+      ON CONFLICT (session_id) DO UPDATE SET 
+        current_question_index = $2, 
+        adaptive_state = $3, 
+        last_sync_at = CURRENT_TIMESTAMP
+    `, [Number(session_id), answeredCount, JSON.stringify({ theta: thetaAfter, answeredCount })]);
+
     if (answeredCount >= targetCount) {
       await client.query(
-        `UPDATE interview_sessions SET is_submitted = true, completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
+        `UPDATE interview_sessions SET is_submitted = true, state = 'SUBMITTED', completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
         [targetCount, score, Number(session_id)]
       );
       await client.query('COMMIT');
       void sendCompletionReport(Number(session_id));
+      await RecoveryEngineService.createSnapshot(Number(session_id), "SUBMIT");
       return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: targetCount });
     }
 
@@ -1510,15 +1522,28 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
 
     if (!nextQuestion) {
       await client.query(
-        `UPDATE interview_sessions SET is_submitted = true, completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
+        `UPDATE interview_sessions SET is_submitted = true, state = 'SUBMITTED', completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
         [targetCount, score, Number(session_id)]
       );
       await client.query('COMMIT');
       void sendCompletionReport(Number(session_id));
+      await RecoveryEngineService.createSnapshot(Number(session_id), "FINISH_ADAPTIVE_EXHAUSTED");
       return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: targetCount });
     }
 
+    // Update current question in runtime
+    await client.query(`
+      UPDATE interview_session_runtime 
+      SET current_question_id = $1 
+      WHERE session_id = $2
+    `, [nextQuestion.id, Number(session_id)]);
+
     await client.query('COMMIT');
+
+    // Create periodic snapshot
+    if (answeredCount % 3 === 0) {
+      await RecoveryEngineService.createSnapshot(Number(session_id), `ANSWER_${answeredCount}`);
+    }
     return res.json({
       success: true,
       isFinished: false,
