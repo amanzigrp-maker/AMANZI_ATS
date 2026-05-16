@@ -12,6 +12,7 @@ import {
   submitAdaptiveAnswer,
   getQuestions,
   submitAnswers,
+  processHeartbeat,
   getInterviewReport,
   exportInterviewReport,
   updateCandidateDecision,
@@ -42,6 +43,7 @@ router.post('/verification', verifyToken, saveInterviewVerification);
 router.post('/start-confirmed', verifyToken, confirmInterviewStart);
 router.post('/generate', verifyToken, generateQuestions);
 router.post('/answer', verifyToken, submitAdaptiveAnswer);
+router.post('/heartbeat', verifyToken, processHeartbeat);
 
 // 3. Get questions (Authenticated Candidate)
 router.get('/questions', verifyToken, getQuestions);

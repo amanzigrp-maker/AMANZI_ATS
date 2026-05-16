@@ -9,7 +9,7 @@ import {
   deleteJob,
   assignJob,
 } from "../controllers/job.controller";
-import { getJobMatches } from "../controllers/job-match.controller";
+import { getJobMatches, rankJobApplicants } from "../controllers/job-match.controller";
 import jobAssignmentService from "../services/job-assignment.service";
 
 /**
@@ -38,6 +38,7 @@ router.get("/", getJobs);
  * ==========================================
  */
 router.get("/:job_id/matches", getJobMatches);
+router.get("/:job_id/rank-applicants", rankJobApplicants);
 
 router.get("/:job_id/ai-candidates", getAiCandidatesForJob);
 

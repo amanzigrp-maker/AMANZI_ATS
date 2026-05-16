@@ -600,7 +600,7 @@ const fallbackQuestions = (role, topic, count) => {
         metadata: { generated_by: "fallback" },
     }));
 };
-const generateAiQuestions = async (role, topic, count, prompt) => {
+const generateAiQuestions = async (role, topic, count, prompt, experienceYears = 3) => {
     const apiKey = process.env.GEMINI_API_KEY || "";
     if (!apiKey) {
         console.warn("⚠️ GEMINI_API_KEY is missing. Using fallback questions.");
@@ -618,6 +618,7 @@ const generateAiQuestions = async (role, topic, count, prompt) => {
             try {
                 const result = await model.generateContent(`
 Generate ${count} recruiter assessment MCQs for role "${role || "General"}" and topic "${topic || "General skills"}".
+The candidate has approximately ${experienceYears} years of experience in this field. Tailor the complexity, depth, and scenarios of the questions to this level.
 Recruiter prompt: ${prompt || "Create fair practical screening questions."}
 
 Return only JSON:
@@ -1010,8 +1011,9 @@ export const submitAssessmentAttempt = async (req, res) => {
 export const createAssessmentFromAi = async (req, res) => {
     try {
         console.log("🚀 createAssessmentFromAi request body:", JSON.stringify(req.body));
-        const count = Math.min(Math.max(Number(req.body.count) || 5, 1), 25);
-        const questions = await generateAiQuestions(req.body.role || "", req.body.topic || "", count, req.body.prompt || "");
+        const count = Math.max(Number(req.body.count) || 5, 1);
+        const experienceYears = Number(req.body.experience_years) || 3;
+        const questions = await generateAiQuestions(req.body.role || "", req.body.topic || "", count, req.body.prompt || "", experienceYears);
         console.log(`✅ Generated ${questions.length} questions. Creating assessment...`);
         const assessment = await createAssessmentWithQuestions(req, {
             title: req.body.title || `${req.body.role || "General"} assessment`,

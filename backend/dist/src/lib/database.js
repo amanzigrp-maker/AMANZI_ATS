@@ -145,29 +145,50 @@ export async function testConnection() {
         interview_user_id INTEGER REFERENCES interview_users(id),
         token TEXT UNIQUE REFERENCES interview_tokens(token),
         candidate_email TEXT NOT NULL,
+        candidate_name TEXT,
         interview_id TEXT,
         role TEXT NOT NULL,
         experience_years INTEGER,
         start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         end_time TIMESTAMP,
         status VARCHAR(20) DEFAULT 'in_progress',
+        state VARCHAR(50) DEFAULT 'CREATED',
         is_submitted BOOLEAN DEFAULT FALSE,
         score INTEGER DEFAULT 0,
         total_questions INTEGER DEFAULT 0,
-        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        started_at TIMESTAMP,
+        paused_at TIMESTAMP,
+        resumed_at TIMESTAMP,
+        total_paused_duration_ms BIGINT DEFAULT 0,
+        expires_at TIMESTAMP,
+        last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        remaining_seconds INTEGER,
+        fingerprint_hash TEXT,
+        current_theta NUMERIC(6,4) DEFAULT 0.5,
+        target_questions INTEGER DEFAULT 10,
         completed_at TIMESTAMP,
-        candidate_phone TEXT
+        candidate_phone TEXT,
+        device_info JSONB,
+        ip_address TEXT,
+        metadata JSONB DEFAULT '{}'::jsonb
       )
     `);
         // Add new columns to interview_sessions if they don't exist
-        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS candidate_phone TEXT`);
-        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS interview_user_id INTEGER REFERENCES interview_users(id)`);
-        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
-        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS end_time TIMESTAMP`);
-        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'in_progress'`);
-        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS interview_id TEXT`);
-        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS current_theta NUMERIC(6,4) DEFAULT 0.5`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS state VARCHAR(50) DEFAULT 'CREATED'`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS started_at TIMESTAMP`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS paused_at TIMESTAMP`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS resumed_at TIMESTAMP`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS total_paused_duration_ms BIGINT DEFAULT 0`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS remaining_seconds INTEGER`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS fingerprint_hash TEXT`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS device_info JSONB`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS ip_address TEXT`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}'::jsonb`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS candidate_name TEXT`);
         await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS target_questions INTEGER DEFAULT 10`);
+        await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS current_theta NUMERIC(6,4) DEFAULT 0.5`);
         // Ensure interview_questions table exists
         await pool.query(`
       CREATE TABLE IF NOT EXISTS interview_questions (
@@ -244,7 +265,96 @@ export async function testConnection() {
         await pool.query(`ALTER TABLE interview_verifications ADD COLUMN IF NOT EXISTS selfie_path TEXT`);
         await pool.query(`ALTER TABLE interview_verifications ADD COLUMN IF NOT EXISTS id_card_path TEXT`);
         await pool.query(`ALTER TABLE interview_verifications ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`);
-        console.log('✅ Temporary Interview Access System tables verified');
+        // --- FAULT RECOVERY & RESUMPTION TABLES ---
+        console.log('📦 Verifying fault recovery tables...');
+        await pool.query(`
+      CREATE TABLE IF NOT EXISTS interview_session_runtime (
+        session_id INTEGER PRIMARY KEY REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        current_question_index INTEGER DEFAULT 0,
+        current_question_id INTEGER,
+        navigation_state JSONB DEFAULT '{}'::jsonb,
+        coding_state JSONB DEFAULT '{}'::jsonb,
+        adaptive_state JSONB DEFAULT '{}'::jsonb,
+        last_sync_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        await pool.query(`
+      CREATE TABLE IF NOT EXISTS interview_session_snapshots (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        snapshot_data JSONB NOT NULL,
+        trigger_event TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        await pool.query(`
+      CREATE TABLE IF NOT EXISTS interview_reconnect_logs (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        event_type VARCHAR(50),
+        ip_address TEXT,
+        user_agent TEXT,
+        fingerprint_hash TEXT,
+        status VARCHAR(20),
+        reason TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        await pool.query(`
+      CREATE TABLE IF NOT EXISTS interview_heartbeat_logs (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        latency_ms INTEGER,
+        ip_address TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        await pool.query(`
+      CREATE TABLE IF NOT EXISTS interview_autosave_events (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        question_id INTEGER,
+        response_data JSONB,
+        is_draft BOOLEAN DEFAULT TRUE,
+        client_timestamp TIMESTAMP,
+        server_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        await pool.query(`
+      CREATE TABLE IF NOT EXISTS session_resume_audit (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        previous_state TEXT,
+        new_state TEXT,
+        resume_point_question_id INTEGER,
+        recovered_fields TEXT[],
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        await pool.query(`
+      CREATE TABLE IF NOT EXISTS adaptive_engine_snapshots (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        theta NUMERIC(10,6),
+        question_sequence INTEGER[],
+        skill_rotation_state JSONB,
+        theta_history JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        await pool.query(`
+      CREATE TABLE IF NOT EXISTS session_state_audit (
+        id SERIAL PRIMARY KEY,
+        session_id INTEGER REFERENCES interview_sessions(id) ON DELETE CASCADE,
+        from_state VARCHAR(50),
+        to_state VARCHAR(50),
+        reason TEXT,
+        triggered_by VARCHAR(100),
+        ip_address TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        console.log('✅ Fault recovery tables verified');
         // Add decision column for select/reject status
         await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS decision TEXT DEFAULT 'pending'`);
         await pool.query(`ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS feedback TEXT`);
@@ -338,25 +448,25 @@ export async function testConnection() {
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions (topic)`);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_sets_assessment ON question_sets (assessment_id)`);
         await pool.query(`ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty_score NUMERIC(6,4) DEFAULT 0.5`);
-        await pool.query(`CREATE EXTENSION IF NOT EXISTS vector`).catch((error) => {
-            console.warn('Vector extension check skipped:', error instanceof Error ? error.message : error);
-        });
-        await pool.query(`
-      CREATE TABLE IF NOT EXISTS question_embeddings (
-        question_id INTEGER PRIMARY KEY REFERENCES questions(question_id) ON DELETE CASCADE,
-        assessment_id INTEGER NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
-        topic TEXT,
-        content TEXT,
-        embedding VECTOR(384),
-        model_name TEXT,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-        await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS topic TEXT`);
-        await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS content TEXT`);
-        await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS model_name TEXT`);
-        await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_embeddings_assessment ON question_embeddings (assessment_id)`);
-        await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_embeddings_topic ON question_embeddings (topic)`);
+        // await pool.query(`CREATE EXTENSION IF NOT EXISTS vector`).catch((error) => {
+        //   console.warn('Vector extension check skipped:', error instanceof Error ? error.message : error);
+        // });
+        // await pool.query(`
+        //   CREATE TABLE IF NOT EXISTS question_embeddings (
+        //     question_id INTEGER PRIMARY KEY REFERENCES questions(question_id) ON DELETE CASCADE,
+        //     assessment_id INTEGER NOT NULL REFERENCES assessments(assessment_id) ON DELETE CASCADE,
+        //     topic TEXT,
+        //     content TEXT,
+        //     embedding VECTOR(384),
+        //     model_name TEXT,
+        //     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        //   )
+        // `);
+        // await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS topic TEXT`);
+        // await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS content TEXT`);
+        // await pool.query(`ALTER TABLE question_embeddings ADD COLUMN IF NOT EXISTS model_name TEXT`);
+        // await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_embeddings_assessment ON question_embeddings (assessment_id)`);
+        // await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_embeddings_topic ON question_embeddings (topic)`);
         // --- IRT (Item Response Theory) TABLES ---
         // 1. Update questions table with IRT parameters
         await pool.query(`

@@ -237,10 +237,10 @@ export const uploadResume = async (req: Request, res: Response) => {
             ) VALUES ($1, $2, 'pending', NOW(), $3, $4)
             ON CONFLICT (job_id, candidate_id) DO NOTHING`,
             [
-              rawJobId, 
-              candidateId, 
+              rawJobId,
+              candidateId,
               uploaderId,
-              (req as any).user?.role === 'vendor' ? 'vendor' : 'recruiter', 
+              (req as any).user?.role === 'vendor' ? 'vendor' : 'recruiter',
             ]
           );
           console.log(`✅ Application auto-created for candidate ${candidateId} on job ${rawJobId}`);
@@ -593,7 +593,7 @@ export const uploadModifiedResume = async (req: AuthenticatedRequest, res: Respo
         const notifications = admins.rows.map((a) => ({
           userId: a.userid as number,
           title: "Candidate Update",
-          message: `Candidate ${parseResult?.parsed_data?.full_name || 'ID '+rawCandidateId} updated resume for job ${jobCode}`,
+          message: `Candidate ${parseResult?.parsed_data?.full_name || 'ID ' + rawCandidateId} updated resume for job ${jobCode}`,
           type: "info" as const,
           relatedJobId: Number(rawJobId),
           relatedJobCode: String(jobCode),

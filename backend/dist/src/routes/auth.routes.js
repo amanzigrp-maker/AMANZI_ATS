@@ -49,7 +49,7 @@ router.post('/login', async (req, res) => {
         }
         console.log(`[AUTH] ✅ Password verified for: ${email}`);
         const { jwtSecret, refreshSecret } = getJwtSecrets();
-        const accessToken = jwt.sign({ id: user.userid, email: user.email, role: user.role }, jwtSecret, { expiresIn: '1h' });
+        const accessToken = jwt.sign({ id: user.userid, email: user.email, role: user.role }, jwtSecret, { expiresIn: '7d' });
         const refreshToken = jwt.sign({ id: user.userid, email: user.email }, refreshSecret, { expiresIn: '7d' });
         await pool.query(`INSERT INTO refresh_tokens (user_id, token, expiry)
        VALUES ($1, $2, NOW() + INTERVAL '7 days')`, [user.userid, refreshToken]);
@@ -108,7 +108,7 @@ router.post('/refresh', async (req, res) => {
             return res.status(403).json({ message: 'User not found.' });
         }
         const user = userRows[0];
-        const newAccessToken = jwt.sign({ id: user.userid, email: user.email, role: user.role }, jwtSecret, { expiresIn: '1h' });
+        const newAccessToken = jwt.sign({ id: user.userid, email: user.email, role: user.role }, jwtSecret, { expiresIn: '7d' });
         const newRefreshToken = jwt.sign({ id: user.userid, email: user.email }, refreshSecret, { expiresIn: '7d' });
         const newExpiry = new Date();
         newExpiry.setDate(newExpiry.getDate() + 7);

@@ -43,7 +43,7 @@ export default function JobEdit() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const duplicateId = searchParams.get('duplicate');
-  
+
   const [job, setJob] = useState<Job>({
     title: '',
     company: '',
@@ -61,7 +61,7 @@ export default function JobEdit() {
     assignment_type: 'specific',
     assigned_to: []
   });
-  
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [newRequirement, setNewRequirement] = useState('');
@@ -86,16 +86,16 @@ export default function JobEdit() {
         authenticatedFetch('/api/users?role=vendor&status=active'),
         authenticatedFetch('/api/users?role=recruiter&status=active')
       ]);
-      
+
       const vendors = vendorsResponse.ok ? (await vendorsResponse.json()).users || [] : [];
       const recruiters = recruitersResponse.ok ? (await recruitersResponse.json()).users || [] : [];
-      
+
       // Combine both lists (roles are already set from database)
       const allAssignees = [
         ...vendors,
         ...recruiters
       ].sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
-      
+
       setAvailableVendors(allAssignees);
     } catch (error) {
       console.error('Failed to fetch assignees:', error);
@@ -111,7 +111,7 @@ export default function JobEdit() {
       }
       const data = await response.json();
       const jobData = data.data;
-      
+
       // Parse array fields if they're strings
       const parseArrayField = (field: string[] | string | null): string[] => {
         if (!field) return [];
@@ -134,8 +134,8 @@ export default function JobEdit() {
         assignment_type: 'specific',
         assigned_to: jobData.assigned_to || [],
         // If duplicating, remove the ID and set status to draft
-        ...(isDuplicating && { 
-          job_id: undefined, 
+        ...(isDuplicating && {
+          job_id: undefined,
           status: 'draft',
           title: `Copy of ${jobData.title}`
         })
@@ -154,12 +154,12 @@ export default function JobEdit() {
 
   const addArrayItem = (field: 'requirements' | 'skills' | 'benefits', value: string) => {
     if (!value.trim()) return;
-    
+
     setJob(prev => ({
       ...prev,
       [field]: [...prev[field], value.trim()]
     }));
-    
+
     // Clear the input
     if (field === 'requirements') setNewRequirement('');
     if (field === 'skills') setNewSkill('');
@@ -194,7 +194,7 @@ export default function JobEdit() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!job.title || !job.company || !job.description || !job.location) {
       toast.error('Please fill in all required fields (Title, Company, Location, Description)');
       return;
@@ -212,10 +212,10 @@ export default function JobEdit() {
 
     try {
       setSaving(true);
-      
+
       const method = isEditing && !isDuplicating ? 'PUT' : 'POST';
       const url = isEditing && !isDuplicating ? `/api/jobs/${id}` : '/api/jobs';
-      
+
       const selectedVendors: number[] = [];
       const selectedRecruiters: number[] = [];
 
@@ -251,11 +251,11 @@ export default function JobEdit() {
 
       const data = await response.json();
       toast.success(isEditing && !isDuplicating ? 'Job updated successfully' : 'Job created successfully');
-      
+
       // Navigate to the applicants page for this job
       const jobId = data.data?.job_id || id;
       navigate(`/jobs/${jobId}/applicants`);
-      
+
     } catch (err) {
       console.error('Error saving job:', err);
       toast.error('Failed to save job');
@@ -332,7 +332,7 @@ export default function JobEdit() {
                   />
                 </div>
               </div>
-              
+
               <div>
                 <Label htmlFor="description">Job Description *</Label>
                 <Textarea
@@ -466,8 +466,8 @@ export default function JobEdit() {
                 {job.requirements.map((req, index) => (
                   <Badge key={index} variant="outline" className="flex items-center gap-1">
                     {req}
-                    <X 
-                      className="h-3 w-3 cursor-pointer" 
+                    <X
+                      className="h-3 w-3 cursor-pointer"
                       onClick={() => removeArrayItem('requirements', index)}
                     />
                   </Badge>
@@ -497,8 +497,8 @@ export default function JobEdit() {
                 {job.skills.map((skill, index) => (
                   <Badge key={index} variant="outline" className="flex items-center gap-1">
                     {skill}
-                    <X 
-                      className="h-3 w-3 cursor-pointer" 
+                    <X
+                      className="h-3 w-3 cursor-pointer"
                       onClick={() => removeArrayItem('skills', index)}
                     />
                   </Badge>
@@ -528,8 +528,8 @@ export default function JobEdit() {
                 {job.benefits.map((benefit, index) => (
                   <Badge key={index} variant="outline" className="flex items-center gap-1">
                     {benefit}
-                    <X 
-                      className="h-3 w-3 cursor-pointer" 
+                    <X
+                      className="h-3 w-3 cursor-pointer"
                       onClick={() => removeArrayItem('benefits', index)}
                     />
                   </Badge>
@@ -549,7 +549,7 @@ export default function JobEdit() {
             <CardContent className="space-y-4">
               <div>
                 <Label>Assignment Visibility</Label>
-                <Select value={job.assignment_type} onValueChange={() => {}}>
+                <Select value={job.assignment_type} onValueChange={() => { }}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -570,22 +570,21 @@ export default function JobEdit() {
                         <Checkbox
                           id={`assignee-${assignee.userid}`}
                           checked={job.assigned_to?.includes(assignee.userid) || false}
-                          onCheckedChange={(checked) => 
+                          onCheckedChange={(checked) =>
                             handleVendorAssignment(assignee.userid, checked as boolean)
                           }
                         />
-                        <Label 
+                        <Label
                           htmlFor={`assignee-${assignee.userid}`}
                           className="flex-1 cursor-pointer"
                         >
                           <div>
                             <div className="flex items-center gap-2">
                               <p className="font-medium">{assignee.name}</p>
-                              <span className={`px-2 py-1 text-xs rounded-full ${
-                                assignee.role === 'vendor' 
-                                  ? 'bg-blue-100 text-blue-800' 
+                              <span className={`px-2 py-1 text-xs rounded-full ${assignee.role === 'vendor'
+                                  ? 'bg-blue-100 text-blue-800'
                                   : 'bg-green-100 text-green-800'
-                              }`}>
+                                }`}>
                                 {assignee.role === 'vendor' ? 'Vendor' : 'Recruiter'}
                               </span>
                             </div>

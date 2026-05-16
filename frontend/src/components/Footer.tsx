@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Linkedin, Twitter, Github, Mail } from "lucide-react";
+import { AnimatedIcon, IconMap } from "@/components/AnimatedIconsax";
 
 export const Footer = () => {
   return (
@@ -23,17 +23,17 @@ export const Footer = () => {
             </p>
             <div className="flex items-center gap-3">
               {[
-                { icon: Twitter, href: "#" },
-                { icon: Linkedin, href: "#" },
-                { icon: Github, href: "#" },
-                { icon: Mail, href: "#" }
+                { icon: 'Twitter', href: "#" },
+                { icon: 'Linkedin', href: "#" },
+                { icon: 'Github', href: "#" },
+                { icon: 'Mail', href: "#" }
               ].map((social, i) => (
                 <a
                   key={i}
                   href={social.href}
                   className="w-10 h-10 rounded-full bg-card/5 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-blue-600 hover:border-blue-500 transition-all duration-300"
                 >
-                  <social.icon size={18} />
+                  <AnimatedIcon icon={IconMap[social.icon as keyof typeof IconMap]} size={18} />
                 </a>
               ))}
             </div>

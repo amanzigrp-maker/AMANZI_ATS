@@ -276,21 +276,34 @@ Return ONLY valid JSON:
             }
     
     def _extract_json(self, text: str) -> str:
-        """Extract JSON from text response"""
-        # Remove markdown code blocks
+        """Extract and clean JSON from text response"""
+        # Remove markdown code blocks if present
         if "```" in text:
-            text = text.replace("```json", "").replace("```", "").strip()
+            # Handle cases like ```json ... ``` or just ``` ... ```
+            import re
+            json_blocks = re.findall(r'```(?:json)?\s*(.*?)\s*```', text, re.DOTALL)
+            if json_blocks:
+                text = json_blocks[0]
+            else:
+                text = text.replace("```json", "").replace("```", "").strip()
         
-        # Find JSON object
+        # Find JSON object bounds
         start = text.find("{")
         if start == -1:
-            raise RuntimeError("No JSON found in response")
+            raise RuntimeError(f"No JSON object found in response: {text[:100]}...")
         
         end = text.rfind("}")
         if end == -1:
-            raise RuntimeError("Incomplete JSON in response")
+            raise RuntimeError("Incomplete JSON object in response")
         
-        return text[start:end + 1]
+        json_str = text[start:end + 1]
+        
+        # Basic cleaning for common LLM JSON errors
+        # 1. Remove trailing commas in arrays and objects
+        import re
+        json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
+        
+        return json_str
     
     def _normalize_model_name(self, name: str) -> str:
         """Normalize model name"""

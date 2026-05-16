@@ -63,7 +63,7 @@ router.post('/login', async (req, res) => {
     const accessToken = jwt.sign(
       { id: user.userid, email: user.email, role: user.role },
       jwtSecret,
-      { expiresIn: '1h' }
+      { expiresIn: '7d' }
     );
 
     const refreshToken = jwt.sign(
@@ -155,7 +155,7 @@ router.post('/refresh', async (req, res) => {
     const newAccessToken = jwt.sign(
       { id: user.userid, email: user.email, role: user.role },
       jwtSecret,
-      { expiresIn: '1h' }
+      { expiresIn: '7d' }
     );
 
     const newRefreshToken = jwt.sign(

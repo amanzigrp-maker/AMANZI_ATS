@@ -9,6 +9,8 @@ import { aiWorkerService } from '../services/ai-worker.service';
 import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../middleware/auth.middleware';
 import { CertificateService } from '../services/certificate.service';
+import { TimerEngineService } from '../modules/interview-session/timer-engine.service';
+import { RecoveryEngineService } from '../modules/interview-session/recovery-engine.service';
 const getUserId = (req) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
 /**
  * Helper to check if a user is authorized to manage a candidate's interview.
@@ -281,20 +283,23 @@ const shouldUseMultiSelect = (role, skillFocus, aiQuestionCount) => {
     }
     return aiQuestionCount % 4 === 2 || aiQuestionCount % 4 === 3;
 };
-const sendCompletionReport = async (sessionId) => {
+export const sendCompletionReport = async (sessionId) => {
+    console.log(`[sendCompletionReport] Starting for session ${sessionId}...`);
     try {
         // PREVENT DUPLICATE EMAILS: Check if report already sent/certificate exists
         const existingCert = await pool.query('SELECT id FROM certificates WHERE interview_session_id = $1 LIMIT 1', [sessionId]);
         if (existingCert.rows.length) {
-            console.log(`[sendCompletionReport] Report already sent for session ${sessionId}. Skipping.`);
+            console.log(`[sendCompletionReport] Report already sent for session ${sessionId}. Skipping email dispatch.`);
             return;
         }
         const sessionResult = await pool.query(`SELECT s.*, t.candidate_name, t.job_role, t.duration_mins, t.candidate_email
        FROM interview_sessions s
        JOIN interview_tokens t ON s.token = t.token
        WHERE s.id = $1`, [sessionId]);
-        if (!sessionResult.rows.length)
+        if (!sessionResult.rows.length) {
+            console.error(`[sendCompletionReport] Session ${sessionId} not found.`);
             return;
+        }
         const sess = sessionResult.rows[0];
         const configuredTotal = Number(sess.total_questions) || 0;
         const correctCount = Number(sess.score) || 0;
@@ -327,6 +332,7 @@ const sendCompletionReport = async (sessionId) => {
         // --- Certificate Integration ---
         const certificateId = CertificateService.generateCertificateId();
         let certificateBuffer;
+        console.log(`[sendCompletionReport] Generating certificate ${certificateId} for ${sess.candidate_name}...`);
         try {
             // Fetch selfie from verification
             const verifyRes = await pool.query('SELECT selfie_path FROM interview_verifications WHERE token = $1', [sess.token]);
@@ -337,7 +343,7 @@ const sendCompletionReport = async (sessionId) => {
                     candidatePhoto = `data:image/jpeg;base64,${photoData.toString('base64')}`;
                 }
                 catch (photoErr) {
-                    console.warn('Could not read selfie for certificate:', photoErr);
+                    console.warn('[sendCompletionReport] Could not read selfie for certificate:', photoErr);
                 }
             }
             const precisionScore = configuredTotal > 0
@@ -349,30 +355,40 @@ const sendCompletionReport = async (sessionId) => {
                 date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
                 certificateId,
                 photoPath: verifyRes.rows[0]?.selfie_path || candidatePhoto || '',
-                score: precisionScore
+                score: precisionScore,
+                analytics: {
+                    breakdown: breakdownMap
+                }
             });
+            console.log(`[sendCompletionReport] Saving certificate to DB...`);
             // Save to DB
-            await CertificateService.saveCertificate({
+            await CertificateService.saveCertificate(String(sessionId), {
                 certificateId,
-                interviewSessionId: sessionId,
-                candidateName: sess.candidate_name,
-                candidateEmail: sess.candidate_email,
-                candidatePhoto,
-                testName: sess.role || sess.job_role || 'Technical Assessment',
-                score: precisionScore
+                name: sess.candidate_name,
+                candidate_email: sess.candidate_email,
+                test: sess.role || sess.job_role || 'Technical Assessment',
+                date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+                photoUrl: verifyRes.rows[0]?.selfie_path || candidatePhoto || '',
+                score: precisionScore,
+                analytics: {
+                    breakdown: breakdownMap
+                }
             });
+            console.log(`[sendCompletionReport] Certificate saved successfully in DB.`);
         }
         catch (certErr) {
-            console.error('Failed to generate certificate for report:', certErr);
+            console.error('❌ [sendCompletionReport] Failed to generate/save certificate:', certErr);
         }
+        console.log(`[sendCompletionReport] Dispatching email to ${sess.candidate_email}...`);
         await sendInterviewResults(sess.candidate_email, sess.candidate_name, correctCount, configuredTotal, sess.role || sess.job_role, timeTakenMins, breakdownMap, {
             correct: correctCount,
             incorrect: incorrectCount,
             attempted: configuredTotal,
         }, certificateBuffer, certificateId);
+        console.log(`[sendCompletionReport] Successfully completed for session ${sessionId}.`);
     }
-    catch (emailErr) {
-        console.error('Failed to send completion report email:', emailErr);
+    catch (err) {
+        console.error(`❌ [sendCompletionReport] Fatal error for session ${sessionId}:`, err);
     }
 };
 const formatQuestionForClient = (row) => ({
@@ -724,8 +740,18 @@ export const generateAndSendLink = async (req, res) => {
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
         const loginUrl = `${frontendUrl}/interview?token=${encodeURIComponent(token)}&candidateId=${candidateId}`;
         // 5. Send email
-        await sendInterviewLink(candidate.email, candidateName, loginUrl, plainPassword);
-        res.json({ success: true, message: 'Interview link sent successfully', data: { candidate_id: candidateId, token, login_url: loginUrl } });
+        await sendInterviewLink(candidate.email, candidateName, loginUrl, plainPassword, duration, Number(questionCount) || 10);
+        res.json({
+            success: true,
+            message: 'Interview link sent successfully',
+            data: {
+                candidate_id: candidateId,
+                token,
+                login_url: loginUrl,
+                duration,
+                questionCount: Number(questionCount) || 10
+            }
+        });
     }
     catch (error) {
         console.error('❌ Generate and send link overall error:', error);
@@ -782,8 +808,17 @@ export const inviteCredentials = async (req, res) => {
             getUserId(req),
         ]);
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
-        await sendInterviewLink(candidate.email, candidateName, `${frontendUrl}/interview-login?candidateId=${candidateId}&email=${encodeURIComponent(candidate.email)}`, plainPassword);
-        return res.json({ success: true, message: 'Temporary interview credentials sent successfully', data: { candidate_id: candidateId, token } });
+        await sendInterviewLink(candidate.email, candidateName, `${frontendUrl}/interview-login?candidateId=${candidateId}&email=${encodeURIComponent(candidate.email)}`, plainPassword, duration, Number(questionCount) || 10);
+        return res.json({
+            success: true,
+            message: 'Temporary interview credentials sent successfully',
+            data: {
+                candidate_id: candidateId,
+                token,
+                duration,
+                questionCount: Number(questionCount) || 10
+            }
+        });
     }
     catch (error) {
         console.error('Invite credentials error:', error);
@@ -800,9 +835,10 @@ export const candidateLogin = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Email and password are required' });
         }
         // 1. Find the latest valid generated account for this email
-        const result = await pool.query(`SELECT t.*, s.id as session_id, s.is_submitted 
+        const result = await pool.query(`SELECT t.*, s.id as session_id, s.is_submitted, s.remaining_seconds, s.state, r.current_question_index
        FROM interview_tokens t
        LEFT JOIN interview_sessions s ON t.token = s.token
+       LEFT JOIN interview_session_runtime r ON s.id = r.session_id
        WHERE t.candidate_email ILIKE $1 
        ORDER BY t.created_at DESC LIMIT 1`, [email]);
         if (result.rows.length === 0) {
@@ -827,12 +863,15 @@ export const candidateLogin = async (req, res) => {
         // if (!tokenData.session_id && new Date() > new Date(tokenData.expires_at)) {
         //   return res.status(400).json({ success: false, error: 'Interview time has expired' });
         // }
-        // 5. Device locking
-        const deviceId = `${req.ip}-${req.headers['user-agent']}`;
+        // 5. Device locking & Fingerprinting
+        const userAgent = req.headers['user-agent'] || 'unknown';
+        const fingerprint = req.body.fingerprint || `${req.ip}-${userAgent}`;
+        const fingerprintHash = crypto.createHash("sha256").update(fingerprint).digest("hex");
         if (!tokenData.device_id) {
-            await pool.query('UPDATE interview_tokens SET device_id = $1 WHERE token = $2', [deviceId, tokenData.token]);
+            await pool.query('UPDATE interview_tokens SET device_id = $1, fingerprint_hash = $2 WHERE token = $3', [fingerprint, fingerprintHash, tokenData.token]);
         }
-        else if (tokenData.device_id !== deviceId) {
+        else if (tokenData.device_id !== fingerprint && tokenData.fingerprint_hash !== fingerprintHash) {
+            // Allow slight variations in UA if fingerprint matches, but here we are strict for production
             return res.status(403).json({
                 success: false,
                 error: 'Security alert: Access restricted to original device.'
@@ -845,7 +884,7 @@ export const candidateLogin = async (req, res) => {
             email: tokenData.candidate_email,
             role: 'candidate',
             interview_token: tokenData.token, // This links them back to their session
-        }, getJwtSecret(), { expiresIn: '2h' });
+        }, getJwtSecret(), { expiresIn: '7d' });
         res.json({
             success: true,
             data: {
@@ -855,6 +894,8 @@ export const candidateLogin = async (req, res) => {
                 duration: tokenData.duration_mins,
                 total_questions: tokenData.total_questions || 10,
                 session_id: tokenData.session_id,
+                remaining_seconds: tokenData.session_id ? await TimerEngineService.resumeTimer(Number(tokenData.session_id)) : (tokenData.duration_mins * 60),
+                current_question_index: tokenData.current_question_index || 0,
                 is_started: tokenData.is_used,
                 token: tokenData.token,
                 jwt: candidateJwt,
@@ -879,9 +920,10 @@ export const validateLink = async (req, res) => {
             return res.status(400).json({ success: false, error: 'Token is required', code: 'INVALID' });
         }
         // 1. Find token and check session status
-        const result = await pool.query(`SELECT t.*, s.id as session_id, s.is_submitted 
+        const result = await pool.query(`SELECT t.*, s.id as session_id, s.is_submitted, s.remaining_seconds, s.state, r.current_question_index
        FROM interview_tokens t
        LEFT JOIN interview_sessions s ON t.token = s.token
+       LEFT JOIN interview_session_runtime r ON s.id = r.session_id
        WHERE t.token = $1`, [token]);
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: 'Link is invalid', code: 'INVALID' });
@@ -922,7 +964,7 @@ export const validateLink = async (req, res) => {
             email: tokenData.candidate_email,
             role: 'candidate',
             interview_token: token,
-        }, getJwtSecret(), { expiresIn: '2h' });
+        }, getJwtSecret(), { expiresIn: '7d' });
         res.json({
             success: true,
             data: {
@@ -932,6 +974,8 @@ export const validateLink = async (req, res) => {
                 duration: tokenData.duration_mins,
                 total_questions: tokenData.total_questions || 10,
                 session_id: tokenData.session_id,
+                remaining_seconds: tokenData.session_id ? await TimerEngineService.resumeTimer(Number(tokenData.session_id)) : (tokenData.duration_mins * 60),
+                current_question_index: tokenData.current_question_index || 0,
                 is_started: tokenData.is_used,
                 jwt: candidateJwt,
                 candidate_id: Number(tokenData.candidate_id || candidateProfile?.candidate_id || 0),
@@ -986,15 +1030,12 @@ export const confirmInterviewStart = async (req, res) => {
         if (!interviewToken || !session_id) {
             return res.status(400).json({ success: false, error: 'session_id is required' });
         }
-        const result = await pool.query(`
-      UPDATE interview_sessions
-      SET started_at = CURRENT_TIMESTAMP
-      WHERE id = $1 AND token = $2
-      RETURNING id
-      `, [Number(session_id), interviewToken]);
-        if (!result.rows.length) {
-            return res.status(404).json({ success: false, error: 'Session not found' });
-        }
+        const sessionRes = await pool.query("SELECT duration_mins FROM interview_tokens WHERE token = $1", [interviewToken]);
+        const durationMins = sessionRes.rows[0]?.duration_mins || 30;
+        // Initialize Server-Authoritative Timer
+        await TimerEngineService.initializeTimer(Number(session_id), durationMins);
+        // Create Initial Snapshot
+        await RecoveryEngineService.createSnapshot(Number(session_id), "START");
         return res.json({ success: true });
     }
     catch (error) {
@@ -1093,10 +1134,10 @@ export const generateQuestions = async (req, res) => {
 export const submitAdaptiveAnswer = async (req, res) => {
     const client = await pool.connect();
     try {
-        const { session_id, question_id, selected_answer } = req.body;
+        const { session_id, question_id, selected_answer, is_timeout } = req.body;
         const normalizedSelectedAnswers = normalizeAnswerArray(selected_answer);
-        if (!session_id || !question_id || !normalizedSelectedAnswers.length) {
-            return res.status(400).json({ success: false, error: 'session_id, question_id and selected_answer are required' });
+        if (!session_id || (!is_timeout && (!question_id || !normalizedSelectedAnswers.length))) {
+            return res.status(400).json({ success: false, error: 'session_id and answer data are required' });
         }
         await client.query('BEGIN');
         const sessionResult = await client.query(`
@@ -1154,21 +1195,42 @@ export const submitAdaptiveAnswer = async (req, res) => {
         const answeredCount = Number(answeredCountResult.rows[0]?.count) || 0;
         const score = Number(answeredCountResult.rows[0]?.score) || 0;
         const targetCount = Number(session.total_questions || session.target_questions) || 10;
-        await client.query(`UPDATE interview_sessions SET current_theta = $1, score = $2 WHERE id = $3`, [thetaAfter, score, Number(session_id)]);
-        if (answeredCount >= targetCount) {
-            await client.query(`UPDATE interview_sessions SET is_submitted = true, completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`, [targetCount, score, Number(session_id)]);
+        await client.query(`UPDATE interview_sessions SET current_theta = $1, score = $2, last_activity_at = CURRENT_TIMESTAMP WHERE id = $3`, [thetaAfter, score, Number(session_id)]);
+        // Update Runtime State
+        await client.query(`
+      INSERT INTO interview_session_runtime (session_id, current_question_index, adaptive_state, last_sync_at)
+      VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+      ON CONFLICT (session_id) DO UPDATE SET 
+        current_question_index = $2, 
+        adaptive_state = $3, 
+        last_sync_at = CURRENT_TIMESTAMP
+    `, [Number(session_id), answeredCount, JSON.stringify({ theta: thetaAfter, answeredCount })]);
+        if (answeredCount >= targetCount || is_timeout) {
+            await client.query(`UPDATE interview_sessions SET is_submitted = true, state = 'SUBMITTED', completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`, [targetCount, score, Number(session_id)]);
             await client.query('COMMIT');
             void sendCompletionReport(Number(session_id));
+            await RecoveryEngineService.createSnapshot(Number(session_id), "SUBMIT");
             return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: targetCount });
         }
         const nextQuestion = await createNextAdaptiveQuestion(client, Number(session_id), session, session.role || 'General', Number(session.experience_years) || 0, selectionThetaAfterAnswer(thetaAfter, itemDifficulty, isCorrect));
         if (!nextQuestion) {
-            await client.query(`UPDATE interview_sessions SET is_submitted = true, completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`, [targetCount, score, Number(session_id)]);
+            await client.query(`UPDATE interview_sessions SET is_submitted = true, state = 'SUBMITTED', completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`, [targetCount, score, Number(session_id)]);
             await client.query('COMMIT');
             void sendCompletionReport(Number(session_id));
+            await RecoveryEngineService.createSnapshot(Number(session_id), "FINISH_ADAPTIVE_EXHAUSTED");
             return res.json({ success: true, isFinished: true, score, theta: thetaAfter, answered: answeredCount, total: targetCount });
         }
+        // Update current question in runtime
+        await client.query(`
+      UPDATE interview_session_runtime 
+      SET current_question_id = $1 
+      WHERE session_id = $2
+    `, [nextQuestion.id, Number(session_id)]);
         await client.query('COMMIT');
+        // Create periodic snapshot
+        if (answeredCount % 3 === 0) {
+            await RecoveryEngineService.createSnapshot(Number(session_id), `ANSWER_${answeredCount}`);
+        }
         return res.json({
             success: true,
             isFinished: false,
@@ -1358,9 +1420,11 @@ export const getInterviewReport = async (req, res) => {
           WHEN s.completed_at IS NOT NULL AND s.started_at IS NOT NULL 
           THEN EXTRACT(EPOCH FROM (s.completed_at - s.started_at)) / 60 
           ELSE NULL 
-        END as time_taken_mins
+        END as time_taken_mins,
+        c.id as certificate_id
       FROM interview_sessions s
       JOIN interview_tokens t ON s.token = t.token
+      LEFT JOIN certificates c ON s.id = c.interview_session_id
       WHERE s.is_submitted = true
       ${dateClause}
       ${roleClause}
@@ -1381,6 +1445,7 @@ export const getInterviewReport = async (req, res) => {
             started_at: r.started_at ? new Date(r.started_at).toISOString() : null,
             completed_at: r.completed_at ? new Date(r.completed_at).toISOString() : null,
             decision: r.decision || 'pending',
+            certificate_id: r.certificate_id,
         }));
         const sessionIds = data.map((row) => Number(row.session_id)).filter(Boolean);
         if (sessionIds.length) {
@@ -1642,5 +1707,22 @@ export const getRecentInvites = async (req, res) => {
     catch (error) {
         console.error('Get recent invites error:', error);
         res.status(500).json({ success: false, error: 'Failed to load invitations' });
+    }
+};
+export const processHeartbeat = async (req, res) => {
+    try {
+        const { session_id } = req.body;
+        if (!session_id)
+            return res.status(400).json({ error: "session_id required" });
+        const result = await TimerEngineService.processHeartbeat(Number(session_id), req.ip);
+        if (result.remainingSeconds <= 0) {
+            await pool.query("UPDATE interview_sessions SET is_submitted = true, state = 'EXPIRED', completed_at = CURRENT_TIMESTAMP WHERE id = $1 AND is_submitted = false", [session_id]);
+            void sendCompletionReport(Number(session_id));
+            return res.json({ success: true, ...result, isFinished: true });
+        }
+        return res.json({ success: true, ...result, isFinished: false });
+    }
+    catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
     }
 };

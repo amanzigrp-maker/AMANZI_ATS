@@ -1,6 +1,6 @@
 import { AdaptiveEngineService } from '../services/adaptiveEngine.service';
-import { sendInterviewResults } from '../services/email.service';
 import { pool } from '../lib/database';
+// ... (sessionStore stays the same)
 // Use a simple in-memory session store for this demo. 
 // In production, use Redis or a sessions table.
 const sessionStore = new Map();
@@ -48,14 +48,30 @@ export const submitAnswer = async (req, res) => {
         // 2. Update IRT Theta
         const { newTheta, isFinished } = await AdaptiveEngineService.submitAnswer(session, questionId, isCorrect);
         if (isFinished) {
-            // Send completion email (simplified score calculation for legacy compatibility)
             const proficiency = Math.round((1 / (1 + Math.exp(-1.702 * newTheta))) * 100);
-            // Fire and forget email to avoid blocking the response
-            sendInterviewResults(session.candidateEmail, session.candidateEmail.split('@')[0], // Fallback name
-            proficiency, 100, // Total possible scale
-            session.skill, null, // Time taken optional
-            {} // Breakdown optional
-            ).catch(e => console.error('Failed to send adaptive email:', e));
+            const candidateName = session.candidateEmail.split('@')[0];
+            // Fire and forget: Generate certificate and send email
+            (async () => {
+                try {
+                    console.log(`[AdaptiveInterview] Generating certificate for ${session.candidateEmail}...`);
+                    const certId = CertificateService.generateCertificateId();
+                    const certificateBuffer = await CertificateService.generatePDF({
+                        certificateId: certId,
+                        name: candidateName,
+                        test: session.skill,
+                        date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+                        photoPath: '', // No photo in this flow currently
+                        score: proficiency,
+                        analytics: { theta: newTheta }
+                    });
+                    await sendInterviewResults(session.candidateEmail, candidateName, proficiency, 100, session.skill, null, {}, { correct: proficiency, attempted: 100 }, // Manual stats
+                    certificateBuffer, certId);
+                    console.log(`[AdaptiveInterview] Certificate and email sent for ${session.candidateEmail}`);
+                }
+                catch (err) {
+                    console.error('[AdaptiveInterview] Failed to send completion report:', err);
+                }
+            })();
             sessionStore.delete(sessionId);
             return res.json({
                 success: true,

@@ -358,7 +358,7 @@ export default function AdminDashboard() {
           )}
 
           {/* Send Secure Interview Link */}
-          <div 
+          <div
             onClick={() => setIsInterviewModalOpen(true)}
             className="group cursor-pointer bg-card rounded-2xl shadow-sm border border-slate-200 p-6 transition-all duration-500 hover:shadow-2xl hover:border-blue-400 hover:-translate-y-1 h-full flex flex-col items-center text-center group-hover:bg-blue-50/30"
           >
@@ -375,9 +375,9 @@ export default function AdminDashboard() {
 
         </div>
 
-        <SendInterviewLinkModal 
-          isOpen={isInterviewModalOpen} 
-          onClose={() => setIsInterviewModalOpen(false)} 
+        <SendInterviewLinkModal
+          isOpen={isInterviewModalOpen}
+          onClose={() => setIsInterviewModalOpen(false)}
         />
       </div>
     </div>

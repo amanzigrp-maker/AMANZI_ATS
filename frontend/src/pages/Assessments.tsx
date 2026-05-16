@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckCircle2, ClipboardList, FileUp, Loader2, Mail, Search, Send, Sparkles, Trash2 } from "lucide-react";
+import { AnimatedIcon, IconMap } from "@/components/AnimatedIconsax";
 import QuestionContent from "@/components/QuestionContent";
 
 type Assessment = {
@@ -47,6 +47,7 @@ export default function Assessments() {
     title: "MCQ Assessment Generator",
     topic: "General Knowledge",
     count: "5",
+    experience_years: "3",
     duration_minutes: "30",
     prompt: "Create practical MCQs for recruiter screening. Keep questions fair and unambiguous.",
   });
@@ -116,6 +117,7 @@ export default function Assessments() {
         body: JSON.stringify({
           ...aiForm,
           count: Number(aiForm.count),
+          experience_years: Number(aiForm.experience_years),
           duration_minutes: Number(aiForm.duration_minutes),
         }),
       });
@@ -198,10 +200,10 @@ export default function Assessments() {
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invitingAssessment) return;
-    
-    const inviteData = manualMode 
+
+    const inviteData = manualMode
       ? { email: manualForm.email, name: manualForm.name, phone: manualForm.phone }
-      : selectedCandidate 
+      : selectedCandidate
         ? { email: selectedCandidate.email, name: selectedCandidate.full_name, phone: selectedCandidate.phone }
         : null;
 
@@ -251,12 +253,12 @@ export default function Assessments() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Delete failed");
-      
+
       setMessage(`Deleted "${assessment.title}"`);
-      
+
       // Update local state immediately for better UX
       setAssessments(prev => prev.filter(a => a.assessment_id !== assessment.assessment_id));
-      
+
       // If we are currently viewing this assessment, clear the questions
       if (selectedAssessmentTitle === assessment.title) {
         setQuestions([]);
@@ -308,15 +310,15 @@ export default function Assessments() {
               <Tabs defaultValue="ai" className="w-full">
                 <TabsList className="grid w-full grid-cols-3 bg-slate-100/50 p-1">
                   <TabsTrigger value="ai" className="gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-600">
-                    <Sparkles className="h-4 w-4" />
+                    <AnimatedIcon icon={IconMap.Sparkles} size={16} />
                     AI Gen
                   </TabsTrigger>
                   <TabsTrigger value="csv" className="gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-600">
-                    <FileUp className="h-4 w-4" />
+                    <AnimatedIcon icon={IconMap.FileUp} size={16} />
                     Upload
                   </TabsTrigger>
                   <TabsTrigger value="invite" className="gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-600">
-                    <Send className="h-4 w-4" />
+                    <AnimatedIcon icon={IconMap.Send} className="h-4 w-4" />
                     Invite
                   </TabsTrigger>
                 </TabsList>
@@ -336,7 +338,11 @@ export default function Assessments() {
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs font-bold text-slate-500 uppercase">Count</Label>
-                        <Input type="number" min="1" max="25" value={aiForm.count} onChange={(e) => setAiForm({ ...aiForm, count: e.target.value })} />
+                        <Input type="number" min="1" value={aiForm.count} onChange={(e) => setAiForm({ ...aiForm, count: e.target.value })} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-xs font-bold text-slate-500 uppercase">Experience (Years)</Label>
+                        <Input type="number" min="0" max="50" value={aiForm.experience_years} onChange={(e) => setAiForm({ ...aiForm, experience_years: e.target.value })} />
                       </div>
                       <div className="space-y-2">
                         <Label className="text-xs font-bold text-slate-500 uppercase">Minutes</Label>
@@ -348,7 +354,11 @@ export default function Assessments() {
                       <Textarea placeholder="Focus on performance and architectural patterns..." rows={3} value={aiForm.prompt} onChange={(e) => setAiForm({ ...aiForm, prompt: e.target.value })} />
                     </div>
                     <Button type="submit" disabled={saving} className="w-full bg-blue-600 hover:bg-blue-700 shadow-sm">
-                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Sparkles className="mr-2 h-4 w-4" />}
+                      {saving ? (
+                        <AnimatedIcon icon={IconMap.Loader2} size={16} className="mr-2 animate-spin" />
+                      ) : (
+                        <AnimatedIcon icon={IconMap.Sparkles} size={16} className="mr-2" />
+                      )}
                       Generate Assessment
                     </Button>
                   </form>
@@ -370,14 +380,18 @@ export default function Assessments() {
                           onChange={(event) => {
                             const file = event.target.files?.[0] || null;
                             setUploadFile(file);
-                            if (file) setCsvForm(p => ({...p, title: p.title || file.name.split('.')[0]}));
+                            if (file) setCsvForm(p => ({ ...p, title: p.title || file.name.split('.')[0] }));
                           }}
                           className="flex-1"
                         />
                       </div>
                     </div>
                     <Button type="submit" disabled={saving} className="w-full bg-blue-600 hover:bg-blue-700 shadow-sm">
-                      {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileUp className="mr-2 h-4 w-4" />}
+                      {saving ? (
+                        <AnimatedIcon icon={IconMap.Loader2} size={16} className="mr-2 animate-spin" />
+                      ) : (
+                        <AnimatedIcon icon={IconMap.FileUp} size={16} className="mr-2" />
+                      )}
                       Process and Save
                     </Button>
                   </form>
@@ -396,12 +410,14 @@ export default function Assessments() {
                     {!manualMode ? (
                       <div className="space-y-2">
                         <div className="relative">
-                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                          <Input 
-                            placeholder="Find candidate by name..." 
-                            className="pl-10 h-10" 
-                            value={candidateSearch} 
-                            onChange={(e) => searchCandidates(e.target.value)} 
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                            <AnimatedIcon icon={IconMap.Search} size={16} />
+                          </div>
+                          <Input
+                            placeholder="Find candidate by name..."
+                            className="pl-10 h-10"
+                            value={candidateSearch}
+                            onChange={(e) => searchCandidates(e.target.value)}
                           />
                         </div>
                         {!selectedCandidate && (candidateSearch.length > 0 || recentInvites.length > 0) && (
@@ -419,7 +435,7 @@ export default function Assessments() {
                                         <p className="text-[10px] text-slate-400">{c.email}</p>
                                       </div>
                                     </div>
-                                    <CheckCircle2 className="h-4 w-4 text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                    <AnimatedIcon icon={IconMap.CheckCircle2} size={16} className="text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
                                   </div>
                                 ))
                               ) : !searchingCandidates && (
@@ -429,12 +445,12 @@ export default function Assessments() {
                               <>
                                 <div className="px-3 py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Recent Recipients</div>
                                 {recentInvites.slice(0, 5).map((invite, idx) => (
-                                  <div 
-                                    key={invite.token || idx} 
-                                    className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group" 
-                                    onClick={() => setSelectedCandidate({ 
-                                      candidate_id: invite.candidate_id, 
-                                      full_name: invite.candidate_name, 
+                                  <div
+                                    key={invite.token || idx}
+                                    className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group"
+                                    onClick={() => setSelectedCandidate({
+                                      candidate_id: invite.candidate_id,
+                                      full_name: invite.candidate_name,
                                       email: invite.candidate_email,
                                       phone: invite.candidate_phone
                                     })}
@@ -448,14 +464,14 @@ export default function Assessments() {
                                         <p className="text-[10px] text-slate-400">{invite.candidate_email}</p>
                                       </div>
                                     </div>
-                                    <Send className="h-3 w-3 text-slate-300 group-hover:text-blue-500 transition-colors" />
+                                    <AnimatedIcon icon={IconMap.Send} size={14} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
                                   </div>
                                 ))}
                               </>
                             )}
                             {searchingCandidates && (
                               <div className="p-4 flex items-center justify-center gap-2 text-xs text-slate-400">
-                                <Loader2 className="h-3 w-3 animate-spin" /> Searching...
+                                <AnimatedIcon icon={IconMap.Loader2} size={14} className="animate-spin" /> Searching...
                               </div>
                             )}
                           </div>
@@ -463,8 +479,8 @@ export default function Assessments() {
                       </div>
                     ) : (
                       <div className="grid gap-3">
-                        <Input placeholder="Full Name" className="h-10" value={manualForm.name} onChange={(e) => setManualForm({...manualForm, name: e.target.value})} />
-                        <Input placeholder="Email Address" type="email" className="h-10" value={manualForm.email} onChange={(e) => setManualForm({...manualForm, email: e.target.value})} />
+                        <Input placeholder="Full Name" className="h-10" value={manualForm.name} onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })} />
+                        <Input placeholder="Email Address" type="email" className="h-10" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })} />
                       </div>
                     )}
 
@@ -483,7 +499,7 @@ export default function Assessments() {
 
                     <div className="space-y-2">
                       <Label className="text-xs font-bold text-slate-500 uppercase">Target Assessment</Label>
-                      <select 
+                      <select
                         className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
                         onChange={(e) => setInvitingAssessment(assessments.find(a => a.assessment_id === Number(e.target.value)) || null)}
                         value={invitingAssessment?.assessment_id || ""}
@@ -493,12 +509,16 @@ export default function Assessments() {
                       </select>
                     </div>
 
-                    <Button 
+                    <Button
                       className="w-full h-11 bg-blue-600 hover:bg-blue-700 shadow-sm font-semibold"
                       disabled={(!selectedCandidate && (!manualForm.name || !manualForm.email)) || !invitingAssessment || inviting}
                       onClick={handleSendInvite}
                     >
-                      {inviting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                      {inviting ? (
+                        <AnimatedIcon icon={IconMap.Loader2} size={18} className="mr-2 animate-spin" />
+                      ) : (
+                        <AnimatedIcon icon={IconMap.Send} size={18} className="mr-2" />
+                      )}
                       Dispatch Credentials
                     </Button>
                   </div>
@@ -516,7 +536,9 @@ export default function Assessments() {
               </CardHeader>
               <CardContent>
                 {loading ? (
-                  <div className="flex h-64 items-center justify-center"><Loader2 className="h-7 w-7 animate-spin text-blue-500" /></div>
+                  <div className="flex h-64 items-center justify-center">
+                    <AnimatedIcon icon={IconMap.Loader2} size={28} className="animate-spin text-blue-500" />
+                  </div>
                 ) : assessments.length === 0 ? (
                   <div className="py-12 text-center text-sm text-slate-400 italic">No assessments available yet.</div>
                 ) : (
@@ -527,33 +549,36 @@ export default function Assessments() {
                           <div>
                             <h3 className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{a.title}</h3>
                             <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500">
-                              <span className="flex items-center gap-1"><Sparkles className="h-3 w-3" /> {a.question_count} Questions</span>
+                              <span className="flex items-center gap-1">
+                                <AnimatedIcon icon={IconMap.Sparkles} size={12} />
+                                {a.question_count} Questions
+                              </span>
                             </div>
                           </div>
                           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50" 
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-blue-600 hover:bg-blue-50"
                               onClick={() => { setInvitingAssessment(a); setInviteModalOpen(true); }}
                               title="Send Invite"
                             >
-                              <Send className="h-4 w-4" />
+                              <AnimatedIcon icon={IconMap.Send} className="h-4 w-4" />
                             </Button>
-                            <Button 
-                              size="sm" 
-                              variant="ghost" 
-                              className="h-8 w-8 p-0 text-slate-400 hover:bg-red-50 hover:text-red-600" 
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 w-8 p-0 text-slate-400 hover:bg-red-50 hover:text-red-600"
                               onClick={() => handleDelete(a)}
                               title="Delete"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <AnimatedIcon icon={IconMap.Trash2} className="h-4 w-4" />
                             </Button>
                           </div>
                         </div>
                         <div className="mt-4 flex items-center justify-between border-t border-slate-50 pt-3">
-                          <Button 
-                            variant="link" 
+                          <Button
+                            variant="link"
                             className="h-auto p-0 text-[11px] font-semibold text-blue-600"
                             onClick={() => loadAssessmentQuestions(a)}
                           >
@@ -601,13 +626,15 @@ export default function Assessments() {
         <Card className="mt-8 border-slate-200 shadow-sm overflow-hidden h-fit">
           <CardHeader className="bg-slate-50/50 border-b border-slate-100 py-3 px-6">
             <CardTitle className="text-sm font-bold text-slate-600 flex items-center gap-2 uppercase tracking-wider">
-              <ClipboardList className="h-4 w-4" />
+              <AnimatedIcon icon={IconMap.ClipboardList} size={16} />
               Recent Dispatch Log
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {loadingInvites ? (
-              <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-blue-500" /></div>
+              <div className="flex justify-center py-12">
+                <AnimatedIcon icon={IconMap.Loader2} size={24} className="animate-spin text-blue-500" />
+              </div>
             ) : recentInvites.length === 0 ? (
               <div className="py-12 text-center text-sm text-slate-400 italic">No invitations dispatched recently.</div>
             ) : (
@@ -660,7 +687,7 @@ export default function Assessments() {
                   <p className="text-xs text-slate-500 mt-1">To: <span className="font-bold text-blue-600">{invitingAssessment.title}</span></p>
                 </div>
                 <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => setInviteModalOpen(false)}>
-                  <Trash2 className="h-4 w-4 rotate-45" />
+                  <AnimatedIcon icon={IconMap.Trash2} size={16} className="rotate-45" />
                 </Button>
               </div>
             </CardHeader>
@@ -673,14 +700,16 @@ export default function Assessments() {
                       {manualMode ? "Find in Database" : "Enter Details Manually"}
                     </Button>
                   </div>
-                  
+
                   {!manualMode ? (
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                      <Input 
-                        placeholder="Search by name..." 
-                        className="pl-10" 
-                        value={selectedCandidate ? selectedCandidate.full_name : candidateSearch} 
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                        <AnimatedIcon icon={IconMap.Search} size={16} />
+                      </div>
+                      <Input
+                        placeholder="Search by name..."
+                        className="pl-10"
+                        value={selectedCandidate ? selectedCandidate.full_name : candidateSearch}
                         onChange={(e) => { setSelectedCandidate(null); searchCandidates(e.target.value); }}
                         readOnly={!!selectedCandidate}
                       />
@@ -700,18 +729,22 @@ export default function Assessments() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <Input placeholder="Full Name" value={manualForm.name} onChange={(e) => setManualForm({...manualForm, name: e.target.value})} />
-                      <Input placeholder="Email Address" type="email" value={manualForm.email} onChange={(e) => setManualForm({...manualForm, email: e.target.value})} />
+                      <Input placeholder="Full Name" value={manualForm.name} onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })} />
+                      <Input placeholder="Email Address" type="email" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })} />
                     </div>
                   )}
                 </div>
 
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   className="w-full bg-blue-600 hover:bg-blue-700 h-11 font-bold"
                   disabled={(manualMode ? (!manualForm.name || !manualForm.email) : !selectedCandidate) || inviting}
                 >
-                  {inviting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                  {inviting ? (
+                    <AnimatedIcon icon={IconMap.Loader2} size={18} className="mr-2 animate-spin" />
+                  ) : (
+                    <AnimatedIcon icon={IconMap.Send} size={18} className="mr-2" />
+                  )}
                   Confirm and Dispatch Link
                 </Button>
               </form>

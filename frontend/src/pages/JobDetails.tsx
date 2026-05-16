@@ -14,21 +14,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  ArrowLeft,
-  MapPin,
-  Building2,
-  Clock,
-  DollarSign,
-  Users,
-  Calendar,
-  Edit,
-  Share2,
-  MoreVertical,
-  Briefcase,
-  CheckCircle2,
-  Sparkles,
-} from 'lucide-react';
+import { AnimatedIcon, IconMap } from '@/components/AnimatedIconsax';
 import {
   Avatar,
   AvatarFallback,
@@ -402,23 +388,23 @@ function CandidateMatchesCard({ jobId }: { jobId: number }) {
               Find ranked candidates using semantic matching (pgvector)
             </CardDescription>
           </div>
-            <Button
-              onClick={handleFindMatches}
-              disabled={loading}
-              className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-2"
-            >
-              {loading ? (
-                <span className="flex items-center">
-                  <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-                  Ranking...
-                </span>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  AI Rank Top 10
-                </>
-              )}
-            </Button>
+          <Button
+            onClick={handleFindMatches}
+            disabled={loading}
+            className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm flex items-center gap-2"
+          >
+            {loading ? (
+              <span className="flex items-center">
+                <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
+                Ranking...
+              </span>
+            ) : (
+              <>
+                <Sparkles className="h-4 w-4" />
+                AI Rank Top 10
+              </>
+            )}
+          </Button>
         </div>
       </CardHeader>
       <CardContent>
@@ -471,7 +457,7 @@ function CandidateMatchesCard({ jobId }: { jobId: number }) {
               const rankingReason = (m as any).match_reason || (m as any).reason || '';
               const strengths = (m as any).strengths || [];
               const concerns = (m as any).concerns || [];
-              
+
               let fallbackReason = '';
               if (!rankingReason) {
                 if (skillsScore > expScore) {
@@ -517,7 +503,7 @@ function CandidateMatchesCard({ jobId }: { jobId: number }) {
                         <p className="text-xs text-blue-800 bg-blue-50 p-2 rounded border border-blue-100 line-clamp-3" title={rankingReason || fallbackReason}>
                           {rankingReason || fallbackReason}
                         </p>
-                        
+
                         {strengths.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-2">
                             {strengths.slice(0, 2).map((s: string, i: number) => (
@@ -933,14 +919,14 @@ export default function JobDetails() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-4">
               <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')}>
-                <ArrowLeft className="h-4 w-4 mr-2" />
+                <AnimatedIcon icon={IconMap.ArrowLeft} className="h-4 w-4 mr-2" />
                 Back
               </Button>
               <h1 className="text-xl font-bold text-foreground">Job Details</h1>
             </div>
             <div className="flex items-center space-x-2">
               <Button variant="outline" size="sm" onClick={handleEditJob}>
-                <Edit className="h-4 w-4 mr-2" />
+                <AnimatedIcon icon={IconMap.Edit} className="h-4 w-4 mr-2" />
                 Edit
               </Button>
             </div>
@@ -963,23 +949,23 @@ export default function JobDetails() {
                   </div>
                   <div className="flex flex-wrap gap-4 text-sm text-muted-foreground mt-3">
                     <span className="flex items-center">
-                      <Building2 className="h-4 w-4 mr-1" />
+                      <AnimatedIcon icon={IconMap.Building2} className="h-4 w-4 mr-1" />
                       {job.company}
                     </span>
                     <span className="flex items-center">
-                      <MapPin className="h-4 w-4 mr-1" />
+                      <AnimatedIcon icon={IconMap.MapPin} className="h-4 w-4 mr-1" />
                       {job.location}
                     </span>
                     <span className="flex items-center">
-                      <Clock className="h-4 w-4 mr-1" />
+                      <AnimatedIcon icon={IconMap.Clock} className="h-4 w-4 mr-1" />
                       {job.employment_type}
                     </span>
                     <span className="flex items-center">
-                      <DollarSign className="h-4 w-4 mr-1" />
+                      <AnimatedIcon icon={IconMap.DollarSign} className="h-4 w-4 mr-1" />
                       {formatSalary()}
                     </span>
                     <span className="flex items-center">
-                      <Calendar className="h-4 w-4 mr-1" />
+                      <AnimatedIcon icon={IconMap.Calendar} className="h-4 w-4 mr-1" />
                       Posted {new Date(job.posted_date).toLocaleDateString()}
                     </span>
                   </div>
@@ -1012,7 +998,7 @@ export default function JobDetails() {
                       <ul className="space-y-2">
                         {parseArrayField(job.requirements).map((item, index) => (
                           <li key={index} className="flex items-start">
-                            <CheckCircle2 className="h-5 w-5 text-blue-600 mr-2 mt-0.5 flex-shrink-0" />
+                            <AnimatedIcon icon={IconMap.CheckCircle2} className="h-5 w-5 text-blue-600 mr-2 mt-0.5 flex-shrink-0" />
                             <span className="text-muted-foreground">{item}</span>
                           </li>
                         ))}
@@ -1039,7 +1025,7 @@ export default function JobDetails() {
                       <ul className="space-y-2">
                         {parseArrayField(job.benefits).map((item, index) => (
                           <li key={index} className="flex items-start">
-                            <CheckCircle2 className="h-5 w-5 text-purple-600 mr-2 mt-0.5 flex-shrink-0" />
+                            <AnimatedIcon icon={IconMap.CheckCircle2} className="h-5 w-5 text-purple-600 mr-2 mt-0.5 flex-shrink-0" />
                             <span className="text-muted-foreground">{item}</span>
                           </li>
                         ))}
@@ -1052,7 +1038,7 @@ export default function JobDetails() {
                   <div className="space-y-3">
                     {applicants.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
-                        <Users className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                        <AnimatedIcon icon={IconMap.Users} className="h-12 w-12 mx-auto mb-3 text-gray-300" />
                         <p>No applications yet</p>
                       </div>
                     ) : (

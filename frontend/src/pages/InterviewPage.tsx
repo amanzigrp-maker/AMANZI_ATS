@@ -168,9 +168,18 @@ export default function InterviewPage() {
     }
     if (data.session_id) {
       setSessionId(data.session_id);
+      if (typeof data.remaining_seconds === "number") {
+        setTimeLeft(data.remaining_seconds);
+      }
+      if (typeof data.current_question_index === "number") {
+        setCurrentQuestionIndex(data.current_question_index);
+      }
       await fetchQuestions(data.session_id, data.jwt);
       setStatus("interviewing");
     } else {
+      if (data.duration) {
+        setTimeLeft(data.duration * 60);
+      }
       setStatus("verification");
     }
   };
@@ -324,7 +333,7 @@ export default function InterviewPage() {
       setQuestions(preparedSession.question ? [preparedSession.question] : []);
       setTheta(preparedSession.theta ?? null);
       setTotalQuestions(preparedSession.totalQuestions || totalQuestions);
-      setTimeLeft(INTERVIEW_SECONDS);
+      // setTimeLeft(INTERVIEW_SECONDS); // Removed to use global duration
       setStatus("interviewing");
       toast.success("Assessment started. Good luck.");
     } catch (error: any) {
@@ -334,7 +343,7 @@ export default function InterviewPage() {
   }, [preparedSession, jwtToken, totalQuestions]);
 
   // Timer Effect
-  const handleAnswerSubmit = useCallback(async (selectedAnswer: string | string[]) => {
+  const handleAnswerSubmit = useCallback(async (selectedAnswer: string | string[], isTimeout = false) => {
     if (isSubmitting || !sessionId) return;
     setIsSubmitting(true);
     
@@ -348,8 +357,9 @@ export default function InterviewPage() {
         },
         body: JSON.stringify({
           session_id: sessionId,
-          question_id: currentQ.id,
-          selected_answer: selectedAnswer
+          question_id: currentQ?.id,
+          selected_answer: selectedAnswer,
+          is_timeout: isTimeout
         })
       });
       const data = await res.json();
@@ -404,12 +414,12 @@ export default function InterviewPage() {
     }
   }, [status]);
 
-  // Reset timer on new question
+  // Global Timer: No longer resetting per question
   useEffect(() => {
-    if (status === "interviewing") {
-      setTimeLeft(INTERVIEW_SECONDS);
+    if (status === "interviewing" && !sessionId) {
+      // Logic for new session if needed
     }
-  }, [currentQuestionIndex, status]);
+  }, [status, sessionId]);
 
   // Timer Effect
   useEffect(() => {
@@ -422,7 +432,9 @@ export default function InterviewPage() {
           clearInterval(timer);
           // When time runs out, try to submit current answer if selected
           if (currentQuestion) {
-            handleAnswerSubmit(answers[currentQuestion.id] || "");
+            handleAnswerSubmit(answers[currentQuestion.id] || "", true);
+          } else {
+            handleAnswerSubmit("", true);
           }
           return 0;
         }
@@ -442,6 +454,41 @@ export default function InterviewPage() {
 
     return () => clearInterval(timer);
   }, [status]);
+
+  // Heartbeat Effect
+  useEffect(() => {
+    if (status !== "interviewing" || !sessionId || !jwtToken) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/interview/heartbeat", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${jwtToken}`
+          },
+          body: JSON.stringify({ session_id: sessionId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          if (data.isFinished) {
+            setStatus("completed");
+            return;
+          }
+          if (typeof data.remainingSeconds === "number") {
+            // Sync frontend time with server authoritative time if drift is significant (> 10s)
+            if (Math.abs(data.remainingSeconds - timeLeft) > 10) {
+              setTimeLeft(data.remainingSeconds);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Heartbeat failed", err);
+      }
+    }, 30000); // Every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [status, sessionId, jwtToken, timeLeft]);
 
   const handleGenerateCertificate = async (finalScore: number) => {
     if (!sessionId || !candidateInfo) return;

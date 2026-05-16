@@ -678,7 +678,7 @@ const fallbackQuestions = (role: string, topic: string, count: number): Normaliz
   );
 };
 
-const generateAiQuestions = async (role: string, topic: string, count: number, prompt: string): Promise<NormalizedQuestion[]> => {
+const generateAiQuestions = async (role: string, topic: string, count: number, prompt: string, experienceYears: number = 3): Promise<NormalizedQuestion[]> => {
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) {
     console.warn("⚠️ GEMINI_API_KEY is missing. Using fallback questions.");
@@ -700,6 +700,7 @@ const generateAiQuestions = async (role: string, topic: string, count: number, p
       try {
         const result = await model.generateContent(`
 Generate ${count} recruiter assessment MCQs for role "${role || "General"}" and topic "${topic || "General skills"}".
+The candidate has approximately ${experienceYears} years of experience in this field. Tailor the complexity, depth, and scenarios of the questions to this level.
 Recruiter prompt: ${prompt || "Create fair practical screening questions."}
 
 Return only JSON:
@@ -742,7 +743,24 @@ Rules: exactly one correct_option per question (must match a key in options). No
           return fallbackQuestions(role, topic, count);
         }
 
-        return rawQuestions.slice(0, count).map(validateQuestion);
+        const validated = rawQuestions.slice(0, count).map(validateQuestion);
+        
+        // Centralized Duplicate Validation (Exact string match only)
+        const questionTexts = validated.map(q => q.question_text);
+        const duplicateCheck = await pool.query(
+          "SELECT question_text FROM questions WHERE question_text = ANY($1)",
+          [questionTexts]
+        );
+        const existingTexts = new Set(duplicateCheck.rows.map((r: any) => r.question_text));
+        
+        const uniqueQuestions = validated.filter(q => !existingTexts.has(q.question_text));
+        
+        if (uniqueQuestions.length === 0 && validated.length > 0) {
+          console.warn("⚠️ All generated questions were duplicates. Returning fallback to ensure assessment is not empty.");
+          return fallbackQuestions(role, topic, count);
+        }
+
+        return uniqueQuestions;
       } catch (error: any) {
         lastError = error;
         // If it's a 503 (Service Unavailable/High Demand), retry after a delay
@@ -1168,8 +1186,9 @@ export const submitAssessmentAttempt = async (req: Request, res: Response) => {
 export const createAssessmentFromAi = async (req: Request, res: Response) => {
   try {
     console.log("🚀 createAssessmentFromAi request body:", JSON.stringify(req.body));
-    const count = Math.min(Math.max(Number(req.body.count) || 5, 1), 25);
-    const questions = await generateAiQuestions(req.body.role || "", req.body.topic || "", count, req.body.prompt || "");
+    const count = Math.max(Number(req.body.count) || 5, 1);
+    const experienceYears = Number(req.body.experience_years) || 3;
+    const questions = await generateAiQuestions(req.body.role || "", req.body.topic || "", count, req.body.prompt || "", experienceYears);
 
     console.log(`✅ Generated ${questions.length} questions. Creating assessment...`);
     const assessment = await createAssessmentWithQuestions(req, {

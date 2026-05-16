@@ -239,7 +239,7 @@ export const sendPasswordChangeConfirmation = async (to, userName) => {
  * @param loginUrl - Login URL for the interview
  * @param password - Temporary generated password
  */
-export const sendInterviewLink = async (to, name, loginUrl, password) => {
+export const sendInterviewLink = async (to, name, loginUrl, password, duration, questionCount) => {
     try {
         const displayPassword = password || 'Contact recruiter';
         const transporter = createTransporter();
@@ -252,6 +252,8 @@ export const sendInterviewLink = async (to, name, loginUrl, password) => {
             console.log(`Name: ${name}`);
             console.log(`Login URL: ${loginUrl}`);
             console.log(`Password: ${displayPassword}`);
+            console.log(`Duration: ${duration || 'N/A'} mins`);
+            console.log(`Questions: ${questionCount || 'N/A'}`);
             console.log(`Note: Login details valid for the test duration.`);
             console.log('==============================================\n');
             return;
@@ -288,6 +290,8 @@ export const sendInterviewLink = async (to, name, loginUrl, password) => {
               <div class="creds">
                 <p style="margin: 5px 0;"><strong>Email:</strong> ${to}</p>
                 <p style="margin: 5px 0;"><strong>Password:</strong> ${displayPassword}</p>
+                <p style="margin: 5px 0;"><strong>Total Duration:</strong> ${duration || 30} minutes</p>
+                <p style="margin: 5px 0;"><strong>Total Questions:</strong> ${questionCount || 10} questions</p>
               </div>
 
               <div style="text-align: center;">
@@ -324,6 +328,9 @@ export const sendInterviewLink = async (to, name, loginUrl, password) => {
         
         Email: ${to}
         Password: ${displayPassword}
+        
+        Total Duration: ${duration || 30} minutes
+        Total Questions: ${questionCount || 10} questions
         
         Login URL: ${loginUrl}
         
@@ -503,10 +510,21 @@ export const sendInterviewResults = async (to, name, score, total, role, timeTak
                 }
             ] : [],
         };
+        if (!transporter) {
+            logDevEmailEvent('Interview Results', to);
+            console.log('----------------------------------------------');
+            console.log(`Score: ${score}/${total} (${percentage}%)`);
+            console.log(`Role: ${role}`);
+            console.log(`Certificate: ${certificateId || 'None'}`);
+            console.log('----------------------------------------------');
+            return;
+        }
+        console.log(`[EmailService] Sending email to ${to} with certificate ${certificateId || 'none'}...`);
         await transporter.sendMail(mailOptions);
+        console.log(`[EmailService] Email successfully sent to ${to}`);
     }
     catch (err) {
-        console.error('Error sending interview results:', err);
+        console.error(`❌ [EmailService] Failed to send results to ${to}:`, err);
     }
 };
 /**

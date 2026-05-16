@@ -7,9 +7,10 @@ import { QuestionBankEntry, DifficultyLevel, CognitiveLevel, EnterpriseError, Si
 export class QuestionBankService {
     
     /**
-     * Pre-processes and inserts a new question with multi-layered duplicate detection
+     * Pre-processes and inserts a new question with exact duplicate detection only
+     * Semantically similar questions are allowed as per requirements
      */
-    public static async insertQuestion(entry: QuestionBankEntry): Promise<{ success: boolean; id?: number; reviewId?: number; reason?: string }> {
+    public static async insertQuestion(entry: QuestionBankEntry): Promise<{ success: boolean; id?: number; reason?: string }> {
         const client = await pool.connect();
         try {
             await client.query("BEGIN");
@@ -18,7 +19,7 @@ export class QuestionBankService {
             const normalizedText = this.normalizeText(entry.textContent);
             const textHash = crypto.createHash("sha256").update(normalizedText).digest("hex");
 
-            // Layer 1: Exact Hash Comparison
+            // Layer 1: Exact Hash Comparison - Only reject exact duplicates
             const exactMatch = await client.query(
                 "SELECT id FROM question_bank WHERE text_hash = $1 LIMIT 1",
                 [textHash]
@@ -27,31 +28,6 @@ export class QuestionBankService {
             if (exactMatch.rows.length > 0) {
                 await client.query("ROLLBACK");
                 return { success: false, reason: "EXACT_DUPLICATE" };
-            }
-
-            // Generate Embedding for Layer 3
-            const embedding = await geminiService.generateEmbedding(entry.textContent);
-
-            // Layer 3: Semantic Similarity Comparison
-            const similarityThresholds = {
-                REJECT: 0.95,
-                REVIEW: 0.85
-            };
-
-            const similarQuestions = await client.query(`
-                SELECT q.id, q.text_content, (1 - (e.embedding <=> $1::vector)) as score
-                FROM question_bank q
-                JOIN question_bank_embeddings e ON q.id = e.question_id
-                WHERE q.skill_category = $2
-                ORDER BY e.embedding <=> $1::vector
-                LIMIT 5
-            `, [JSON.stringify(embedding), entry.skillCategory]);
-
-            const topMatch = similarQuestions.rows[0] as SimilarityResult;
-
-            if (topMatch && topMatch.score >= similarityThresholds.REJECT) {
-                await client.query("ROLLBACK");
-                return { success: false, reason: "SEMANTIC_DUPLICATE", id: topMatch.questionId };
             }
 
             // Insert into question_bank
@@ -70,23 +46,12 @@ export class QuestionBankService {
 
             const newQuestionId = insertResult.rows[0].id;
 
-            // Insert Embedding
+            // Generate and Insert Embedding (for future semantic search capabilities)
+            const embedding = await geminiService.generateEmbedding(entry.textContent);
             await client.query(`
                 INSERT INTO question_bank_embeddings (question_id, embedding)
                 VALUES ($1, $2::vector)
             `, [newQuestionId, JSON.stringify(embedding)]);
-
-            // If it's in the REVIEW range, create a review entry but keep the question (flagged)
-            if (topMatch && topMatch.score >= similarityThresholds.REVIEW) {
-                const reviewResult = await client.query(`
-                    INSERT INTO question_similarity_reviews (source_question_id, target_question_id, similarity_score)
-                    VALUES ($1, $2, $3)
-                    RETURNING id
-                `, [newQuestionId, topMatch.questionId, topMatch.score]);
-                
-                await client.query("COMMIT");
-                return { success: true, id: newQuestionId, reviewId: reviewResult.rows[0].id, reason: "NEEDS_REVIEW" };
-            }
 
             await client.query("COMMIT");
             return { success: true, id: newQuestionId };

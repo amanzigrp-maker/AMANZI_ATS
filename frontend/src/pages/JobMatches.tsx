@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
+import {
   ArrowLeft,
-  Sparkles, 
-  Users, 
+  Sparkles,
+  Users,
   TrendingUp,
   Award,
   Briefcase,
@@ -72,12 +72,12 @@ export default function JobMatches() {
   const fetchJobAndMatches = async () => {
     try {
       const token = localStorage.getItem('accessToken');
-      
+
       // Fetch job details
       const jobResponse = await fetch(`/api/jobs/${jobId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      
+
       if (jobResponse.ok) {
         const jobData = await jobResponse.json();
         setJob(jobData.data);
@@ -254,8 +254,8 @@ export default function JobMatches() {
                             </p>
                           )}
                         </div>
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           size="sm"
                           onClick={() => navigate(`/candidate/${match.candidate_id}`)}
                         >
@@ -342,7 +342,7 @@ export default function JobMatches() {
                               </div>
                             </div>
                           )}
-                          
+
                           {match.missing_skills && match.missing_skills.length > 0 && (
                             <div>
                               <div className="flex items-center gap-2 mb-2">
@@ -376,7 +376,7 @@ export default function JobMatches() {
                               </div>
                               <Progress value={match.semantic_similarity_score} />
                             </div>
-                            
+
                             <div>
                               <div className="flex justify-between text-sm mb-1">
                                 <span className="flex items-center gap-2">
@@ -389,7 +389,7 @@ export default function JobMatches() {
                               </div>
                               <Progress value={match.skills_match_score} />
                             </div>
-                            
+
                             <div>
                               <div className="flex justify-between text-sm mb-1">
                                 <span className="flex items-center gap-2">
@@ -402,7 +402,7 @@ export default function JobMatches() {
                               </div>
                               <Progress value={match.experience_match_score} />
                             </div>
-                            
+
                             <div>
                               <div className="flex justify-between text-sm mb-1">
                                 <span className="flex items-center gap-2">

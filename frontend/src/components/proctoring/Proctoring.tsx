@@ -5,7 +5,7 @@ import { useAudioMonitor } from '../../hooks/useAudioMonitor';
 import { useRecording } from '../../hooks/useRecording';
 import { useProctoringSocket } from '../../hooks/useProctoringSocket';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
-import { ShieldAlert, Video, MicOff, Maximize, Monitor, MonitorOff, Terminal } from 'lucide-react';
+import { ShieldAlert, Video, Maximize } from 'lucide-react';
 
 interface ProctoringProps {
   interviewId: string;
@@ -43,6 +43,13 @@ const Proctoring: React.FC<ProctoringProps> = ({ interviewId, candidateId, onTer
   const { startMonitoring, stopMonitoring } = useFaceDetection(videoRef, handleViolation);
   useAudioMonitor(stream, handleViolation);
   const { startRecording, stopRecording } = useRecording(stream);
+
+  useEffect(() => {
+    if (!socket.duplicateSessionNotice) return;
+
+    setLastWarning(`Duplicate Session: ${socket.duplicateSessionNotice.detail}`);
+    setWarnings(prev => Math.max(prev, 1));
+  }, [socket.duplicateSessionNotice]);
 
   useEffect(() => {
     startWebcam().then((s) => {
@@ -136,6 +143,8 @@ const Proctoring: React.FC<ProctoringProps> = ({ interviewId, candidateId, onTer
 
     return () => {
       stopWebcam();
+      stopMonitoring();
+      stopRecording();
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       document.removeEventListener('copy', handleCopyPaste);
@@ -205,6 +214,18 @@ const Proctoring: React.FC<ProctoringProps> = ({ interviewId, candidateId, onTer
 
   return (
     <div className="fixed top-4 right-4 z-50 flex flex-col gap-4 w-64 pointer-events-none">
+      {socket.duplicateSessionNotice?.blocked && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/95 p-6 pointer-events-auto">
+          <Alert variant="destructive" className="max-w-lg border-red-500 bg-red-950/90 text-white shadow-2xl">
+            <ShieldAlert className="h-5 w-5" />
+            <AlertTitle>Examination already active</AlertTitle>
+            <AlertDescription className="text-sm leading-6">
+              This examination link is already open in another active browser tab or session. This tab has been blocked and the interviewer has been notified.
+            </AlertDescription>
+          </Alert>
+        </div>
+      )}
+
       {/* Webcam Preview */}
       <div className="relative rounded-xl overflow-hidden shadow-2xl border-2 border-white/20 bg-black aspect-video pointer-events-auto">
         <video

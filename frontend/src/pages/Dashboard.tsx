@@ -13,39 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  LayoutDashboard,
-  Briefcase,
-  Users,
-  Calendar,
-  BarChart3,
-  Settings,
-  Search,
-  Bell,
-  ChevronLeft,
-  ChevronRight,
-  Menu,
-  X,
-  Eye,
-  Edit,
-  Trash2,
-  UserPlus,
-  TrendingUp,
-  TrendingDown,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Upload,
-  FileText,
-  MapPin,
-  Building,
-  Moon,
-  Sun,
-  FileIcon,
-  MessageSquare,
-  ChevronDown,
-  Sparkles,
-} from 'lucide-react';
+import { AnimatedIcon, IconMap } from '@/components/AnimatedIconsax';
 
 import {
   DropdownMenu,
@@ -210,8 +178,6 @@ export default function Dashboard() {
 
   // Resume Preview
   const [resumePreviewUrl, setResumePreviewUrl] = useState<string | null>(null);
-  const [resumePreviewType, setResumePreviewType] = useState<'pdf' | 'image' | 'unsupported' | null>(null);
-  const [resumePreviewLoading, setResumePreviewLoading] = useState(false);
 
   // Application status update
   const [selectedApplicationForStatus, setSelectedApplicationForStatus] = useState<any | null>(null);
@@ -262,59 +228,7 @@ export default function Dashboard() {
     window.location.href = `/api/resumes/${resumeId}/download?token=${token}`;
   };
 
-  const handlePreviewResume = async (resumeId: number, autoLoad = false) => {
-    if (resumePreviewUrl) {
-      if (autoLoad) return;
-      URL.revokeObjectURL(resumePreviewUrl);
-      setResumePreviewUrl(null);
-      return;
-    }
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      if (!autoLoad) alert('Session expired. Please login again.');
-      return;
-    }
-    setResumePreviewLoading(true);
-    try {
-      const res = await fetch(`/api/resumes/${resumeId}/download?token=${token}`);
-      if (!res.ok) throw new Error('Failed to load resume');
-      const data = await res.blob();
-
-      // Determine file type from headers or fallback
-      const contentDisposition = res.headers.get('content-disposition') || '';
-      let filename = '';
-      if (contentDisposition) {
-        const match = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (match) filename = match[1];
-      }
-      const ext = filename.split('.').pop()?.toLowerCase() || '';
-
-      if (['pdf'].includes(ext)) {
-        const blob = new Blob([data], { type: 'application/pdf' });
-        setResumePreviewUrl(URL.createObjectURL(blob));
-        setResumePreviewType('pdf');
-      } else if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext)) {
-        const blob = new Blob([data], { type: `image/${ext === 'jpg' ? 'jpeg' : ext}` });
-        setResumePreviewUrl(URL.createObjectURL(blob));
-        setResumePreviewType('image');
-      } else {
-        // Doc, docx, xls, etc.
-        setResumePreviewUrl(filename || 'Document');
-        setResumePreviewType('unsupported');
-      }
-    } catch (err) {
-      console.error('Preview error:', err);
-      if (!autoLoad) alert('Could not load resume preview.');
-    } finally {
-      setResumePreviewLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (appDetailsOpen && appDetails?.resume?.resume_id && !resumePreviewUrl && !resumePreviewLoading) {
-      handlePreviewResume(appDetails.resume.resume_id, true);
-    }
-  }, [appDetailsOpen, appDetails, resumePreviewUrl]);
+  // useEffect removed for resume preview auto-load
 
 
 
@@ -1044,17 +958,17 @@ export default function Dashboard() {
   };
 
   const navItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-    { icon: Briefcase, label: 'Jobs', path: '/jobs' },
+    { icon: 'LayoutDashboard', label: 'Dashboard', path: '/dashboard' },
+    { icon: 'Briefcase', label: 'Jobs', path: '/jobs' },
     {
-      icon: Users,
+      icon: 'Users',
       label: 'Candidates',
       path: '/candidates',
       badge: stats.totalCandidates,
     },
-    { icon: Calendar, label: 'Interviews', path: '/interviews' },
-    { icon: BarChart3, label: 'Reports', path: '/reports' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
+    { icon: 'Calendar', label: 'Interviews', path: '/interviews' },
+    { icon: 'BarChart3', label: 'Reports', path: '/reports' },
+    { icon: 'Settings', label: 'Settings', path: '/settings' },
   ];
 
   const getStatusColor = (status: string) => {
@@ -1121,7 +1035,7 @@ export default function Dashboard() {
       value: (animatedStats?.totalJobs ?? 0).toString(),
       change: '+12%',
       trend: 'up',
-      icon: Briefcase,
+      icon: 'Briefcase',
       cardClass: 'border border-blue-100 bg-blue-50',
       iconBgClass: 'bg-blue-100',
       iconColorClass: 'text-blue-600',
@@ -1132,7 +1046,7 @@ export default function Dashboard() {
       value: (animatedStats?.activeJobs ?? 0).toString(),
       change: '+8%',
       trend: 'up',
-      icon: Briefcase,
+      icon: 'Briefcase',
       cardClass: 'border border-green-100 bg-green-50',
       iconBgClass: 'bg-green-100',
       iconColorClass: 'text-green-600',
@@ -1143,7 +1057,7 @@ export default function Dashboard() {
       value: (animatedStats?.totalApplicants ?? 0).toString(),
       change: '+23%',
       trend: 'up',
-      icon: Users,
+      icon: 'Users',
       cardClass: 'border border-purple-100 bg-purple-50',
       iconBgClass: 'bg-purple-100',
       iconColorClass: 'text-purple-600',
@@ -1154,7 +1068,7 @@ export default function Dashboard() {
       value: (animatedStats?.interviewsScheduled ?? 0).toString(),
       change: '+8%',
       trend: 'up',
-      icon: Calendar,
+      icon: 'Calendar',
       cardClass: 'border border-orange-100 bg-orange-50',
       iconBgClass: 'bg-orange-100',
       iconColorClass: 'text-orange-600',
@@ -1165,7 +1079,7 @@ export default function Dashboard() {
       value: (animatedStats?.offersExtended ?? 0).toString(),
       change: '+15%',
       trend: 'up',
-      icon: CheckCircle2,
+      icon: 'CheckCircle2',
       cardClass: 'border border-teal-100 bg-teal-50',
       iconBgClass: 'bg-teal-100',
       iconColorClass: 'text-teal-600',
@@ -1223,11 +1137,11 @@ export default function Dashboard() {
         <div className="bg-blue-50 border-b border-blue-200 p-3">
           <div className="flex items-center justify-between max-w-7xl mx-auto px-4">
             <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-blue-600" />
+              <AnimatedIcon icon={IconMap.FileText} className="h-4 w-4 text-blue-600" />
               <span className="text-sm text-blue-800">{files.length} file{files.length > 1 ? 's' : ''} selected</span>
             </div>
             <Button size="sm" variant="outline" onClick={uploadFiles} disabled={uploading} className="text-blue-600 border-blue-200 hover:bg-blue-100">
-              {uploading ? (<><Clock className="h-3 w-3 mr-1 animate-spin" /> Uploading...</>) : (<><Upload className="h-3 w-3 mr-1" /> Upload Now</>)}
+              {uploading ? (<><AnimatedIcon icon={IconMap.Clock} className="h-3 w-3 mr-1 animate-spin" /> Uploading...</>) : (<><AnimatedIcon icon={IconMap.Upload} className="h-3 w-3 mr-1" /> Upload Now</>)}
             </Button>
           </div>
         </div>
@@ -1247,7 +1161,7 @@ export default function Dashboard() {
               type="button"
               aria-label="Open menu"
             >
-              <Menu size={18} />
+              <AnimatedIcon icon={IconMap.Menu} size={18} />
             </button>
           </div>
 
@@ -1265,7 +1179,7 @@ export default function Dashboard() {
                       ease: "easeInOut"
                     }}
                   >
-                    <Bell size={18} />
+                    <AnimatedIcon icon={IconMap.Bell} size={18} />
                   </motion.div>
                   {unreadNotifications > 0 && (
                     <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
@@ -1277,9 +1191,9 @@ export default function Dashboard() {
               <DropdownMenuContent align="end" className="w-80">
                 <DropdownMenuLabel className="text-foreground">Notifications</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {notifications.length > 0 ? notifications.slice(0, 5).map((note) => (
+                {notifications.length > 0 ? notifications.slice(0, 5).map((note, idx) => (
                   <DropdownMenuItem
-                    key={note.id}
+                    key={note.id || `note-${idx}`}
                     className="flex flex-col items-start p-3 cursor-pointer"
                     onClick={() => markNotificationAsRead(note.id)}
                   >
@@ -1338,11 +1252,11 @@ export default function Dashboard() {
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel>My Account</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => navigate('/settings')}><Settings className="mr-2 h-4 w-4" /> Settings</DropdownMenuItem>
-                {(profile?.role === 'admin' || profile?.role === 'lead') && <DropdownMenuItem onClick={() => navigate('/admin/dashboard')}><LayoutDashboard className="mr-2 h-4 w-4" /> {profile?.role === 'lead' ? 'Lead Panel' : 'Admin Panel'}</DropdownMenuItem>}
+                <DropdownMenuItem onClick={() => navigate('/settings')}><AnimatedIcon icon={IconMap.Settings} className="mr-2 h-4 w-4" /> Settings</DropdownMenuItem>
+                {(profile?.role === 'admin' || profile?.role === 'lead') && <DropdownMenuItem onClick={() => navigate('/admin/dashboard')}><AnimatedIcon icon={IconMap.LayoutDashboard} className="mr-2 h-4 w-4" /> {profile?.role === 'lead' ? 'Lead Panel' : 'Admin Panel'}</DropdownMenuItem>}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => { localStorage.removeItem('accessToken'); localStorage.removeItem('refreshToken'); setProfile(null); navigate('/login'); }} className="text-red-600">
-                  <X className="mr-2 h-4 w-4" /> Logout
+                  <AnimatedIcon icon={IconMap.X} className="mr-2 h-4 w-4" /> Logout
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -1384,11 +1298,11 @@ export default function Dashboard() {
             onTouchMove={e => e.stopPropagation()}
           >
             <div className="relative bg-card dark:bg-slate-950 rounded-2xl shadow-2xl max-w-7xl w-full max-h-[95vh] overflow-y-auto border border-border dark:border-white/10">
-              <button onClick={() => setShowUploader(false)} className="absolute top-4 right-4 z-10 p-2 hover:bg-gray-100 dark:hover:bg-card/10 rounded-full transition-colors"><X className="h-5 w-5 text-muted-foreground dark:text-slate-300" /></button>
-              <DashboardResumeUploader 
-                onClose={() => setShowUploader(false)} 
-                userRole={profile?.role} 
-                selectedJob={selectedJobForUpload} 
+              <button onClick={() => setShowUploader(false)} className="absolute top-4 right-4 z-10 p-2 hover:bg-gray-100 dark:hover:bg-card/10 rounded-full transition-colors"><AnimatedIcon icon={IconMap.X} className="h-5 w-5 text-muted-foreground dark:text-slate-300" /></button>
+              <DashboardResumeUploader
+                onClose={() => setShowUploader(false)}
+                userRole={profile?.role}
+                selectedJob={selectedJobForUpload}
                 onUploadSuccess={() => {
                   refreshDashboard();
                   fetchRecentApplications();
@@ -1445,9 +1359,9 @@ export default function Dashboard() {
                           </motion.p>
                           <div className={`flex items-center mt-2 text-sm ${stat.changeColorClass}`}>
                             {stat.trend === 'up' ? (
-                              <TrendingUp className="h-4 w-4 mr-1" />
+                              <AnimatedIcon icon={IconMap.TrendingUp} className="h-4 w-4 mr-2" />
                             ) : (
-                              <TrendingDown className="h-4 w-4 mr-1" />
+                              <AnimatedIcon icon={IconMap.TrendingDown} className="h-4 w-4 mr-2" />
                             )}
                             {stat.change}
                           </div>
@@ -1457,7 +1371,7 @@ export default function Dashboard() {
                           transition={{ type: 'spring', stiffness: 260, damping: 18 }}
                           className={`p-3 rounded-full ${stat.iconBgClass}`}
                         >
-                          <stat.icon className={`h-6 w-6 ${stat.iconColorClass}`} />
+                          <AnimatedIcon icon={(IconMap as any)[stat.icon]} className={`h-6 w-6 ${stat.iconColorClass}`} size={24} />
                         </motion.div>
                       </div>
                     </CardContent>
@@ -1769,7 +1683,7 @@ export default function Dashboard() {
                                     onClick={() => handleUploadForJob(job)}
                                     className="h-8 px-3 text-xs bg-blue-600 hover:bg-blue-700 text-white"
                                   >
-                                    <Upload className="h-3.5 w-3.5 mr-1" /> Upload
+                                    <AnimatedIcon icon={IconMap.Upload} className="h-3.5 w-3.5 mr-1" /> Upload
                                   </Button>
                                 )}
                                 {profile?.role === 'recruiter' && (
@@ -1782,7 +1696,7 @@ export default function Dashboard() {
                                     }}
                                     className="h-8 px-3 text-xs"
                                   >
-                                    <Eye className="h-3.5 w-3.5 mr-1" /> Applicants
+                                    <AnimatedIcon icon={IconMap.Eye} className="h-3.5 w-3.5 mr-1" /> Applicants
                                   </Button>
                                 )}
                                 <Button
@@ -1791,7 +1705,7 @@ export default function Dashboard() {
                                   onClick={() => handleViewJob(job)}
                                   className="h-8 px-3 text-xs"
                                 >
-                                  <Eye className="h-3.5 w-3.5 mr-1" /> View
+                                  <AnimatedIcon icon={IconMap.Eye} className="h-3.5 w-3.5 mr-1" /> View
                                 </Button>
                               </div>
                             </TableCell>
@@ -1985,7 +1899,7 @@ export default function Dashboard() {
                 }}
                 className="absolute top-4 right-4 z-10 p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
-                <X className="h-5 w-5 text-muted-foreground" />
+                <AnimatedIcon icon={IconMap.X} size={18} className="text-muted-foreground" />
               </button>
 
               {appDetailsLoading && (
@@ -2072,7 +1986,7 @@ export default function Dashboard() {
                               onClick={() => handleStatusUpdate(appDetails)}
                               className="border-blue-200 hover:border-blue-400 hover:bg-blue-50/50 transition-all shadow-sm"
                             >
-                              <MessageSquare className="h-4 w-4 mr-1 text-blue-600" />
+                              <AnimatedIcon icon={IconMap.MessageSquare} className="h-4 w-4 mr-1 text-blue-600" />
                               Update
                             </Button>
                           )}
@@ -2298,7 +2212,7 @@ export default function Dashboard() {
                                       className="absolute top-2 right-2 text-red-500 hover:text-red-700 p-1"
                                       title="Remove"
                                     >
-                                      <XCircle className="h-4 w-4" />
+                                      <AnimatedIcon icon={IconMap.XCircle} size={16} />
                                     </button>
                                   </div>
                                 ) : (
@@ -2331,47 +2245,7 @@ export default function Dashboard() {
                       )}
                     </div>
 
-                    {/* Resume Preview Box */}
-                    {resumePreviewUrl && (
-                      <div className="mt-8 border-t pt-6 w-full animate-in fade-in zoom-in-95 duration-300">
-                        <h3 className="text-lg font-semibold text-gray-800 mb-4">Resume Preview</h3>
-                        <div className="w-full h-[600px] border rounded-xl overflow-hidden bg-slate-50 relative group flex items-center justify-center transition-transform duration-300 ease-in-out hover:scale-[1.01] hover:shadow-lg">
-                          {resumePreviewType === 'pdf' && (
-                            <iframe
-                              src={`${resumePreviewUrl}#toolbar=0&navpanes=0&scrollbar=0`}
-                              title="Resume Preview"
-                              className="w-full h-full rounded-xl"
-                            />
-                          )}
-                          {resumePreviewType === 'image' && (
-                            <img
-                              src={resumePreviewUrl}
-                              alt="Resume Preview"
-                              className="w-full h-full object-contain bg-muted"
-                            />
-                          )}
-                          {resumePreviewType === 'unsupported' && (
-                            <div className="text-center p-8 text-gray-500">
-                              <FileIcon className="mx-auto h-16 w-16 mb-4 text-gray-400" />
-                              <p className="font-medium text-lg mb-2">Browser Preview Not Supported</p>
-                              <p className="text-sm">
-                                The attached file <strong>{resumePreviewUrl}</strong> uses a proprietary format (like Word or Excel) which cannot be safely rendered inside the browser without third-party plugins. <br /> Please download the file to view it natively on your device.
-                              </p>
-                              <Button
-                                variant="default"
-                                className="mt-6"
-                                onClick={() => {
-                                  // Resume preview URL acts as the filename for unsupported
-                                  handleDownloadResume(appDetails.resume.resume_id);
-                                }}
-                              >
-                                Download {resumePreviewUrl}
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
+                    {/* Resume Preview Box removed */}
                   </>
                 );
               })()}
@@ -2393,7 +2267,7 @@ export default function Dashboard() {
                 className="absolute top-4 right-4 text-gray-400 hover:text-muted-foreground"
                 onClick={() => setJobViewOpen(false)}
               >
-                <X className="h-5 w-5" />
+                <AnimatedIcon icon={IconMap.X} size={18} />
               </button>
 
               {/* Job details */}
@@ -2406,19 +2280,19 @@ export default function Dashboard() {
               <div className="flex flex-wrap items-center gap-3 text-sm text-gray-700 mb-4">
                 {jobViewData.location && (
                   <span className="flex items-center gap-1">
-                    <MapPin className="h-4 w-4" />
+                    <AnimatedIcon icon={IconMap.MapPin} className="h-4 w-4" />
                     {jobViewData.location}
                   </span>
                 )}
                 {jobViewData.type && (
                   <span className="flex items-center gap-1">
-                    <Briefcase className="h-4 w-4" />
+                    <AnimatedIcon icon={IconMap.Briefcase} className="h-4 w-4" />
                     {jobViewData.type}
                   </span>
                 )}
                 {jobViewData.experience_level && (
                   <span className="flex items-center gap-1">
-                    <Building className="h-4 w-4" />
+                    <AnimatedIcon icon={IconMap.Building} className="h-4 w-4" />
                     {jobViewData.experience_level}
                   </span>
                 )}
@@ -2546,3 +2420,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

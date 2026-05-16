@@ -4,7 +4,7 @@ import { authenticatedFetch } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, User, Building, Calendar, FileText, MessageSquare, Mail, Phone, TrendingUp, Sparkles, Award } from 'lucide-react';
+import { AnimatedIcon, IconMap } from '@/components/AnimatedIconsax';
 import {
   Avatar,
   AvatarFallback,
@@ -32,7 +32,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { MoreVertical, CheckCircle, XCircle, Loader2 } from 'lucide-react';
+
 
 interface JobApplication {
   application_id: number;
@@ -198,7 +198,7 @@ const JobApplicants: React.FC = () => {
       setUploadingForAppId(null);
     }
   };
-  
+
   const handleStatusUpdate = (application: JobApplication) => {
     setSelectedApplication(application);
     setNewStatus(application.status || '');
@@ -292,7 +292,7 @@ const JobApplicants: React.FC = () => {
   };
 
   const getApplicationTypeIcon = (type: string) =>
-    type === 'vendor' ? <Building className="h-4 w-4" /> : <User className="h-4 w-4" />;
+    type === 'vendor' ? <AnimatedIcon icon={IconMap.Building} className="h-4 w-4" /> : <AnimatedIcon icon={IconMap.User} className="h-4 w-4" />;
 
   const parseArrayField = (field: string[] | string | null): string[] => {
     if (!field) return [];
@@ -573,8 +573,8 @@ const JobApplicants: React.FC = () => {
                           <FileText className="h-4 w-4 mr-1" />
                           {uploadingForAppId === application.application_id ? 'Uploading…' : 'Upload Modified CV'}
                         </Button>
-                        <Button 
-                          variant="outline" 
+                        <Button
+                          variant="outline"
                           size="sm"
                           onClick={() => handleStatusUpdate(application)}
                           className="border-blue-200 hover:bg-blue-50 text-blue-700"

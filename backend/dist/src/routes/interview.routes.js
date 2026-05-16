@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { searchCandidates, generateAndSendLink, validateLink, candidateLogin, inviteCredentials, saveInterviewVerification, confirmInterviewStart, submitInterviewFeedback, generateQuestions, submitAdaptiveAnswer, getQuestions, submitAnswers, getInterviewReport, exportInterviewReport, updateCandidateDecision, getRecentInvites } from '../controllers/interview.controller';
+import { searchCandidates, generateAndSendLink, validateLink, candidateLogin, inviteCredentials, saveInterviewVerification, confirmInterviewStart, submitInterviewFeedback, generateQuestions, submitAdaptiveAnswer, getQuestions, submitAnswers, processHeartbeat, getInterviewReport, exportInterviewReport, updateCandidateDecision, getRecentInvites } from '../controllers/interview.controller';
 import { verifyToken } from '../middleware/auth.middleware';
 const router = Router();
 // --- Admin Protected Routes ---
@@ -18,6 +18,7 @@ router.post('/verification', verifyToken, saveInterviewVerification);
 router.post('/start-confirmed', verifyToken, confirmInterviewStart);
 router.post('/generate', verifyToken, generateQuestions);
 router.post('/answer', verifyToken, submitAdaptiveAnswer);
+router.post('/heartbeat', verifyToken, processHeartbeat);
 // 3. Get questions (Authenticated Candidate)
 router.get('/questions', verifyToken, getQuestions);
 // 4. Submit answers (Authenticated Candidate)

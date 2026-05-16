@@ -250,7 +250,14 @@ export const sendPasswordChangeConfirmation = async (to: string, userName?: stri
  * @param loginUrl - Login URL for the interview
  * @param password - Temporary generated password
  */
-export const sendInterviewLink = async (to: string, name: string, loginUrl: string, password?: string): Promise<void> => {
+export const sendInterviewLink = async (
+  to: string, 
+  name: string, 
+  loginUrl: string, 
+  password?: string,
+  duration?: number,
+  questionCount?: number
+): Promise<void> => {
   try {
     const displayPassword = password || 'Contact recruiter';
     const transporter = createTransporter();
@@ -264,6 +271,8 @@ export const sendInterviewLink = async (to: string, name: string, loginUrl: stri
       console.log(`Name: ${name}`);
       console.log(`Login URL: ${loginUrl}`);
       console.log(`Password: ${displayPassword}`);
+      console.log(`Duration: ${duration || 'N/A'} mins`);
+      console.log(`Questions: ${questionCount || 'N/A'}`);
       console.log(`Note: Login details valid for the test duration.`);
       console.log('==============================================\n');
       return;
@@ -301,6 +310,8 @@ export const sendInterviewLink = async (to: string, name: string, loginUrl: stri
               <div class="creds">
                 <p style="margin: 5px 0;"><strong>Email:</strong> ${to}</p>
                 <p style="margin: 5px 0;"><strong>Password:</strong> ${displayPassword}</p>
+                <p style="margin: 5px 0;"><strong>Total Duration:</strong> ${duration || 30} minutes</p>
+                <p style="margin: 5px 0;"><strong>Total Questions:</strong> ${questionCount || 10} questions</p>
               </div>
 
               <div style="text-align: center;">
@@ -337,6 +348,9 @@ export const sendInterviewLink = async (to: string, name: string, loginUrl: stri
         
         Email: ${to}
         Password: ${displayPassword}
+        
+        Total Duration: ${duration || 30} minutes
+        Total Questions: ${questionCount || 10} questions
         
         Login URL: ${loginUrl}
         

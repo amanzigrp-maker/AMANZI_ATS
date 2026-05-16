@@ -932,9 +932,19 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
     const loginUrl = `${frontendUrl}/interview?token=${encodeURIComponent(token)}&candidateId=${candidateId}`;
 
     // 5. Send email
-    await sendInterviewLink(candidate.email, candidateName, loginUrl, plainPassword);
+    await sendInterviewLink(candidate.email, candidateName, loginUrl, plainPassword, duration, Number(questionCount) || 10);
 
-    res.json({ success: true, message: 'Interview link sent successfully', data: { candidate_id: candidateId, token, login_url: loginUrl } });
+    res.json({ 
+      success: true, 
+      message: 'Interview link sent successfully', 
+      data: { 
+        candidate_id: candidateId, 
+        token, 
+        login_url: loginUrl,
+        duration,
+        questionCount: Number(questionCount) || 10
+      } 
+    });
   } catch (error) {
     console.error('❌ Generate and send link overall error:', error);
     res.status(500).json({ success: false, error: 'Internal system error' });
@@ -1011,10 +1021,21 @@ export const inviteCredentials = async (req: Request, res: Response) => {
       candidate.email,
       candidateName,
       `${frontendUrl}/interview-login?candidateId=${candidateId}&email=${encodeURIComponent(candidate.email)}`,
-      plainPassword
+      plainPassword,
+      duration,
+      Number(questionCount) || 10
     );
 
-    return res.json({ success: true, message: 'Temporary interview credentials sent successfully', data: { candidate_id: candidateId, token } });
+    return res.json({ 
+      success: true, 
+      message: 'Temporary interview credentials sent successfully', 
+      data: { 
+        candidate_id: candidateId, 
+        token,
+        duration,
+        questionCount: Number(questionCount) || 10
+      } 
+    });
   } catch (error: any) {
     console.error('Invite credentials error:', error);
     return res.status(400).json({ success: false, error: error.message || 'Failed to send credentials' });
@@ -1034,9 +1055,10 @@ export const candidateLogin = async (req: Request, res: Response) => {
 
     // 1. Find the latest valid generated account for this email
     const result = await pool.query(
-      `SELECT t.*, s.id as session_id, s.is_submitted 
+      `SELECT t.*, s.id as session_id, s.is_submitted, s.remaining_seconds, s.state, r.current_question_index
        FROM interview_tokens t
        LEFT JOIN interview_sessions s ON t.token = s.token
+       LEFT JOIN interview_session_runtime r ON s.id = r.session_id
        WHERE t.candidate_email ILIKE $1 
        ORDER BY t.created_at DESC LIMIT 1`,
       [email]
@@ -1098,7 +1120,7 @@ export const candidateLogin = async (req: Request, res: Response) => {
         interview_token: tokenData.token, // This links them back to their session
       },
       getJwtSecret(),
-      { expiresIn: '2h' }
+      { expiresIn: '7d' }
     );
 
     res.json({
@@ -1110,6 +1132,8 @@ export const candidateLogin = async (req: Request, res: Response) => {
         duration: tokenData.duration_mins,
         total_questions: tokenData.total_questions || 10,
         session_id: tokenData.session_id,
+        remaining_seconds: tokenData.session_id ? await TimerEngineService.resumeTimer(Number(tokenData.session_id)) : (tokenData.duration_mins * 60),
+        current_question_index: tokenData.current_question_index || 0,
         is_started: tokenData.is_used,
         token: tokenData.token,
         jwt: candidateJwt,
@@ -1137,9 +1161,10 @@ export const validateLink = async (req: Request, res: Response) => {
 
     // 1. Find token and check session status
     const result = await pool.query(
-      `SELECT t.*, s.id as session_id, s.is_submitted 
+      `SELECT t.*, s.id as session_id, s.is_submitted, s.remaining_seconds, s.state, r.current_question_index
        FROM interview_tokens t
        LEFT JOIN interview_sessions s ON t.token = s.token
+       LEFT JOIN interview_session_runtime r ON s.id = r.session_id
        WHERE t.token = $1`,
       [token]
     );
@@ -1195,7 +1220,7 @@ export const validateLink = async (req: Request, res: Response) => {
         interview_token: token,
       },
       getJwtSecret(),
-      { expiresIn: '2h' }
+      { expiresIn: '7d' }
     );
 
     res.json({
@@ -1207,6 +1232,8 @@ export const validateLink = async (req: Request, res: Response) => {
         duration: tokenData.duration_mins,
         total_questions: tokenData.total_questions || 10,
         session_id: tokenData.session_id,
+        remaining_seconds: tokenData.session_id ? await TimerEngineService.resumeTimer(Number(tokenData.session_id)) : (tokenData.duration_mins * 60),
+        current_question_index: tokenData.current_question_index || 0,
         is_started: tokenData.is_used,
         jwt: candidateJwt,
         candidate_id: Number(tokenData.candidate_id || candidateProfile?.candidate_id || 0),
@@ -1397,10 +1424,10 @@ export const generateQuestions = async (req: Request, res: Response) => {
 export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
   const client = await pool.connect();
   try {
-    const { session_id, question_id, selected_answer } = req.body;
+    const { session_id, question_id, selected_answer, is_timeout } = req.body;
     const normalizedSelectedAnswers = normalizeAnswerArray(selected_answer);
-    if (!session_id || !question_id || !normalizedSelectedAnswers.length) {
-      return res.status(400).json({ success: false, error: 'session_id, question_id and selected_answer are required' });
+    if (!session_id || (!is_timeout && (!question_id || !normalizedSelectedAnswers.length))) {
+      return res.status(400).json({ success: false, error: 'session_id and answer data are required' });
     }
 
     await client.query('BEGIN');
@@ -1500,7 +1527,7 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
         last_sync_at = CURRENT_TIMESTAMP
     `, [Number(session_id), answeredCount, JSON.stringify({ theta: thetaAfter, answeredCount })]);
 
-    if (answeredCount >= targetCount) {
+    if (answeredCount >= targetCount || is_timeout) {
       await client.query(
         `UPDATE interview_sessions SET is_submitted = true, state = 'SUBMITTED', completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
         [targetCount, score, Number(session_id)]
@@ -2105,5 +2132,26 @@ export const getRecentInvites = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Get recent invites error:', error);
     res.status(500).json({ success: false, error: 'Failed to load invitations' });
+  }
+};
+export const processHeartbeat = async (req: Request, res: Response) => {
+  try {
+    const { session_id } = req.body;
+    if (!session_id) return res.status(400).json({ error: "session_id required" });
+
+    const result = await TimerEngineService.processHeartbeat(Number(session_id), req.ip);
+    
+    if (result.remainingSeconds <= 0) {
+      await pool.query(
+        "UPDATE interview_sessions SET is_submitted = true, state = 'EXPIRED', completed_at = CURRENT_TIMESTAMP WHERE id = $1 AND is_submitted = false",
+        [session_id]
+      );
+      void sendCompletionReport(Number(session_id));
+      return res.json({ success: true, ...result, isFinished: true });
+    }
+
+    return res.json({ success: true, ...result, isFinished: false });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
   }
 };

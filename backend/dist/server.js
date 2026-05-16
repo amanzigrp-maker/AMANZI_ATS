@@ -46,6 +46,8 @@ import interviewRoutes from "./src/routes/interview.routes";
 import adaptiveInterviewRoutes from "./src/routes/adaptiveInterview.routes";
 import assessmentRoutes from "./src/routes/assessment.routes";
 import certificateRoutes from "./src/routes/certificate.routes";
+import sessionRoutes from "./src/routes/session.routes";
+import { ExamResumptionModule } from "./src/modules/exam-resumption/exam-resumption.module";
 // -----------------------------------------------------------------------------
 // APP SETUP
 // -----------------------------------------------------------------------------
@@ -86,6 +88,7 @@ app.use("/api/interview", interviewRoutes);
 app.use("/api/interview/adaptive", adaptiveInterviewRoutes);
 app.use("/api/assessments", assessmentRoutes);
 app.use("/api/certificates", certificateRoutes);
+app.use("/api/session", sessionRoutes);
 // Setup Socket.io Handlers
 setupSocketHandlers(io);
 // -----------------------------------------------------------------------------
@@ -146,6 +149,8 @@ const bootstrapServer = async () => {
             process.exit(1);
         }
         console.log("✅ Database connection verified.");
+        // Start background workers
+        ExamResumptionModule.init();
         httpServer.listen(PORT, "0.0.0.0", () => {
             console.log(`📡 Server running on port ${PORT}`);
             console.log(`🌍 Accessible at http://<YOUR-EC2-IP>:${PORT}`);

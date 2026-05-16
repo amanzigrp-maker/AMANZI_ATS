@@ -1,17 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import {
-  BarChart3,
-  Briefcase,
-  Calendar,
-  ClipboardList,
-  ChevronLeft,
-  ChevronRight,
-  LayoutDashboard,
-  Settings,
-  Users,
-  X,
-} from 'lucide-react';
+import { AnimatedIcon, IconMap } from '@/components/AnimatedIconsax';
 
 export default function AppLayout() {
   const navigate = useNavigate();
@@ -38,13 +27,13 @@ export default function AppLayout() {
 
   const navItems = useMemo(
     () => [
-      { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
-      { icon: Briefcase, label: 'Jobs', path: '/jobs' },
-      { icon: Users, label: 'Candidates', path: '/candidates' },
-      { icon: ClipboardList, label: 'Assessments', path: '/assessments' },
-      { icon: Calendar, label: 'Interviews', path: '/interviews' },
-      { icon: BarChart3, label: 'Reports', path: '/reports' },
-      { icon: Settings, label: 'Settings', path: '/settings' },
+      { icon: 'LayoutDashboard', label: 'Dashboard', path: '/dashboard' },
+      { icon: 'Briefcase', label: 'Jobs', path: '/jobs' },
+      { icon: 'Users', label: 'Candidates', path: '/candidates' },
+      { icon: 'ClipboardList', label: 'Assessments', path: '/assessments' },
+      { icon: 'Calendar', label: 'Interviews', path: '/interviews' },
+      { icon: 'BarChart3', label: 'Reports', path: '/reports' },
+      { icon: 'Settings', label: 'Settings', path: '/settings' },
     ],
     []
   );
@@ -73,14 +62,14 @@ export default function AppLayout() {
                   onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
                   className="hidden lg:block p-2 rounded-lg transition-colors hover:bg-card/10 focus:outline-none focus:ring-2 focus:ring-white/20"
                 >
-                  <ChevronLeft size={18} />
+                  <AnimatedIcon icon={IconMap.ChevronLeft} size={18} />
                 </button>
               )}
               <button
                 onClick={() => setMobileMenuOpen(false)}
                 className="lg:hidden p-2 rounded-lg transition-colors hover:bg-card/10 focus:outline-none focus:ring-2 focus:ring-white/20"
               >
-                <X size={18} />
+                <AnimatedIcon icon={IconMap.X} size={18} />
               </button>
             </div>
 
@@ -120,7 +109,7 @@ export default function AppLayout() {
                       }`}
                   />
                   <span className="relative inline-flex items-center justify-center">
-                    <item.icon size={18} className="flex-shrink-0 opacity-90" />
+                    <AnimatedIcon icon={(IconMap as any)[item.icon]} size={18} className="flex-shrink-0 opacity-90" />
                   </span>
                   {!sidebarCollapsed && (
                     <span className="text-[14px] font-medium whitespace-nowrap">{item.label}</span>

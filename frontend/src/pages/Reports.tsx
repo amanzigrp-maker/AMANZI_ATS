@@ -637,10 +637,10 @@ const Reports: React.FC = () => {
                 size="sm"
                 className="gap-1 text-xs h-9 border-gray-200"
                 onClick={
-                  activeReportTab === 'uploads' ? handleResumeExport : 
-                  activeReportTab === 'activity' ? handleStatusExport : 
-                  activeReportTab === 'interviews' ? handleInterviewExport :
-                  undefined
+                  activeReportTab === 'uploads' ? handleResumeExport :
+                    activeReportTab === 'activity' ? handleStatusExport :
+                      activeReportTab === 'interviews' ? handleInterviewExport :
+                        undefined
                 }
               >
                 Export CSV
@@ -780,29 +780,29 @@ const Reports: React.FC = () => {
                                   <div className="text-[10px] text-muted-foreground font-mono">{r.candidate_email}</div>
                                 </td>
                                 <td className="px-4 py-3 text-muted-foreground text-xs">{r.job_role || '-'}</td>
-                                  <td className="px-4 py-3">
-                                    <div className="flex items-center gap-2">
+                                <td className="px-4 py-3">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedInterviewId(expandedInterviewId === r.session_id ? null : r.session_id)}
+                                      className="flex items-center gap-2 rounded-lg border border-transparent px-2 py-1 hover:border-blue-200 hover:bg-blue-50"
+                                    >
+                                      <Trophy className="w-3.5 h-3.5" style={{ color: perfColor }} />
+                                      <span className="font-bold text-foreground tabular-nums">{r.score}/{r.total_questions}</span>
+                                      <ChevronDown className={cn("h-3.5 w-3.5 text-slate-400 transition-transform", expandedInterviewId === r.session_id && "rotate-180")} />
+                                    </button>
+
+                                    {r.certificate_id && (
                                       <button
-                                        type="button"
-                                        onClick={() => setExpandedInterviewId(expandedInterviewId === r.session_id ? null : r.session_id)}
-                                        className="flex items-center gap-2 rounded-lg border border-transparent px-2 py-1 hover:border-blue-200 hover:bg-blue-50"
+                                        onClick={() => window.open(`/api/certificates/view/${r.certificate_id}`, '_blank')}
+                                        className="p-1.5 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors"
+                                        title="View Certificate"
                                       >
-                                        <Trophy className="w-3.5 h-3.5" style={{ color: perfColor }} />
-                                        <span className="font-bold text-foreground tabular-nums">{r.score}/{r.total_questions}</span>
-                                        <ChevronDown className={cn("h-3.5 w-3.5 text-slate-400 transition-transform", expandedInterviewId === r.session_id && "rotate-180")} />
+                                        <Award className="w-3.5 h-3.5" />
                                       </button>
-                                      
-                                      {r.certificate_id && (
-                                        <button
-                                          onClick={() => window.open(`/api/certificates/view/${r.certificate_id}`, '_blank')}
-                                          className="p-1.5 rounded-lg border border-indigo-100 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 transition-colors"
-                                          title="View Certificate"
-                                        >
-                                          <Award className="w-3.5 h-3.5" />
-                                        </button>
-                                      )}
-                                    </div>
-                                  </td>
+                                    )}
+                                  </div>
+                                </td>
                                 <td className="px-4 py-3">
                                   <div className="flex items-center gap-2">
                                     <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">

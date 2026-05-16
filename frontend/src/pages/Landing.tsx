@@ -14,20 +14,7 @@ import {
   CarouselPrevious,
 } from "@/components/ui/carousel";
 import { AnimatePresence } from "framer-motion";
-import {
-  Brain,
-  Calendar,
-  BarChart3,
-  Users,
-  ArrowRight,
-  CheckCircle2,
-  Star,
-  Zap,
-  Globe,
-  UserCheck,
-  Filter,
-  Mail
-} from "lucide-react";
+import { AnimatedIcon, IconMap } from "@/components/AnimatedIconsax";
 
 // Animation variants
 const fadeInUp = {
@@ -372,11 +359,11 @@ export default function Landing() {
                       {/* Left Sidebar */}
                       <div className="w-16 border-r border-white/5 bg-[#0B1221]/50 flex flex-col items-center py-6 gap-8">
                         <div className="w-8 h-8 rounded-lg bg-blue-600/20 flex items-center justify-center text-blue-400">
-                          <BarChart3 className="w-5 h-5" />
+                          <AnimatedIcon icon={IconMap.BarChart3} size={20} />
                         </div>
                         <div className="flex flex-col gap-6">
-                          {[Users, CheckCircle2, BarChart3, Users].map((Icon, i) => (
-                            <Icon key={i} className="w-5 h-5 text-white/20 hover:text-white/40 transition-colors cursor-pointer" />
+                          {['Users', 'CheckCircle2', 'BarChart3', 'Users'].map((iconKey, i) => (
+                            <AnimatedIcon key={i} icon={IconMap[iconKey as keyof typeof IconMap]} size={20} className="text-white/20 hover:text-white/40 transition-colors cursor-pointer" />
                           ))}
                         </div>
                       </div>

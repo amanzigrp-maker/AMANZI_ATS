@@ -12,6 +12,7 @@
   "dependencies": {
     "@elastic/elasticsearch": "^9.2.0",
     "@hookform/resolvers": "^3.10.0",
+    "@lordicon/react": "^1.11.0",
     "@mediapipe/face_detection": "^0.4.1646425229",
     "@mediapipe/face_mesh": "^0.4.1633559619",
     "@phosphor-icons/react": "^2.1.10",
@@ -64,8 +65,10 @@
     "embla-carousel-react": "^8.6.0",
     "express": "^5.1.0",
     "framer-motion": "^12.38.0",
+    "iconsax-react": "^0.0.8",
     "jsonwebtoken": "^9.0.2",
     "jwt-decode": "^4.0.0",
+    "lottie-web": "^5.13.0",
     "lucide-react": "^0.462.0",
     "mammoth": "^1.11.0",
     "multer": "^2.0.2",
