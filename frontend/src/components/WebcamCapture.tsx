@@ -7,7 +7,6 @@ interface WebcamCaptureProps {
 
 export const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onCapture }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const isInferenceRunningRef = useRef(false);
@@ -97,9 +96,9 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onCapture }) => {
   };
 
   const capturePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
+    if (videoRef.current) {
       const video = videoRef.current;
-      const canvas = canvasRef.current;
+      const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const context = canvas.getContext('2d');
@@ -145,11 +144,6 @@ export const WebcamCapture: React.FC<WebcamCaptureProps> = ({ onCapture }) => {
               onLoadedMetadata={handleVideoLoad}
               onPlay={handleVideoLoad}
               className="w-full h-full object-cover mirror"
-            />
-            {/* Real-time Visual Overlay Canvas (Task 6) */}
-            <canvas
-              ref={canvasRef}
-              className="absolute inset-0 w-full h-full object-cover pointer-events-none mirror"
             />
 
 

@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import * as faceLandmarksDetection from '@tensorflow-models/face-landmarks-detection';
 import * as faceDetection from '@tensorflow-models/face-detection';
 import '@tensorflow/tfjs';
 import * as tf from '@tensorflow/tfjs';
@@ -319,17 +318,11 @@ export const useIdentityVerification = () => {
         return { isValid: false, reason: "Webcam feed obstructed or blurry.", brightness, variance };
       }
 
-      // 2. Run FaceMesh or FaceDetector with tf.tidy scope safety
+      // 2. Run FaceDetector with tf.tidy scope safety
       let faces: any[] = [];
       tf.engine().startScope();
       try {
-        if (activeDetectorType === 'facemesh') {
-          // Pass staticImageMode: false as recommended
-          faces = await activeDetector.estimateFaces(video, { flipHorizontal: false, staticImageMode: false });
-        } else {
-          faces = await activeDetector.estimateFaces(video);
-        }
-        console.log("FaceMesh raw result:", faces);
+        faces = await activeDetector.estimateFaces(video);
       } catch (err: any) {
         console.error("useIdentityVerification: estimateFaces error:", err);
         // Return mock success on inference crashes to avoid lockouts

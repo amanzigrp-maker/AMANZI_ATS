@@ -85,15 +85,7 @@ export const helmetConfig = helmet({
     policy: "no-referrer",
   },
 
-  // Permissions Policy (formerly Feature Policy)
-  permissionsPolicy: {
-    camera: [],
-    microphone: [],
-    geolocation: [],
-    magnetometer: [],
-    gyroscope: [],
-    accelerometer: [],
-  },
+
 
   // Disable X-Powered-By header
   hidePoweredBy: true,
@@ -103,11 +95,7 @@ export const helmetConfig = helmet({
     allow: false,
   },
 
-  // Expect CT (Certificate Transparency)
-  expectCt: {
-    maxAge: 86400,
-    enforce: isProduction,
-  },
+
 });
 
 // ========================================================================
@@ -547,14 +535,14 @@ export const getSocketIOSecurityConfig = () => {
     allowUpgrades: true,
 
     // Transport methods in order of preference
-    transports: ["websocket", "polling"],
+    transports: ["websocket", "polling"] as any,
 
     // Cookie configuration for Socket.io
     cookie: {
       name: "io",
       httpOnly: true,
       secure: isProduction,
-      sameSite: "strict",
+      sameSite: "strict" as "strict",
       maxAge: 24 * 60 * 60 * 1000,
     },
   };

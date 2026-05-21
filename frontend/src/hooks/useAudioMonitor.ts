@@ -13,6 +13,14 @@ export const useAudioMonitor = (
   const speechHistory = useRef<number[]>([]);
   const historyLimit = 15;
 
+  const onViolationRef = useRef(onViolation);
+  const onDebugUpdateRef = useRef(onDebugUpdate);
+
+  useEffect(() => {
+    onViolationRef.current = onViolation;
+    onDebugUpdateRef.current = onDebugUpdate;
+  }, [onViolation, onDebugUpdate]);
+
   useEffect(() => {
     if (!stream) return;
 
@@ -78,15 +86,17 @@ export const useAudioMonitor = (
 
             console.debug(`[Audio VAD Monitor] speechLevel=${avgSpeech.toFixed(1)} noiseFloor=${noiseFloor.toFixed(1)} speechDetected=${isSpeechDetected}`);
 
-            if (onDebugUpdate) {
-              onDebugUpdate(avgTotal, isSpeechDetected);
+            if (onDebugUpdateRef.current) {
+              onDebugUpdateRef.current(avgTotal, isSpeechDetected);
             }
 
             if (isSpeechDetected) {
               consecutiveSpeechIntervals++;
               // Trigger violation if speaking persists for 3 consecutive checks (~600ms of sustained speech)
               if (consecutiveSpeechIntervals >= 3) {
-                onViolation('Abnormal Audio Detected', `Voice activity/speech detected in the background (level: ${avgSpeech.toFixed(1)})`);
+                if (onViolationRef.current) {
+                  onViolationRef.current('Abnormal Audio Detected', `Voice activity/speech detected in the background (level: ${avgSpeech.toFixed(1)})`);
+                }
                 consecutiveSpeechIntervals = 0; // Reset or throttle
               }
             } else {

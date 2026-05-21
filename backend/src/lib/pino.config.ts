@@ -365,10 +365,6 @@ export class StructuredLogger {
  */
 export const logger = new StructuredLogger();
 
-/**
- * Export Pino base logger for integration with pino-http middleware
- */
-export { baseLogger };
 
 /**
  * Utility function to create a logger with initial context

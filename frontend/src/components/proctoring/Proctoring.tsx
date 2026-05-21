@@ -34,8 +34,7 @@ const Proctoring: React.FC<ProctoringProps> = ({
   const remoteAccessCheckIntervalRef = useRef<number | null>(null);
   const devToolsCheckIntervalRef = useRef<number | null>(null);
 
-  // Debug Panel and Canvas Overlay refs and states
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Debug Panel and states
   const [showDebug, setShowDebug] = useState(false);
   const showDebugRef = useRef(false);
   useEffect(() => {
@@ -180,7 +179,7 @@ const Proctoring: React.FC<ProctoringProps> = ({
     }));
   }, []);
 
-  const { startMonitoring, stopMonitoring } = useFaceDetection(videoRef, canvasRef, handleViolation, handleFaceDebugUpdate);
+  const { startMonitoring, stopMonitoring } = useFaceDetection(videoRef, handleViolation, handleFaceDebugUpdate);
   useAudioMonitor(stream, handleViolation, handleAudioDebugUpdate);
   const { startRecording, stopRecording } = useRecording(stream);
 
@@ -607,10 +606,6 @@ const Proctoring: React.FC<ProctoringProps> = ({
           muted
           playsInline
           className="w-full h-full object-cover"
-        />
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 w-full h-full object-cover pointer-events-none"
         />
         <div className="absolute top-2 left-2 flex items-center gap-2 bg-black/50 backdrop-blur-md px-2 py-1 rounded-md text-[10px] text-white">
           <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />

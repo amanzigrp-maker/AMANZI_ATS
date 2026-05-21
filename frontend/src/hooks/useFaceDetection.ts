@@ -6,7 +6,6 @@ import { getFeatureFlags } from '../utils/featureFlags';
 
 export const useFaceDetection = (
   videoRef: React.RefObject<HTMLVideoElement>,
-  canvasRef: React.RefObject<HTMLCanvasElement>,
   onViolation: (type: string, detail: string) => void,
   onDebugUpdate?: (metrics: {
     faceCount: number;
@@ -92,7 +91,6 @@ export const useFaceDetection = (
 
   const detect = async () => {
     const video = videoRef.current;
-    const canvas = canvasRef.current;
     const flags = getFeatureFlags();
     
     // Task 7 & 12: Bypassing inference if TF is disabled
@@ -115,25 +113,6 @@ export const useFaceDetection = (
           loopStatus: 'Active',
           tfMemory: null
         });
-      }
-
-      // Draw disabled notice on canvas
-      if (canvas && video) {
-        canvas.width = video.videoWidth || 640;
-        canvas.height = video.videoHeight || 480;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-          ctx.fillRect(10, 10, 240, 70);
-          ctx.fillStyle = '#f59e0b';
-          ctx.font = 'bold 12px sans-serif';
-          ctx.fillText(`AI proctoring bypass active`, 20, 30);
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '11px sans-serif';
-          ctx.fillText(`FPS: ${fpsRef.current.toFixed(1)}`, 20, 50);
-          ctx.fillText(`Enhanced verification unavailable`, 20, 68);
-        }
       }
       return;
     }
@@ -353,65 +332,7 @@ export const useFaceDetection = (
       frozenStart.current = null;
     }
 
-    // 6. Visual Debugging Canvas Overlay Drawing
-    if (canvas) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const width = canvas.width;
-      const height = canvas.height;
-      
-      const ctx = canvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, width, height);
-
-        // Temporarily disable overlay drawing
-        /*
-        if (flags.enableLandmarkDrawing) {
-          validFaces.forEach((face) => {
-            const { xMin, yMin, width: boxWidth, height: boxHeight } = face.box;
-            
-            // Draw rectangle
-            ctx.strokeStyle = faceCount > 1 ? '#ef4444' : '#22c55e';
-            ctx.lineWidth = 3;
-            ctx.strokeRect(xMin, yMin, boxWidth, boxHeight);
-
-            // Draw score label
-            ctx.fillStyle = faceCount > 1 ? '#ef4444' : '#22c55e';
-            ctx.font = 'bold 16px sans-serif';
-            ctx.fillText(`Face: ${(face.score * 100).toFixed(0)}%`, xMin, yMin - 10);
-
-            // Draw Landmarks (Keypoints)
-            if (face.keypoints) {
-              face.keypoints.forEach((kp) => {
-                ctx.fillStyle = '#3b82f6';
-                ctx.beginPath();
-                ctx.arc(kp.x, kp.y, 4, 0, 2 * Math.PI);
-                ctx.fill();
-              });
-            }
-          });
-        }
-        */
-
-        // Overlay status text in upper-left corner of canvas
-        if (flags.enableDiagnosticsRendering) {
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
-          ctx.fillRect(10, 10, 220, 120);
-
-          ctx.fillStyle = '#ffffff';
-          ctx.font = '12px sans-serif';
-          ctx.fillText(`FPS: ${fpsRef.current.toFixed(1)}`, 20, 30);
-          ctx.fillText(`Faces Detected: ${faceCount}`, 20, 50);
-          ctx.fillText(`Gaze Status: ${gazeDirection}`, 20, 70);
-          
-          let obsText = 'Clear';
-          if (isCovered) obsText = 'Covered/Obstruction';
-          else if (isStatic) obsText = 'Frozen';
-          ctx.fillText(`Camera Status: ${obsText}`, 20, 90);
-          ctx.fillText(`Brightness/Var: ${avgBrightness.toFixed(0)} / ${variance.toFixed(0)}`, 20, 110);
-        }
-      }
-    }
+    // Visual Debugging Canvas Overlay Drawing removed due to being an abandoned feature
 
     // 7. Report to Debug Panel
     if (onDebugUpdateRef.current) {

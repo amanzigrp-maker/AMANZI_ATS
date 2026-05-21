@@ -1,7 +1,6 @@
 import { Server, Socket } from "socket.io";
 import { pool } from "../lib/database";
 import { logDebug, logInfo } from "../lib/logging";
-import { enterpriseSecurityService } from "../modules/enterprise-security/enterprise-security.service";
 
 interface ProctorEvent {
   candidateId: string;
@@ -103,15 +102,6 @@ export const setupSocketHandlers = (io: Server) => {
       socket.to(room).emit("proctor-event-admin", data);
 
       await saveProctorEvent(data);
-      await enterpriseSecurityService.recordEvent({
-        eventType: data.type === "violation" ? "proctoring.violation" : "proctoring.warning",
-        severity: data.type === "violation" ? "high" : "medium",
-        interviewId: data.interviewId,
-        sessionId: data.interviewId,
-        candidateId: data.candidateId,
-        source: "browser",
-        payload: { detail: data.detail, timestamp: data.timestamp },
-      });
     });
 
     socket.on("toggle-live-monitoring", (data: { interviewId: string; enabled: boolean }) => {

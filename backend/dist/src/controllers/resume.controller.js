@@ -11,6 +11,7 @@ import fsSync from 'fs';
 import { aiWorkerService } from '../services/ai-worker.service';
 import elasticsearchService from '../services/elasticsearch.service';
 import notificationService from '../services/notification.service';
+import { trackFailure } from '../config/sentry.config';
 /* -------------------------------------------------------------------------- */
 /*                               MULTER CONFIG                                 */
 /* -------------------------------------------------------------------------- */
@@ -224,6 +225,7 @@ export const uploadResume = async (req, res) => {
             await client.query('ROLLBACK');
         }
         catch { }
+        trackFailure("ResumeUpload", err);
         console.error('❌ Resume upload error:', err);
         if (req.file && fsSync.existsSync(req.file.path)) {
             await fs.unlink(req.file.path).catch(() => { });

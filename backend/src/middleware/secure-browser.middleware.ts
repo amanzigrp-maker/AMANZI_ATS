@@ -8,7 +8,7 @@ import { config } from "../config/env.config";
 export const requireSecureBrowser = (req: Request, res: Response, next: NextFunction) => {
   const isSecureBrowserRequired = req.body.secureBrowserRequired || req.query.secureBrowserRequired === "true";
   
-  if (!isSecureBrowserRequired && !config.SECURE_BROWSER_STRICT_MODE) {
+  if (!isSecureBrowserRequired && process.env.SECURE_BROWSER_STRICT_MODE !== "true") {
     return next();
   }
 
@@ -27,7 +27,7 @@ export const requireSecureBrowser = (req: Request, res: Response, next: NextFunc
   try {
     // Basic verification of the JWT or signed payload (Simulated here)
     // In production, you would verify against a public key or shared secret
-    const secret = config.SECURE_BROWSER_SECRET || "default_development_secret_only";
+    const secret = process.env.SECURE_BROWSER_SECRET || "default_development_secret_only";
     
     // Split token (assuming format: payload.signature)
     const [payloadB64, signature] = secureToken.split(".");

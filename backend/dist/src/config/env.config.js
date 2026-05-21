@@ -66,6 +66,7 @@ const envSchema = z.object({
     APP_LOG_LEVEL: z.string().default("info"),
     LOG_LEVEL: z.string().default("info"),
     LOG_SENSITIVE_DEV_DETAILS: booleanFromString.default(false),
+    SENTRY_DSN: optionalUrl,
     PDFTOTEXT_PATH: z.string().optional(),
     AMANZI_PYTHON_PATH: z.string().optional(),
 });

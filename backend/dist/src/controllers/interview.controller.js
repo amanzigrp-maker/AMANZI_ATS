@@ -12,7 +12,6 @@ import { CertificateService } from '../services/certificate.service';
 import { TimerEngineService } from '../modules/interview-session/timer-engine.service';
 import { RecoveryEngineService } from '../modules/interview-session/recovery-engine.service';
 import { calculateSuspicionScore } from '../services/proctoring.service';
-import { config } from '../config/env.config';
 const getUserId = (req) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
 /**
  * Helper to check if a user is authorized to manage a candidate's interview.
@@ -739,7 +738,7 @@ export const generateAndSendLink = async (req, res) => {
         ]);
         // 4. Generate link
         // Use environment variable for frontend URL, fallback to localhost if not set
-        const frontendUrl = config.FRONTEND_URL;
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
         const loginUrl = `${frontendUrl}/interview?token=${encodeURIComponent(token)}&candidateId=${candidateId}`;
         // 5. Send email
         await sendInterviewLink(candidate.email, candidateName, loginUrl, plainPassword, duration, Number(questionCount) || 10);
@@ -809,8 +808,8 @@ export const inviteCredentials = async (req, res) => {
             candidateId,
             getUserId(req),
         ]);
-        const frontendUrl = config.FRONTEND_URL;
-        await sendInterviewLink(candidate.email, candidateName, `${frontendUrl}/interview-login?candidateId=${candidateId}&email=${encodeURIComponent(candidate.email)}`, plainPassword, duration, Number(questionCount) || 10);
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+        await sendInterviewLink(candidate.email, candidateName, `${frontendUrl}/interview?token=${encodeURIComponent(token)}&candidateId=${candidateId}`, plainPassword, duration, Number(questionCount) || 10);
         return res.json({
             success: true,
             message: 'Temporary interview credentials sent successfully',
@@ -1730,36 +1729,25 @@ export const processHeartbeat = async (req, res) => {
 };
 export const pauseSession = async (req, res) => {
     try {
-        const { session_id } = req.body;
+        const { session_id, reason } = req.body;
         if (!session_id)
-            return res.status(400).json({ success: false, error: "Session ID required" });
-        await TimerEngineService.pauseTimer(Number(session_id), "Candidate left the page (manual/tab close)");
-        res.json({
-            success: true,
-            message: "Session paused successfully"
-        });
+            return res.status(400).json({ error: "session_id required" });
+        await TimerEngineService.pauseTimer(Number(session_id), reason || "Manual pause");
+        return res.json({ success: true });
     }
     catch (error) {
-        console.error("❌ Pause Error:", error);
-        res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, error: error.message });
     }
 };
 export const getSessionSuspicionReport = async (req, res) => {
     try {
-        const { session_id } = req.query;
-        if (!session_id) {
-            return res.status(400).json({ success: false, error: 'session_id is required' });
-        }
-        const sessRes = await pool.query("SELECT token FROM interview_sessions WHERE id = $1", [Number(session_id)]);
-        if (sessRes.rows.length === 0) {
-            return res.status(404).json({ success: false, error: 'Session not found' });
-        }
-        const token = sessRes.rows[0].token;
-        const report = await calculateSuspicionScore(token);
-        return res.json({ success: true, data: report });
+        const sessionId = req.query.sessionId;
+        if (!sessionId)
+            return res.status(400).json({ error: "sessionId required" });
+        const report = await calculateSuspicionScore(sessionId);
+        return res.json({ success: true, report });
     }
     catch (error) {
-        console.error('Get session suspicion report error:', error);
-        return res.status(500).json({ success: false, error: error.message || 'Internal server error' });
+        return res.status(500).json({ success: false, error: error.message });
     }
 };

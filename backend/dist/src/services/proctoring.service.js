@@ -1,6 +1,6 @@
 import { pool } from "../lib/database";
 import { logDebug, logInfo } from "../lib/logging";
-import { enterpriseSecurityService } from "../modules/enterprise-security/enterprise-security.service";
+import { trackFailure } from "../config/sentry.config";
 const candidateSocketsByInterview = new Map();
 const interviewByCandidateSocket = new Map();
 const saveProctorEvent = async (data) => {
@@ -8,7 +8,7 @@ const saveProctorEvent = async (data) => {
         await pool.query("INSERT INTO proctoring_logs (interview_id, candidate_id, type, detail, timestamp) VALUES ($1, $2, $3, $4, $5)", [data.interviewId, data.candidateId, data.type, data.detail, data.timestamp]);
     }
     catch (err) {
-        console.error("Failed to save proctor log:", err);
+        trackFailure("WebSocket.ProctorEventSave", err, { eventData: data });
     }
 };
 export const setupSocketHandlers = (io) => {
@@ -78,15 +78,6 @@ export const setupSocketHandlers = (io) => {
             logDebug(`Proctor Event: ${data.type} for interview ${data.interviewId}`);
             socket.to(room).emit("proctor-event-admin", data);
             await saveProctorEvent(data);
-            await enterpriseSecurityService.recordEvent({
-                eventType: data.type === "violation" ? "proctoring.violation" : "proctoring.warning",
-                severity: data.type === "violation" ? "high" : "medium",
-                interviewId: data.interviewId,
-                sessionId: data.interviewId,
-                candidateId: data.candidateId,
-                source: "browser",
-                payload: { detail: data.detail, timestamp: data.timestamp },
-            });
         });
         socket.on("toggle-live-monitoring", (data) => {
             const room = `interview-${data.interviewId}`;

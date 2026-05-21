@@ -258,50 +258,69 @@ export class CertificateService {
         return `AMZ-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
     }
     static async saveCertificate(sessionId, data) {
-        const query = `
-      INSERT INTO certificates (
-        id, interview_session_id, certificate_id, candidate_name, 
-        candidate_email, job_role, score, metadata, issued_at,
-        candidate_photo, test_name
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), $9, $10)
-      ON CONFLICT (interview_session_id) 
-      DO UPDATE SET 
-        certificate_id = EXCLUDED.certificate_id,
-        candidate_name = EXCLUDED.candidate_name,
-        candidate_email = EXCLUDED.candidate_email,
-        job_role = EXCLUDED.job_role,
-        score = EXCLUDED.score,
-        metadata = EXCLUDED.metadata,
-        issued_at = EXCLUDED.issued_at,
-        candidate_photo = EXCLUDED.candidate_photo,
-        test_name = EXCLUDED.test_name
-      RETURNING *;
-    `;
-        const values = [
-            data.certificateId || data.id, // Primary key
-            sessionId,
-            data.certificateId || data.id,
-            data.name || data.candidate_name,
-            data.email || data.candidate_email,
-            data.test || data.test_name || data.job_role,
-            data.score,
-            JSON.stringify(data.analytics || data.metadata || {}),
-            data.photoUrl || data.candidate_photo || '',
-            data.test || data.test_name || data.job_role
-        ];
-        const result = await pool.query(query, values);
-        return result.rows[0];
+        try {
+            const query = `
+        INSERT INTO certificates (
+          interview_session_id,
+          certificate_id,
+          candidate_name,
+          candidate_email,
+          job_role,
+          score,
+          metadata,
+          issued_at,
+          candidate_photo,
+          test_name
+        )
+        VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, NOW(), $8, $9
+        )
+        ON CONFLICT (interview_session_id)
+        DO UPDATE SET
+          certificate_id = EXCLUDED.certificate_id,
+          candidate_name = EXCLUDED.candidate_name,
+          candidate_email = EXCLUDED.candidate_email,
+          job_role = EXCLUDED.job_role,
+          score = EXCLUDED.score,
+          metadata = EXCLUDED.metadata,
+          issued_at = EXCLUDED.issued_at,
+          candidate_photo = EXCLUDED.candidate_photo,
+          test_name = EXCLUDED.test_name
+        RETURNING *;
+      `;
+            const values = [
+                Number(sessionId),
+                data.certificateId || data.id,
+                data.name || data.candidate_name,
+                data.email || data.candidate_email,
+                data.test || data.test_name || data.job_role,
+                data.score || 0,
+                JSON.stringify(data.analytics || data.metadata || {}),
+                data.photoUrl || data.candidate_photo || '',
+                data.test || data.test_name || data.job_role
+            ];
+            console.log('[CertificateService] Saving certificate:', values);
+            const result = await pool.query(query, values);
+            console.log('[CertificateService] Certificate saved successfully');
+            return result.rows[0];
+        }
+        catch (error) {
+            console.error('[CertificateService] Save certificate failed:', error);
+            throw error;
+        }
     }
     static async getCertificate(certificateId) {
         const query = `
-      SELECT 
+      SELECT
         c.*,
         c.candidate_photo as selfie_path,
         c.job_role as assessment_name,
         c.issued_at as issue_date,
         c.metadata as analytics
       FROM certificates c
-      WHERE c.id = $1 OR c.certificate_id = $1;
+      WHERE c.id::text = $1
+      OR c.certificate_id = $1;
     `;
         const result = await pool.query(query, [certificateId]);
         return result.rows[0];
