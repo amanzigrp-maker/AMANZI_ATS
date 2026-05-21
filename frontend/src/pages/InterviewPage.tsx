@@ -37,7 +37,7 @@ interface Question {
 }
 
 const INSTRUCTION_SECONDS = 10;
-const INTERVIEW_SECONDS = 60;
+const INTERVIEW_SECONDS = 1800; // 30 minutes default
 
 export default function InterviewPage() {
   const [searchParams] = useSearchParams();
@@ -81,6 +81,13 @@ export default function InterviewPage() {
   const [isFeedbackSubmitting, setIsFeedbackSubmitting] = useState(false);
   const preparePromiseRef = useRef<Promise<void> | null>(null);
   const [candidatePhoto, setCandidatePhoto] = useState<string | null>(null);
+  const [selfieEmbedding, setSelfieEmbedding] = useState<number[] | null>(() => {
+    const stored = localStorage.getItem("selfieEmbedding");
+    if (stored) {
+      try { return JSON.parse(stored); } catch (e) {}
+    }
+    return null;
+  });
   const [certId, setCertId] = useState<string | null>(null);
   const [isGeneratingCert, setIsGeneratingCert] = useState(false);
 
@@ -120,13 +127,38 @@ export default function InterviewPage() {
     const storedUser = localStorage.getItem("interviewUser");
     if (!storedToken || !storedUser || storedUser === "undefined") return;
 
-    try {
-      const parsedUser = JSON.parse(storedUser);
-      setInterviewToken(parsedUser.token || null);
-      handleAuthSuccess({ ...parsedUser, jwt: storedToken });
-    } catch (error) {
-      console.error("Stored interview session parse error:", error);
-    }
+    // Re-validate with server to get latest authoritative state (especially remaining time)
+    const revalidate = async () => {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        const activeToken = parsedUser.token || parsedUser.interview_token || parsedUser.jwt;
+        if (!activeToken) return;
+        
+        setInterviewToken(activeToken);
+
+        const params = new URLSearchParams({ token: activeToken });
+        const res = await fetch(`/api/interview/validate?${params.toString()}`);
+        const data = await res.json();
+        
+        if (res.ok && data.success) {
+          handleAuthSuccess(data.data);
+        } else {
+          // If token is invalid now, clear storage
+          localStorage.removeItem("interviewToken");
+          localStorage.removeItem("interviewUser");
+          setStatus("login");
+        }
+      } catch (error) {
+        console.error("Session revalidation error:", error);
+        // Fallback to local data if server is down, but this is risky for timers
+        try {
+          const parsedUser = JSON.parse(storedUser);
+          handleAuthSuccess({ ...parsedUser, jwt: storedToken });
+        } catch (e) {}
+      }
+    };
+    
+    revalidate();
   }, [token]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -156,9 +188,9 @@ export default function InterviewPage() {
   };
 
   const handleAuthSuccess = async (data: any) => {
+    console.log("Assessment Auth Success. Session:", data.session_id, "Remaining:", data.remaining_seconds);
     setCandidateInfo({ name: data.name, email: data.email });
     if (data.jwt) setJwtToken(data.jwt);
-    setTimeLeft(INTERVIEW_SECONDS);
     if (data.total_questions) setTotalQuestions(data.total_questions);
     if (typeof data.experience_years === "number") {
       setSetupData((prev) => ({ ...prev, experience: data.experience_years }));
@@ -166,18 +198,25 @@ export default function InterviewPage() {
     if (data.role) {
       setSetupData((prev) => ({ ...prev, role: data.role }));
     }
+
     if (data.session_id) {
       setSessionId(data.session_id);
       if (typeof data.remaining_seconds === "number") {
         setTimeLeft(data.remaining_seconds);
+      } else if (data.duration) {
+        setTimeLeft(data.duration * 60);
       }
+
       if (typeof data.current_question_index === "number") {
         setCurrentQuestionIndex(data.current_question_index);
       }
-      await fetchQuestions(data.session_id, data.jwt);
+
+      await fetchQuestions(data.session_id, data.jwt || jwtToken);
       setStatus("interviewing");
     } else {
-      if (data.duration) {
+      if (typeof data.remaining_seconds === "number") {
+        setTimeLeft(data.remaining_seconds);
+      } else if (data.duration) {
         setTimeLeft(data.duration * 60);
       }
       setStatus("verification");
@@ -329,6 +368,9 @@ export default function InterviewPage() {
       }
 
       setSessionId(preparedSession.sessionId);
+      if (typeof data.remaining_seconds === "number") {
+        setTimeLeft(data.remaining_seconds);
+      }
       setCurrentQuestionIndex(0);
       setQuestions(preparedSession.question ? [preparedSession.question] : []);
       setTheta(preparedSession.theta ?? null);
@@ -489,6 +531,38 @@ export default function InterviewPage() {
 
     return () => clearInterval(interval);
   }, [status, sessionId, jwtToken, timeLeft]);
+
+  // Handle Session Pausing on Leave
+  useEffect(() => {
+    if (status !== "interviewing" || !sessionId || !jwtToken) return;
+
+    const handlePageExit = () => {
+      // Use keepalive to ensure the request completes even if the page is closing
+      fetch("/api/interview/pause", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${jwtToken}`
+        },
+        body: JSON.stringify({ session_id: sessionId }),
+        keepalive: true
+      }).catch(() => {});
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        handlePageExit();
+      }
+    };
+
+    window.addEventListener("beforeunload", handlePageExit);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("beforeunload", handlePageExit);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [status, sessionId, jwtToken]);
 
   const handleGenerateCertificate = async (finalScore: number) => {
     if (!sessionId || !candidateInfo) return;
@@ -710,8 +784,10 @@ export default function InterviewPage() {
                     Live Photo Capture
                   </span>
                   
-                  <WebcamCapture onCapture={(image) => {
+                  <WebcamCapture onCapture={(image, embedding) => {
                     setCandidatePhoto(image);
+                    setSelfieEmbedding(embedding);
+                    localStorage.setItem("selfieEmbedding", JSON.stringify(embedding));
                     setVerificationImages(prev => ({ ...prev, selfie: image }));
                   }} />
                 </div>
@@ -842,6 +918,7 @@ export default function InterviewPage() {
               interviewId={sessionId?.toString() || ""} 
               candidateId={candidateIdFromLink || candidateInfo?.email || token || ""} 
               onTerminate={() => setStatus("error")} 
+              referenceEmbedding={selfieEmbedding}
             />
             <div className="w-full max-w-4xl flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">

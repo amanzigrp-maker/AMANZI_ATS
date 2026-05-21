@@ -1,0 +1,351 @@
+import { Socket, Server } from "socket.io";
+import { StructuredLogger } from "./pino.config";
+import { v4 as uuidv4 } from "uuid";
+
+/**
+ * WebSocket Event Logger
+ * Provides structured logging for Socket.io events
+ *
+ * Features:
+ * - Connection/disconnection tracking
+ * - Event emission/receipt logging
+ * - Error tracking
+ * - Performance monitoring
+ * - Room management logging
+ */
+
+export interface SocketLogContext {
+  socketId: string;
+  userId?: number | string;
+  room?: string;
+  correlationId?: string;
+  eventName?: string;
+}
+
+export class WebSocketLogger {
+  private logger: StructuredLogger;
+  private socketContextMap: Map<string, SocketLogContext> = new Map();
+
+  constructor() {
+    this.logger = new StructuredLogger();
+  }
+
+  /**
+   * Log socket connection
+   */
+  logConnection(socket: Socket): void {
+    const correlationId = uuidv4();
+    const context: SocketLogContext = {
+      socketId: socket.id,
+      correlationId,
+    };
+
+    this.socketContextMap.set(socket.id, context);
+
+    this.logger
+      .withSocket(socket.id)
+      .withCorrelationId(correlationId)
+      .info("WebSocket connection established", {
+        socketId: socket.id,
+        remoteAddress: socket.handshake.address,
+        userAgent: socket.handshake.headers["user-agent"],
+      });
+  }
+
+  /**
+   * Log socket disconnection
+   */
+  logDisconnection(socket: Socket, reason: string): void {
+    const context = this.socketContextMap.get(socket.id);
+    const correlationId = context?.correlationId || uuidv4();
+
+    this.logger
+      .withSocket(socket.id)
+      .withCorrelationId(correlationId)
+      .info("WebSocket disconnection", {
+        socketId: socket.id,
+        reason,
+        duration: socket.handshake.issued,
+      });
+
+    this.socketContextMap.delete(socket.id);
+  }
+
+  /**
+   * Log socket event emission
+   */
+  logEmit(socket: Socket, eventName: string, data?: any): void {
+    const context = this.socketContextMap.get(socket.id) || {
+      socketId: socket.id,
+      correlationId: uuidv4(),
+    };
+
+    this.logger
+      .withSocket(socket.id, context.room)
+      .withCorrelationId(context.correlationId)
+      .debug("WebSocket emit", {
+        socketId: socket.id,
+        eventName,
+        dataSize: this.getDataSize(data),
+        timestamp: new Date().toISOString(),
+      });
+  }
+
+  /**
+   * Log socket event receipt
+   */
+  logReceive(socket: Socket, eventName: string, data?: any): void {
+    const context = this.socketContextMap.get(socket.id) || {
+      socketId: socket.id,
+      correlationId: uuidv4(),
+    };
+
+    this.logger
+      .withSocket(socket.id, context.room)
+      .withCorrelationId(context.correlationId)
+      .debug("WebSocket receive", {
+        socketId: socket.id,
+        eventName,
+        dataSize: this.getDataSize(data),
+        timestamp: new Date().toISOString(),
+      });
+  }
+
+  /**
+   * Log socket join room
+   */
+  logJoinRoom(socket: Socket, room: string, userId?: string | number): void {
+    const context = this.socketContextMap.get(socket.id);
+    if (context) {
+      context.room = room;
+      context.userId = userId;
+    }
+
+    this.logger
+      .withSocket(socket.id, room)
+      .withUser(userId)
+      .info("Socket joined room", {
+        socketId: socket.id,
+        room,
+        userId,
+        timestamp: new Date().toISOString(),
+      });
+  }
+
+  /**
+   * Log socket leave room
+   */
+  logLeaveRoom(socket: Socket, room: string): void {
+    const context = this.socketContextMap.get(socket.id);
+    if (context && context.room === room) {
+      context.room = undefined;
+    }
+
+    this.logger
+      .withSocket(socket.id, room)
+      .info("Socket left room", {
+        socketId: socket.id,
+        room,
+        timestamp: new Date().toISOString(),
+      });
+  }
+
+  /**
+   * Log socket broadcast
+   */
+  logBroadcast(
+    sourceSocket: Socket,
+    targetRoom: string,
+    eventName: string,
+    data?: any
+  ): void {
+    const context = this.socketContextMap.get(sourceSocket.id);
+
+    this.logger
+      .withSocket(sourceSocket.id, targetRoom)
+      .withCorrelationId(context?.correlationId || uuidv4())
+      .debug("WebSocket broadcast", {
+        sourceSocketId: sourceSocket.id,
+        targetRoom,
+        eventName,
+        dataSize: this.getDataSize(data),
+        timestamp: new Date().toISOString(),
+      });
+  }
+
+  /**
+   * Log socket error
+   */
+  logError(socket: Socket, eventName: string, error: Error): void {
+    const context = this.socketContextMap.get(socket.id);
+
+    this.logger
+      .withSocket(socket.id, context?.room)
+      .withCorrelationId(context?.correlationId || uuidv4())
+      .error(`WebSocket error during ${eventName}`, error, {
+        socketId: socket.id,
+        eventName,
+        errorMessage: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString(),
+      });
+  }
+
+  /**
+   * Log socket performance metric
+   */
+  logPerformance(
+    socket: Socket,
+    operationName: string,
+    durationMs: number,
+    metadata?: any
+  ): void {
+    const context = this.socketContextMap.get(socket.id);
+    const level = durationMs > 1000 ? "warn" : "debug";
+
+    const logData = {
+      socketId: socket.id,
+      operationName,
+      durationMs,
+      ...metadata,
+      timestamp: new Date().toISOString(),
+    };
+
+    if (level === "warn") {
+      this.logger
+        .withSocket(socket.id, context?.room)
+        .withCorrelationId(context?.correlationId || uuidv4())
+        .warn(`Slow WebSocket operation: ${operationName}`, logData);
+    } else {
+      this.logger
+        .withSocket(socket.id, context?.room)
+        .withCorrelationId(context?.correlationId || uuidv4())
+        .debug(`WebSocket operation: ${operationName}`, logData);
+    }
+  }
+
+  /**
+   * Get data size in bytes (for monitoring payload sizes)
+   */
+  private getDataSize(data: any): number {
+    if (!data) return 0;
+    if (typeof data === "string") return data.length;
+    try {
+      return JSON.stringify(data).length;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Set user context for a socket
+   */
+  setUserContext(socket: Socket, userId: string | number): void {
+    const context = this.socketContextMap.get(socket.id);
+    if (context) {
+      context.userId = userId;
+    }
+  }
+
+  /**
+   * Get context for a socket
+   */
+  getContext(socketId: string): SocketLogContext | undefined {
+    return this.socketContextMap.get(socketId);
+  }
+}
+
+/**
+ * Singleton instance for WebSocket logging
+ */
+export const wsLogger = new WebSocketLogger();
+
+/**
+ * Setup WebSocket logging for Socket.io server
+ * Automatically logs all major events
+ */
+export const setupWebSocketLogging = (io: Server): void => {
+  const logger = new StructuredLogger();
+
+  io.on("connection", (socket: Socket) => {
+    wsLogger.logConnection(socket);
+
+    // Log all emitted events (be selective in production to avoid spam)
+    socket.onAny((eventName: string, ...args: any[]) => {
+      if (!eventName.startsWith("_")) {
+        // Skip internal Socket.io events
+        wsLogger.logReceive(socket, eventName, args[0]);
+      }
+    });
+
+    socket.on("disconnect", (reason: string) => {
+      wsLogger.logDisconnection(socket, reason);
+    });
+
+    socket.on("error", (error: Error) => {
+      wsLogger.logError(socket, "socket-error", error);
+    });
+
+    socket.on("connect_error", (error: Error) => {
+      wsLogger.logError(socket, "connect-error", error);
+    });
+  });
+
+  logger.info("WebSocket logging initialized");
+};
+
+/**
+ * Wrap Socket.io event handler with logging
+ */
+export const wrapSocketHandler = (
+  socket: Socket,
+  eventName: string,
+  handler: (...args: any[]) => void | Promise<void>
+): void => {
+  socket.on(eventName, async (...args: any[]) => {
+    const startTime = Date.now();
+    const correlationId = uuidv4();
+
+    try {
+      wsLogger.logReceive(socket, eventName, args[0]);
+
+      await handler(...args);
+
+      const duration = Date.now() - startTime;
+      wsLogger.logPerformance(socket, eventName, duration);
+    } catch (error) {
+      wsLogger.logError(socket, eventName, error instanceof Error ? error : new Error(String(error)));
+    }
+  });
+};
+
+/**
+ * Intercept broadcast operations for logging
+ */
+export const createLoggedBroadcaster = (io: Server) => {
+  return {
+    /**
+     * Broadcast to room with logging
+     */
+    toRoom: (socket: Socket, room: string, eventName: string, data?: any): void => {
+      wsLogger.logBroadcast(socket, room, eventName, data);
+      socket.to(room).emit(eventName, data);
+    },
+
+    /**
+     * Broadcast to all with logging
+     */
+    toAll: (socket: Socket, eventName: string, data?: any): void => {
+      wsLogger.logBroadcast(socket, "all", eventName, data);
+      socket.broadcast.emit(eventName, data);
+    },
+
+    /**
+     * Send to specific socket with logging
+     */
+    toSocket: (socket: Socket, targetSocketId: string, eventName: string, data?: any): void => {
+      wsLogger.logBroadcast(socket, targetSocketId, eventName, data);
+      socket.to(targetSocketId).emit(eventName, data);
+    },
+  };
+};

@@ -111,8 +111,9 @@ export const getUsers = async (req: Request, res: Response) => {
 export const getUserById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const idStr = Array.isArray(id) ? id[0] : (id as string);
 
-    if (!id || isNaN(parseInt(id))) {
+    if (!idStr || isNaN(parseInt(idStr))) {
       return res.status(400).json({ error: 'Invalid user ID' });
     }
 
@@ -121,7 +122,7 @@ export const getUserById = async (req: Request, res: Response) => {
     const loggedInUserRole = loggedInUser?.role?.toLowerCase();
 
     let query = 'SELECT userid, name, email, role, status, createdat FROM users WHERE userid = $1';
-    const params = [parseInt(id)];
+    const params = [parseInt(idStr)];
 
     if (loggedInUserRole === 'lead') {
       query += ' AND (userid = $1 OR created_by = $1)';

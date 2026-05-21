@@ -14,7 +14,6 @@ export class QuestionBankAdminController {
             const results = {
                 imported: 0,
                 duplicates: 0,
-                needsReview: 0,
                 errors: 0
             };
             for (const q of questions) {
@@ -32,13 +31,10 @@ export class QuestionBankAdminController {
                     };
                     const result = await QuestionBankService.insertQuestion(entry);
                     if (result.success) {
-                        if (result.reason === "NEEDS_REVIEW")
-                            results.needsReview++;
-                        else
-                            results.imported++;
+                        results.imported++;
                     }
                     else {
-                        if (result.reason === "EXACT_DUPLICATE" || result.reason === "SEMANTIC_DUPLICATE") {
+                        if (result.reason === "EXACT_DUPLICATE") {
                             results.duplicates++;
                         }
                     }

@@ -1,5 +1,7 @@
 import { AdaptiveEngineService } from '../services/adaptiveEngine.service';
 import { pool } from '../lib/database';
+import { CertificateService } from '../services/certificate.service';
+import { sendInterviewResults } from '../services/email.service';
 // ... (sessionStore stays the same)
 // Use a simple in-memory session store for this demo. 
 // In production, use Redis or a sessions table.

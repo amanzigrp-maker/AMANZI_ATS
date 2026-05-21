@@ -135,10 +135,9 @@ export class CalibrationService {
    * Map IRT difficulty (b parameter) to DifficultyLevel enum
    */
   private static mapDifficultyToLevel(b: number): DifficultyLevel {
-    if (b < -1.5) return DifficultyLevel.BEGINNER;
-    if (b < -0.5) return DifficultyLevel.EASY;
+    if (b < -0.5) return DifficultyLevel.BASIC;
     if (b < 0.5) return DifficultyLevel.MEDIUM;
-    if (b < 1.5) return DifficultyLevel.HARD;
+    if (b < 1.5) return DifficultyLevel.ADVANCED;
     return DifficultyLevel.EXPERT;
   }
 }

@@ -548,7 +548,8 @@ router.put('/reset-password/:id', async (req: AuthenticatedRequest, res) => {
     return res.status(401).json({ message: 'Authentication required.' });
   }
 
-  if (!await isAuthorizedToManage(req.user, id)) {
+  const idStr = Array.isArray(id) ? id[0] : (id as string);
+  if (!await isAuthorizedToManage(req.user, idStr)) {
     return res.status(403).json({ message: 'Access denied. You can only manage users you created.' });
   }
 
@@ -562,7 +563,7 @@ router.put('/reset-password/:id', async (req: AuthenticatedRequest, res) => {
     }
 
     const { newPassword } = validation.data;
-    const targetUserId = parseInt(id, 10);
+    const targetUserId = parseInt(Array.isArray(id) ? id[0] : (id as string), 10);
 
     if (isNaN(targetUserId)) {
       return res.status(400).json({ message: 'Invalid user ID.' });

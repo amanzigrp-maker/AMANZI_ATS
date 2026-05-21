@@ -207,11 +207,12 @@ export const markNotificationAsRead = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'User not authenticated' });
     }
 
-    if (!id || isNaN(parseInt(id))) {
+    const idStr = Array.isArray(id) ? id[0] : (id as string);
+    if (!idStr || isNaN(parseInt(idStr))) {
       return res.status(400).json({ error: 'Invalid notification ID' });
     }
 
-    await notificationService.markAsRead(parseInt(id), userId);
+    await notificationService.markAsRead(parseInt(idStr), userId);
 
     res.json({
       success: true,

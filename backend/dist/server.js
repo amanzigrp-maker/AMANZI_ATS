@@ -1,18 +1,13 @@
-// --- Reload triggered ---
 // -----------------------------------------------------------------------------
 // ENV SETUP (MUST BE FIRST)
 // -----------------------------------------------------------------------------
-import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import path from "path";
+import { config, isProduction } from "./src/config/env.config";
 import { installConsoleFilters } from "./src/lib/logging";
+installConsoleFilters();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-dotenv.config({
-    path: path.join(__dirname, "..", ".env"),
-    override: true
-});
-installConsoleFilters();
 // -----------------------------------------------------------------------------
 // CORE IMPORTS
 // -----------------------------------------------------------------------------
@@ -26,6 +21,8 @@ import { Server } from "socket.io";
 import { testConnection, pool } from "./src/lib/database";
 import { aiWorkerService } from "./src/services/ai-worker.service";
 import { setupSocketHandlers } from "./src/services/proctoring.service";
+import { SessionJobsService } from "./src/modules/interview-session/session-jobs.service";
+import { secureHeaders } from "./src/middleware/security.middleware";
 // -----------------------------------------------------------------------------
 // ROUTES IMPORTS
 // -----------------------------------------------------------------------------
@@ -48,6 +45,7 @@ import assessmentRoutes from "./src/routes/assessment.routes";
 import certificateRoutes from "./src/routes/certificate.routes";
 import sessionRoutes from "./src/routes/session.routes";
 import { ExamResumptionModule } from "./src/modules/exam-resumption/exam-resumption.module";
+import enterpriseSecurityRoutes from "./src/modules/enterprise-security/enterprise-security.routes";
 // -----------------------------------------------------------------------------
 // APP SETUP
 // -----------------------------------------------------------------------------
@@ -55,15 +53,16 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
     cors: {
-        origin: "*",
+        origin: config.FRONTEND_URL,
         methods: ["GET", "POST"]
     }
 });
-const PORT = Number(process.env.PORT) || 3003;
+const PORT = config.PORT;
 // -----------------------------------------------------------------------------
 // MIDDLEWARE
 // -----------------------------------------------------------------------------
-app.use(cors());
+app.use(cors({ origin: config.FRONTEND_URL }));
+app.use(secureHeaders);
 app.get("/favicon.ico", (_, res) => res.sendStatus(204));
 app.get("/api/health", (_, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
 app.use(express.json({ limit: "100mb" }));
@@ -89,6 +88,7 @@ app.use("/api/interview/adaptive", adaptiveInterviewRoutes);
 app.use("/api/assessments", assessmentRoutes);
 app.use("/api/certificates", certificateRoutes);
 app.use("/api/session", sessionRoutes);
+app.use("/api/enterprise-security", enterpriseSecurityRoutes);
 // Setup Socket.io Handlers
 setupSocketHandlers(io);
 // -----------------------------------------------------------------------------
@@ -99,7 +99,7 @@ app.use((err, _req, res, _next) => {
     console.error(err);
     console.error("----- END ERROR -----");
     res.status(500).json({
-        message: process.env.NODE_ENV === "production"
+        message: isProduction
             ? "Internal server error"
             : err.message
     });
@@ -107,7 +107,7 @@ app.use((err, _req, res, _next) => {
 // -----------------------------------------------------------------------------
 // PRODUCTION STATIC FILES
 // -----------------------------------------------------------------------------
-if (process.env.NODE_ENV === "production") {
+if (isProduction) {
     app.use(express.static(path.join(__dirname, "dist")));
     app.get("*", (req, res) => {
         if (!req.path.startsWith("/api")) {
@@ -151,9 +151,10 @@ const bootstrapServer = async () => {
         console.log("✅ Database connection verified.");
         // Start background workers
         ExamResumptionModule.init();
-        httpServer.listen(PORT, "0.0.0.0", () => {
+        SessionJobsService.start();
+        httpServer.listen(PORT, config.HOST, () => {
             console.log(`📡 Server running on port ${PORT}`);
-            console.log(`🌍 Accessible at http://<YOUR-EC2-IP>:${PORT}`);
+            console.log(`🌍 Accessible at http://${config.HOST}:${PORT}`);
             console.log("⚡ ATS Monolithic Application ready with Socket.io!");
         });
         console.log("🤖 Initializing AI Worker in background...");

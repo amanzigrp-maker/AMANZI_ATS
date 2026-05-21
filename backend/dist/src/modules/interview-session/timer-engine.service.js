@@ -5,6 +5,18 @@ export class TimerEngineService {
     static TIMER_PREFIX = "timer:";
     static HEARTBEAT_INTERVAL_SEC = 30;
     static GRACE_PERIOD_SEC = 300; // 5 minutes
+    static calculateRemainingSeconds(expiresAtValue, fallbackRemaining, asOf) {
+        const fallback = Number(fallbackRemaining || 0);
+        if (!expiresAtValue)
+            return Math.max(0, fallback);
+        const expiresAt = new Date(expiresAtValue);
+        const calculated = Math.floor((expiresAt.getTime() - asOf.getTime()) / 1000);
+        if (!Number.isFinite(calculated))
+            return Math.max(0, fallback);
+        if (calculated <= 0 && fallback > 0)
+            return fallback;
+        return Math.max(0, calculated);
+    }
     /**
      * Initializes a server-authoritative timer for a session
      */
@@ -34,58 +46,67 @@ export class TimerEngineService {
      * Records a heartbeat and validates timing
      */
     static async processHeartbeat(sessionId, ip) {
-        // 1. Get current state from Redis or DB
-        let state = await this.getFromRedis(sessionId);
-        if (!state) {
-            state = await this.restoreFromDB(sessionId);
+        const client = await pool.connect();
+        try {
+            await client.query("BEGIN");
+            const result = await client.query(`
+                SELECT expires_at, state, remaining_seconds 
+                FROM interview_sessions WHERE id = $1 FOR UPDATE
+            `, [sessionId]);
+            if (result.rows.length === 0)
+                throw new EnterpriseError("Session timer not found", "TIMER_NOT_FOUND", 404);
+            const session = result.rows[0];
+            const now = new Date();
+            const newRemaining = this.calculateRemainingSeconds(session.expires_at, session.remaining_seconds, now);
+            // 4. Update DB
+            await client.query(`
+                UPDATE interview_sessions 
+                SET remaining_seconds = $1, last_activity_at = $2, state = $3
+                WHERE id = $4
+            `, [newRemaining, now, SessionState.ACTIVE, sessionId]);
+            // Log heartbeat
+            await client.query(`
+                INSERT INTO interview_heartbeat_logs (session_id, latency_ms, ip_address)
+                VALUES ($1, $2, $3)
+            `, [sessionId, 0, ip]);
+            await client.query("COMMIT");
+            // Sync to Redis (optional but good for cache)
+            await this.restoreFromDB(sessionId);
+            return { remainingSeconds: newRemaining, status: 'ACTIVE' };
         }
-        if (!state)
-            throw new EnterpriseError("Session timer not found", "TIMER_NOT_FOUND", 404);
-        const now = new Date();
-        // 2. Calculate actual remaining time
-        // If ACTIVE, remaining = expiresAt - now + totalPaused (or similar)
-        // More robust: remaining = session.remaining_seconds (updated on last heartbeat/pause) - (now - lastActivity)
-        const lastActivity = new Date(state.lastHeartbeat);
-        const elapsedSinceLastHeartbeat = Math.floor((now.getTime() - lastActivity.getTime()) / 1000);
-        let newRemaining = state.remainingSeconds - elapsedSinceLastHeartbeat;
-        if (newRemaining < 0)
-            newRemaining = 0;
-        // 3. Update state
-        state.remainingSeconds = newRemaining;
-        state.lastHeartbeat = now;
-        state.status = 'ACTIVE';
-        // 4. Update DB & Redis
-        await pool.query(`
-            UPDATE interview_sessions 
-            SET remaining_seconds = $1, last_activity_at = $2, state = $3
-            WHERE id = $4
-        `, [newRemaining, now, SessionState.ACTIVE, sessionId]);
-        // Log heartbeat
-        await pool.query(`
-            INSERT INTO interview_heartbeat_logs (session_id, latency_ms, ip_address)
-            VALUES ($1, $2, $3)
-        `, [sessionId, 0, ip]); // Latency could be passed from frontend
-        await this.syncToRedis(state);
-        return { remainingSeconds: newRemaining, status: state.status };
+        catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+        }
+        finally {
+            client.release();
+        }
     }
     /**
      * Pauses the timer (e.g., on disconnect or explicit pause)
      */
-    static async pauseTimer(sessionId, reason) {
+    static async pauseTimer(sessionId, reason, effectivePausedAt) {
         const now = new Date();
+        const pausedAt = effectivePausedAt || now;
         const client = await pool.connect();
         try {
             await client.query("BEGIN");
-            const result = await client.query("SELECT remaining_seconds, state FROM interview_sessions WHERE id = $1 FOR UPDATE", [sessionId]);
-            if (result.rows.length === 0)
+            const result = await client.query("SELECT remaining_seconds, state, expires_at FROM interview_sessions WHERE id = $1 FOR UPDATE", [sessionId]);
+            if (result.rows.length === 0) {
+                await client.query("COMMIT");
                 return;
-            if (result.rows[0].state === SessionState.PAUSED)
+            }
+            if (result.rows[0].state === SessionState.PAUSED) {
+                await client.query("COMMIT");
                 return;
+            }
+            // Preserve the time at the moment the candidate disconnected.
+            const remainingSeconds = this.calculateRemainingSeconds(result.rows[0].expires_at, result.rows[0].remaining_seconds, pausedAt);
             await client.query(`
                 UPDATE interview_sessions 
-                SET state = $1, paused_at = $2, last_activity_at = $3
-                WHERE id = $4
-            `, [SessionState.PAUSED, now, now, sessionId]);
+                SET state = $1, paused_at = $2, last_activity_at = $3, remaining_seconds = $4
+                WHERE id = $5
+            `, [SessionState.PAUSED, pausedAt, now, remainingSeconds, sessionId]);
             await client.query(`
                 INSERT INTO session_state_audit (session_id, from_state, to_state, reason, triggered_by)
                 VALUES ($1, $2, $3, $4, 'system')
@@ -116,22 +137,31 @@ export class TimerEngineService {
             if (result.rows.length === 0)
                 throw new Error("Session not found");
             const session = result.rows[0];
-            if (session.state !== SessionState.PAUSED)
-                return session.remaining_seconds;
+            if (session.state !== SessionState.PAUSED) {
+                // Even if not paused (e.g., just a page refresh), we should return the real remaining seconds
+                const realRemaining = this.calculateRemainingSeconds(session.expires_at, session.remaining_seconds, now);
+                const refreshedExpiresAt = realRemaining > 0 ? new Date(now.getTime() + realRemaining * 1000) : session.expires_at;
+                // Update DB to reflect this new authoritative value
+                await client.query(`UPDATE interview_sessions SET remaining_seconds = $1, expires_at = $2, last_activity_at = $3 WHERE id = $4`, [realRemaining, refreshedExpiresAt, now, sessionId]);
+                await client.query("COMMIT");
+                await this.restoreFromDB(sessionId);
+                return realRemaining;
+            }
             const pausedAt = new Date(session.paused_at);
             const pauseDuration = now.getTime() - pausedAt.getTime();
-            const totalPaused = BigInt(session.total_paused_duration_ms) + BigInt(pauseDuration);
-            // Shift expires_at by the pause duration
-            const newExpiresAt = new Date(new Date(session.expires_at).getTime() + pauseDuration);
+            const totalPaused = BigInt(session.total_paused_duration_ms || 0) + BigInt(pauseDuration);
+            // On resume, remaining_seconds is what it was when paused
+            const remainingSeconds = Math.max(0, session.remaining_seconds);
+            const newExpiresAt = remainingSeconds > 0 ? new Date(now.getTime() + remainingSeconds * 1000) : now;
             await client.query(`
                 UPDATE interview_sessions 
-                SET state = $1, resumed_at = $2, total_paused_duration_ms = $3, expires_at = $4, last_activity_at = $5
-                WHERE id = $6
-            `, [SessionState.ACTIVE, now, totalPaused, newExpiresAt, now, sessionId]);
+                SET state = $1, resumed_at = $2, total_paused_duration_ms = $3, expires_at = $4, last_activity_at = $5, remaining_seconds = $6
+                WHERE id = $7
+            `, [SessionState.ACTIVE, now, totalPaused, newExpiresAt, now, remainingSeconds, sessionId]);
             await client.query("COMMIT");
             // Re-sync to Redis
             await this.restoreFromDB(sessionId);
-            return session.remaining_seconds;
+            return remainingSeconds;
         }
         catch (error) {
             await client.query("ROLLBACK");

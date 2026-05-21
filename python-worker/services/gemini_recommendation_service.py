@@ -112,7 +112,7 @@ class GeminiRecommendationService:
                 "designation": cand.get('current_designation', ''),
                 "experience_years": cand.get('total_experience_years', 0),
                 "skills": cand.get('skills', [])[:10],  # Top 10 skills
-                "embedding_score": round(cand.get('final_score', 0) * 100, 1)
+                "profile_score": round(cand.get('final_score', 0) * 100, 1)
             }
             candidate_summaries.append(summary)
         
@@ -124,13 +124,13 @@ Description: {job_description[:500]}
 Required Skills: {', '.join(required_skills[:15])}
 Experience Level: {experience_level}
 
-CANDIDATES (with AI embedding similarity scores):
+CANDIDATES (with initial profile match scores):
 {json.dumps(candidate_summaries, indent=2)}
 
 TASK:
 1. Analyze each candidate's fit for this role
 2. Consider: skills match, experience level, role relevance
-3. The embedding_score shows semantic similarity (0-100)
+3. The profile_score shows initial matching based on experience and skills (0-100)
 4. Rank the top {top_k} candidates
 5. Provide a brief reason for each ranking
 
@@ -147,7 +147,7 @@ Return ONLY valid JSON in this format:
   ]
 }}
 
-Focus on practical fit, not just keyword matching. Consider the embedding scores as a baseline."""
+Focus on practical fit, not just keyword matching. Consider the profile scores as a baseline."""
         
         return prompt
     
@@ -239,14 +239,13 @@ Return ONLY valid JSON:
                 if 0 <= candidate_id < len(original_candidates):
                     candidate = original_candidates[candidate_id].copy()
                     
-                    # Add Gemini enhancements
+                    # Combine scores (70% Gemini, 30% profile)
                     gemini_score = rank.get('gemini_score', 0) / 100.0
-                    embedding_score = candidate.get('final_score', 0)
+                    profile_score = candidate.get('final_score', 0)
                     
-                    # Combine scores (70% Gemini, 30% embeddings)
-                    candidate['final_score'] = (0.7 * gemini_score) + (0.3 * embedding_score)
+                    candidate['final_score'] = (0.7 * gemini_score) + (0.3 * (profile_score / 100.0 if profile_score > 1 else profile_score))
                     candidate['gemini_score'] = gemini_score
-                    candidate['embedding_score'] = embedding_score
+                    candidate['profile_score'] = profile_score
                     candidate['match_reason'] = rank.get('reason', '')
                     candidate['strengths'] = rank.get('strengths', [])
                     candidate['concerns'] = rank.get('concerns', [])

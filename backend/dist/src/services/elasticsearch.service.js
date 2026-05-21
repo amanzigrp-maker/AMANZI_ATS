@@ -3,6 +3,7 @@
  * Advanced full-text search for resumes, candidates, and jobs
  */
 import { Client } from '@elastic/elasticsearch';
+import { config } from '../config/env.config';
 class ElasticsearchService {
     client = null;
     enabled;
@@ -10,10 +11,10 @@ class ElasticsearchService {
     indexJobs;
     indexCandidates;
     constructor() {
-        this.enabled = process.env.ELASTICSEARCH_ENABLED === 'true';
-        this.indexResumes = process.env.ELASTICSEARCH_INDEX_RESUMES || 'ats_resumes';
-        this.indexJobs = process.env.ELASTICSEARCH_INDEX_JOBS || 'ats_jobs';
-        this.indexCandidates = process.env.ELASTICSEARCH_INDEX_CANDIDATES || 'ats_candidates';
+        this.enabled = config.ELASTICSEARCH_ENABLED;
+        this.indexResumes = config.ELASTICSEARCH_INDEX_RESUMES;
+        this.indexJobs = config.ELASTICSEARCH_INDEX_JOBS;
+        this.indexCandidates = config.ELASTICSEARCH_INDEX_CANDIDATES;
         if (this.enabled) {
             this.initialize();
         }
@@ -21,7 +22,7 @@ class ElasticsearchService {
     async initialize() {
         try {
             this.client = new Client({
-                node: process.env.ELASTICSEARCH_URL || 'http://localhost:9200',
+                node: config.ELASTICSEARCH_URL,
             });
             await this.client.ping();
             // Create indices if they don't exist

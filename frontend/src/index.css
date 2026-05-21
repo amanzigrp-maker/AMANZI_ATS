@@ -124,4 +124,8 @@ All colors MUST be HSL.
     -ms-overflow-style: none;  /* IE and Edge */
     scrollbar-width: none;  /* Firefox */
   }
+
+  .mirror {
+    transform: scaleX(-1);
+  }
 }

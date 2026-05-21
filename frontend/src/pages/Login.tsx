@@ -204,6 +204,10 @@ export default function Login() {
         duration: 2000,
       });
 
+      if ((window as any).addStartupLog) {
+        (window as any).addStartupLog("Login success");
+      }
+
       setTimeout(() => navigate("/dashboard"), 500);
 
     } catch (error) {

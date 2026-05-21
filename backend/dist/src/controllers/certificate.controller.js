@@ -33,7 +33,7 @@ export const generateCertificate = async (req, res) => {
             analytics: {} // Optional: could fetch detailed analytics here
         });
         // 4. Save to database
-        await CertificateService.saveCertificate(Number(sessionId), {
+        await CertificateService.saveCertificate(String(sessionId), {
             certificateId,
             name: candidateName || 'Candidate',
             test: testName || 'Technical Assessment',
@@ -44,6 +44,7 @@ export const generateCertificate = async (req, res) => {
         await sendInterviewResults(candidateEmail, candidateName, score, 100, // Total
         testName, null, // Time taken
         {}, // Breakdown
+        undefined, // report
         certificateBuffer, certificateId);
         res.json({
             success: true,
@@ -66,7 +67,8 @@ export const generateCertificate = async (req, res) => {
 export const downloadCertificate = async (req, res) => {
     try {
         const { id } = req.params;
-        const certData = await CertificateService.getCertificate(id);
+        const certIdStr = Array.isArray(id) ? id[0] : id;
+        const certData = await CertificateService.getCertificate(certIdStr);
         if (!certData) {
             return res.status(404).send('Certificate not found');
         }
@@ -94,7 +96,8 @@ export const downloadCertificate = async (req, res) => {
 export const verifyCertificate = async (req, res) => {
     try {
         const { id } = req.params;
-        const certificate = await CertificateService.getCertificate(id);
+        const certIdStr = Array.isArray(id) ? id[0] : id;
+        const certificate = await CertificateService.getCertificate(certIdStr);
         if (!certificate) {
             return res.status(404).json({ valid: false, message: 'Certificate not found' });
         }

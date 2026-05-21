@@ -1,5 +1,6 @@
 import { pool } from "../lib/database";
 import { logDebug, logInfo } from "../lib/logging";
+import { enterpriseSecurityService } from "../modules/enterprise-security/enterprise-security.service";
 const candidateSocketsByInterview = new Map();
 const interviewByCandidateSocket = new Map();
 const saveProctorEvent = async (data) => {
@@ -25,7 +26,9 @@ export const setupSocketHandlers = (io) => {
                     if (!io.sockets.sockets.has(socketId))
                         activeSockets.delete(socketId);
                 });
+                let shouldTrackAsActiveCandidate = true;
                 if (existingSockets.length > 0) {
+                    shouldTrackAsActiveCandidate = false;
                     const timestamp = new Date().toISOString();
                     const detail = "This examination link is already active in another browser tab or session.";
                     const event = {
@@ -52,10 +55,12 @@ export const setupSocketHandlers = (io) => {
                     });
                     await saveProctorEvent(event);
                 }
-                activeSockets.add(socket.id);
-                candidateSocketsByInterview.set(data.interviewId, activeSockets);
-                interviewByCandidateSocket.set(socket.id, data.interviewId);
-                socket.to(room).emit("candidate-status", { socketId: socket.id, status: "online" });
+                if (shouldTrackAsActiveCandidate) {
+                    activeSockets.add(socket.id);
+                    candidateSocketsByInterview.set(data.interviewId, activeSockets);
+                    interviewByCandidateSocket.set(socket.id, data.interviewId);
+                    socket.to(room).emit("candidate-status", { socketId: socket.id, status: "online" });
+                }
             }
         });
         socket.on("signal", (data) => {
@@ -73,6 +78,15 @@ export const setupSocketHandlers = (io) => {
             logDebug(`Proctor Event: ${data.type} for interview ${data.interviewId}`);
             socket.to(room).emit("proctor-event-admin", data);
             await saveProctorEvent(data);
+            await enterpriseSecurityService.recordEvent({
+                eventType: data.type === "violation" ? "proctoring.violation" : "proctoring.warning",
+                severity: data.type === "violation" ? "high" : "medium",
+                interviewId: data.interviewId,
+                sessionId: data.interviewId,
+                candidateId: data.candidateId,
+                source: "browser",
+                payload: { detail: data.detail, timestamp: data.timestamp },
+            });
         });
         socket.on("toggle-live-monitoring", (data) => {
             const room = `interview-${data.interviewId}`;
@@ -95,4 +109,55 @@ export const setupSocketHandlers = (io) => {
 export const getProctoringLogs = async (interviewId) => {
     const result = await pool.query("SELECT * FROM proctoring_logs WHERE interview_id = $1 ORDER BY timestamp DESC", [interviewId]);
     return result.rows;
+};
+export const calculateSuspicionScore = async (interviewId) => {
+    const logs = await getProctoringLogs(interviewId);
+    let score = 0;
+    const breakdown = {};
+    logs.forEach((log) => {
+        const detail = String(log.detail || '').toLowerCase();
+        const type = String(log.type || '').toLowerCase();
+        const title = String(log.type || '');
+        let points = 0;
+        if (detail.includes('fullscreen exited')) {
+            points = 25;
+        }
+        else if (detail.includes('tab switch') || detail.includes('switched tabs')) {
+            points = 30;
+        }
+        else if (detail.includes('devtools') || detail.includes('developer tools') || detail.includes('debugger')) {
+            points = 40;
+        }
+        else if (detail.includes('keyboard violation') || detail.includes('shortcut')) {
+            points = 15;
+        }
+        else if (detail.includes('right-click') || detail.includes('context menu')) {
+            points = 5;
+        }
+        else if (detail.includes('audio') || detail.includes('noise')) {
+            points = 10;
+        }
+        else if (detail.includes('multiple faces')) {
+            points = 25;
+        }
+        else if (detail.includes('no face')) {
+            points = 15;
+        }
+        else if (detail.includes('eye') || detail.includes('gaze') || detail.includes('head turn') || detail.includes('looking away')) {
+            points = 15;
+        }
+        if (points > 0) {
+            breakdown[title] = (breakdown[title] || 0) + points;
+            score += points;
+        }
+    });
+    return {
+        score: Math.min(100, score),
+        breakdown,
+        timeline: logs.map((log) => ({
+            type: log.type,
+            detail: log.detail,
+            timestamp: log.timestamp
+        }))
+    };
 };

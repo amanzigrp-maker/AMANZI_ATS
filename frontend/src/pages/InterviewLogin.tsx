@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { 
@@ -17,7 +17,8 @@ import {
   Lock, 
   Mail, 
   Loader2, 
-  AlertCircle 
+  AlertCircle,
+  ShieldAlert
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -30,6 +31,25 @@ export default function InterviewLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  // Detect if we are inside the Electron Secure Browser
+  const isElectron = useMemo(() => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    return userAgent.indexOf('electron') > -1 || userAgent.indexOf('amanzi-secure-browser') > -1;
+  }, []);
+
+  const secureProtocolUrl = useMemo(() => {
+    const path = window.location.pathname.replace(/^\/+/, '');
+    const search = window.location.search;
+    return `amanzi-secure-browser://${path}${search}`;
+  }, []);
+
+  useEffect(() => {
+    // Attempt automatic redirect if not in Electron (many browsers will prompt the user)
+    if (!isElectron) {
+      window.location.href = secureProtocolUrl;
+    }
+  }, [isElectron, secureProtocolUrl]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +71,9 @@ export default function InterviewLogin() {
         localStorage.setItem("interviewUser", JSON.stringify(data.data));
         
         toast.success("Login successful! Welcome to your interview.");
+        if ((window as any).addStartupLog) {
+          (window as any).addStartupLog("Login success");
+        }
         const nextParams = new URLSearchParams();
         if (candidateId) nextParams.set("candidateId", candidateId);
         navigate(`/interview${nextParams.toString() ? `?${nextParams.toString()}` : ""}`);
@@ -88,8 +111,40 @@ export default function InterviewLogin() {
           <p className="text-slate-400 mt-2">Secure Interview Portal</p>
         </div>
 
-        <Card className="bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl rounded-2xl overflow-hidden">
-          <CardHeader>
+        {!isElectron ? (
+          <Card className="bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl rounded-2xl overflow-hidden">
+            <CardHeader className="text-center">
+              <div className="mx-auto w-12 h-12 bg-amber-500/20 rounded-full flex items-center justify-center mb-4 border border-amber-500/30">
+                <ShieldAlert className="w-6 h-6 text-amber-500" />
+              </div>
+              <CardTitle className="text-white text-xl">Secure Browser Required</CardTitle>
+              <CardDescription className="text-slate-400 mt-2">
+                This assessment can only be accessed using the Amanzi Secure Browser to ensure exam integrity.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-slate-300 text-center px-4">
+                We've attempted to automatically open the Secure Browser. If you do not see a prompt, click the button below.
+              </p>
+            </CardContent>
+            <CardFooter className="flex flex-col gap-4">
+              <Button 
+                asChild
+                className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.2)] transition-all active:scale-[0.98] cursor-pointer"
+              >
+                <a href={secureProtocolUrl}>
+                  Launch Amanzi Secure Browser
+                </a>
+              </Button>
+              <div className="flex items-center gap-2 justify-center">
+                <Lock className="w-3 h-3 text-emerald-500 opacity-60" />
+                <span className="text-[10px] text-slate-500 uppercase font-bold">Encrypted Link</span>
+              </div>
+            </CardFooter>
+          </Card>
+        ) : (
+          <Card className="bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl rounded-2xl overflow-hidden">
+            <CardHeader>
             <CardTitle className="text-white text-xl">Candidate Login</CardTitle>
             <CardDescription className="text-slate-500">
               Enter the temporary credentials sent to your email.
@@ -155,6 +210,7 @@ export default function InterviewLogin() {
             </CardFooter>
           </form>
         </Card>
+        )}
 
         <p className="text-center text-slate-600 text-[11px] mt-8 uppercase tracking-[0.2em] font-medium">
           Protected by Amanzi Security Engine

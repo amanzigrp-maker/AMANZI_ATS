@@ -1,4 +1,6 @@
 import { pool } from '../lib/database';
+import { QuestionBankService } from '../modules/question-bank/question-bank.service';
+import { DifficultyLevel, CognitiveLevel } from '../common/types';
 /**
  * Service to handle maintenance and calibration of the IRT Item Bank
  */
@@ -41,10 +43,32 @@ export class CalibrationService {
         console.log(`✅ Recalibrated ${result.rows.length} questions`);
     }
     /**
-     * Inject an AI-generated question into the bank
+     * Inject an AI-generated question into the bank with duplicate detection
      */
     static async injectAIQuestion(data) {
-        // 1. Ensure System Assessment & Set exist
+        // 1. Check for exact duplicates in centralized question bank
+        const duplicateCheck = await QuestionBankService.insertQuestion({
+            textContent: data.text,
+            skillCategory: data.skill,
+            subtopic: null,
+            difficultyLevel: this.mapDifficultyToLevel(data.aiEstimateDifficulty),
+            experienceLevelYears: 0,
+            cognitiveLevel: CognitiveLevel.APPLY,
+            estimatedTimeSeconds: 60,
+            textHash: "", // Generated in service
+            metadata: {
+                source: 'AI',
+                aiEstimateDifficulty: data.aiEstimateDifficulty,
+                correctOption: data.correct,
+                options: data.options
+            }
+        });
+        // If it's an exact duplicate, return early without inserting
+        if (!duplicateCheck.success) {
+            console.log(`⚠️  Duplicate question detected and rejected: "${data.text.substring(0, 50)}..."`);
+            return null;
+        }
+        // 2. Ensure System Assessment & Set exist
         let assessmentId;
         let setId;
         const assessResult = await pool.query("SELECT assessment_id FROM assessments WHERE title = 'System AI Adaptive Bank'");
@@ -63,15 +87,27 @@ export class CalibrationService {
         else {
             setId = setResult.rows[0].question_set_id;
         }
-        // 2. Insert Question
+        // 3. Insert Question
         const qResult = await pool.query(`INSERT INTO questions 
        (question_set_id, question_text, correct_option, skill_tag, difficulty_b, source) 
        VALUES ($1, $2, $3, $4, $5, 'AI') RETURNING *`, [setId, data.text, data.correct, data.skill, data.aiEstimateDifficulty]);
         const questionId = qResult.rows[0].question_id;
-        // 3. Insert Options
+        // 4. Insert Options
         for (const [key, text] of Object.entries(data.options)) {
             await pool.query("INSERT INTO question_options (question_id, option_key, option_text) VALUES ($1, $2, $3)", [questionId, key, text]);
         }
         return qResult;
+    }
+    /**
+     * Map IRT difficulty (b parameter) to DifficultyLevel enum
+     */
+    static mapDifficultyToLevel(b) {
+        if (b < -0.5)
+            return DifficultyLevel.BASIC;
+        if (b < 0.5)
+            return DifficultyLevel.MEDIUM;
+        if (b < 1.5)
+            return DifficultyLevel.ADVANCED;
+        return DifficultyLevel.EXPERT;
     }
 }

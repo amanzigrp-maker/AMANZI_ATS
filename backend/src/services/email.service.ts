@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { maskEmail, maskSecret, shouldShowSensitiveDevLogs } from '../lib/logging';
+import { config } from '../config/env.config';
 
 /**
  * Email service for sending emails using nodemailer
@@ -8,20 +9,20 @@ import { maskEmail, maskSecret, shouldShowSensitiveDevLogs } from '../lib/loggin
 // Create reusable transporter object using SMTP transport
 const createTransporter = () => {
   // Check if email is configured
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD ||
-    process.env.EMAIL_USER === 'your-email@gmail.com' ||
-    process.env.EMAIL_PASSWORD === 'your-app-password') {
+  if (!config.EMAIL_USER || !config.EMAIL_PASSWORD ||
+    config.EMAIL_USER === 'your-email@gmail.com' ||
+    config.EMAIL_PASSWORD === 'your-app-password') {
     // Email not configured - using development mode
     return null;
   }
 
   return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.EMAIL_PORT || '587'),
-    secure: process.env.EMAIL_SECURE === 'true', // true for 465
+    host: config.EMAIL_HOST,
+    port: config.EMAIL_PORT,
+    secure: config.EMAIL_SECURE, // true for 465
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD,
+      user: config.EMAIL_USER,
+      pass: config.EMAIL_PASSWORD,
     },
     tls: {
       rejectUnauthorized: false,   // <---- FIXES "self-signed certificate" error
@@ -56,7 +57,7 @@ export const sendPasswordResetOTP = async (to: string, otp: string, userName?: s
     }
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
+      from: `"${config.EMAIL_FROM_NAME}" <${config.EMAIL_USER}>`,
       to: to,
       subject: 'Password Reset OTP - Amanzi',
       html: `
@@ -165,7 +166,7 @@ export const sendPasswordChangeConfirmation = async (to: string, userName?: stri
     }
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
+      from: `"${config.EMAIL_FROM_NAME}" <${config.EMAIL_USER}>`,
       to: to,
       subject: 'Password Changed Successfully - Amanzi',
       html: `
@@ -279,7 +280,7 @@ export const sendInterviewLink = async (
     }
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
+      from: `"${config.EMAIL_FROM_NAME}" <${config.EMAIL_USER}>`,
       to: to,
       subject: 'Interview Invitation - Amanzi ATS',
       html: `
@@ -443,7 +444,7 @@ export const sendInterviewResults = async (
     }
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
+      from: `"${config.EMAIL_FROM_NAME}" <${config.EMAIL_USER}>`,
       to: to,
       subject: `Assessment Results — ${performanceLabel} Performance | Amanzi`,
       html: `
@@ -565,7 +566,7 @@ export const sendSelectionEmail = async (to: string, name: string, role?: string
     }
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
+      from: `"${config.EMAIL_FROM_NAME}" <${config.EMAIL_USER}>`,
       to: to,
       subject: `Congratulations! You've been selected | Amanzi`,
       html: `
@@ -626,7 +627,7 @@ export const sendRejectionEmail = async (to: string, name: string, role?: string
     }
 
     const mailOptions = {
-      from: `"${process.env.EMAIL_FROM_NAME || 'Amanzi'}" <${process.env.EMAIL_USER}>`,
+      from: `"${config.EMAIL_FROM_NAME}" <${config.EMAIL_USER}>`,
       to,
       subject: `Interview Update | Amanzi`,
       html: `

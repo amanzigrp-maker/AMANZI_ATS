@@ -15,6 +15,7 @@ import fsSync from 'fs';
 import { aiWorkerService } from '../services/ai-worker.service';
 import elasticsearchService from '../services/elasticsearch.service';
 import notificationService from '../services/notification.service';
+import { trackFailure } from '../config/sentry.config';
 
 /* -------------------------------------------------------------------------- */
 /*                               MULTER CONFIG                                 */
@@ -77,11 +78,11 @@ export const uploadResume = async (req: Request, res: Response) => {
   let resumeId: number | null = null;
 
   try {
-    if (!req.file) {
+    if (!(req as any).file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { originalname, path: filePath, size, mimetype } = req.file;
+    const { originalname, path: filePath, size, mimetype } = (req as any).file;
     const userId = (req as any).user?.userid ?? (req as any).user?.id ?? null;
 
     /* ---------------- JOB ID (REQUIRED, FK -> jobs) ---------------- */
@@ -286,10 +287,11 @@ export const uploadResume = async (req: Request, res: Response) => {
       await client.query('ROLLBACK');
     } catch { }
 
+    trackFailure("ResumeUpload", err);
     console.error('❌ Resume upload error:', err);
 
-    if (req.file && fsSync.existsSync(req.file.path)) {
-      await fs.unlink(req.file.path).catch(() => { });
+    if ((req as any).file && fsSync.existsSync((req as any).file.path)) {
+      await fs.unlink((req as any).file.path).catch(() => { });
     }
 
     return res.status(500).json({
@@ -490,7 +492,7 @@ export const uploadModifiedResume = async (req: AuthenticatedRequest, res: Respo
   let resumeId: number | null = null;
 
   try {
-    if (!req.file) {
+    if (!(req as any).file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
@@ -499,7 +501,7 @@ export const uploadModifiedResume = async (req: AuthenticatedRequest, res: Respo
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    const { originalname, path: filePath, size, mimetype } = req.file as any;
+    const { originalname, path: filePath, size, mimetype } = (req as any).file as any;
     const userId = req.user?.id;
 
     const rawJobId = Number(req.body.job_id);
@@ -622,8 +624,8 @@ export const uploadModifiedResume = async (req: AuthenticatedRequest, res: Respo
 
     console.error('❌ Modified resume upload error:', err);
 
-    if (req.file && fsSync.existsSync(req.file.path)) {
-      await fs.unlink(req.file.path).catch(() => { });
+    if ((req as any).file && fsSync.existsSync((req as any).file.path)) {
+      await fs.unlink((req as any).file.path).catch(() => { });
     }
 
     return res.status(500).json({

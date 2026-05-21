@@ -37,7 +37,7 @@ export class RecoveryEngineService {
                 throw new EnterpriseError("Security violation: Resumption from an unauthorized device detected", "DEVICE_MISMATCH", 403);
             }
             // 4. Timer Validation
-            if (session.state === SessionState.ACTIVE || session.state === SessionState.PAUSED) {
+            if (session.state === SessionState.ACTIVE) {
                 const now = new Date();
                 if (session.expires_at && now > new Date(session.expires_at)) {
                     await client.query("UPDATE interview_sessions SET state = $1 WHERE id = $2", [SessionState.EXPIRED, session.id]);

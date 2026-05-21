@@ -7,6 +7,7 @@ import path from "path";
 import mammoth from "mammoth";
 import { pool } from "../lib/database";
 import { aiWorkerService } from "../services/ai-worker.service";
+import { config } from "../config/env.config";
 
 type NormalizedQuestion = {
   question_text: string;
@@ -679,7 +680,7 @@ const fallbackQuestions = (role: string, topic: string, count: number): Normaliz
 };
 
 const generateAiQuestions = async (role: string, topic: string, count: number, prompt: string, experienceYears: number = 3): Promise<NormalizedQuestion[]> => {
-  const apiKey = process.env.GEMINI_API_KEY || "";
+  const apiKey = config.GEMINI_API_KEY || "";
   if (!apiKey) {
     console.warn("⚠️ GEMINI_API_KEY is missing. Using fallback questions.");
     return fallbackQuestions(role, topic, count);
@@ -687,7 +688,7 @@ const generateAiQuestions = async (role: string, topic: string, count: number, p
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({
-      model: process.env.GEMINI_MODEL || "gemini-2.5-flash"
+      model: config.GEMINI_MODEL
     });
 
 
@@ -798,7 +799,7 @@ Rules: exactly one correct_option per question (must match a key in options). No
 };
 
 const parseQuestionsWithAi = async (rawText: string): Promise<NormalizedQuestion[]> => {
-  const apiKey = process.env.GEMINI_API_KEY || "";
+  const apiKey = config.GEMINI_API_KEY || "";
   if (!apiKey || rawText.length < 50) return [];
 
   const tryWithModel = async (modelName: string) => {
@@ -849,7 +850,7 @@ const parseQuestionsWithAi = async (rawText: string): Promise<NormalizedQuestion
   try {
     let rawQuestions = [];
     try {
-      rawQuestions = await tryWithModel(process.env.GEMINI_MODEL || "gemini-1.5-flash");
+      rawQuestions = await tryWithModel(config.GEMINI_MODEL);
     } catch (e) {
       console.warn("Retrying AI parse with fallback model...");
       rawQuestions = await tryWithModel("gemini-1.5-flash");
@@ -957,15 +958,6 @@ const createAssessmentWithQuestions = async (
   }
 };
 
-const triggerAssessmentEmbedding = (assessmentId: number) => {
-  if (!Number.isInteger(assessmentId)) return;
-  aiWorkerService.embedAssessment(assessmentId).catch((error) => {
-    console.warn(
-      `Failed to embed assessment ${assessmentId}:`,
-      error instanceof Error ? error.message : error
-    );
-  });
-};
 
 export const listAssessments = async (req: Request, res: Response) => {
   try {
@@ -1201,7 +1193,7 @@ export const createAssessmentFromAi = async (req: Request, res: Response) => {
       questions,
     });
 
-    triggerAssessmentEmbedding(Number(assessment.assessment_id));
+
 
     return res.status(201).json({ success: true, data: assessment, question_count: questions.length });
   } catch (error: any) {
@@ -1234,7 +1226,7 @@ export const createAssessmentFromCsv = async (req: Request, res: Response) => {
       questions,
     });
 
-    triggerAssessmentEmbedding(Number(assessment.assessment_id));
+
 
     return res.status(201).json({ success: true, data: assessment, question_count: questions.length });
   } catch (error: any) {
@@ -1356,7 +1348,7 @@ export const createAssessmentFromUpload = async (req: Request, res: Response) =>
       questions: enrichedQuestions,
     });
 
-    triggerAssessmentEmbedding(Number(assessment.assessment_id));
+
 
     return res.status(201).json({
       success: true,

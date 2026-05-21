@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote_plus
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
@@ -16,18 +17,32 @@ load_dotenv(env_path)
 # Detect platform
 IS_WINDOWS = sys.platform == 'win32'
 
+def build_database_url() -> str:
+    """Build DATABASE_URL from DB_* variables without embedding credentials in source."""
+    explicit = os.getenv("DATABASE_URL")
+    if explicit:
+        return explicit
+
+    required = ["DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD"]
+    missing = [key for key in required if not os.getenv(key)]
+    if missing:
+        raise ValueError(f"Missing required database env vars for Python worker: {', '.join(missing)}")
+
+    user = quote_plus(os.environ["DB_USER"])
+    password = quote_plus(os.environ["DB_PASSWORD"])
+    host = os.environ["DB_HOST"]
+    port = os.environ["DB_PORT"]
+    database = os.environ["DB_NAME"]
+    return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+
 class Settings(BaseSettings):
     """Application settings"""
     
     # pydantic-settings v2 configuration
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
     
-    # Database - Use Windows-compatible defaults for development
-    database_url: str = os.getenv(
-        "DATABASE_URL", 
-        "postgresql://postgres:sagar123@localhost:5432/amanzi_data" if IS_WINDOWS 
-        else "postgresql://ats_user:ats_secure_password_2024@localhost:5432/amanzi_data"
-    )
+    # Database
+    database_url: str = build_database_url()
     
     # File Storage - Windows-compatible paths for development
     storage_base: Path = Path(os.getenv("STORAGE_PATH", 
@@ -46,8 +61,6 @@ class Settings(BaseSettings):
     # Gemini AI Configuration
     gemini_api_key: Optional[str] = os.getenv("GEMINI_API_KEY")
     gemini_model: str = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-    gemini_embedding_model: str = os.getenv("GEMINI_EMBEDDING_MODEL", "embedding-001")
-    enable_semantic_search: bool = os.getenv("ENABLE_SEMANTIC_SEARCH", "true").lower() == "true"
     
     # Processing
     max_workers: int = int(os.getenv("MAX_WORKERS", "4"))

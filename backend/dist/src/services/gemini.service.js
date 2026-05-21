@@ -1,15 +1,14 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import dotenv from "dotenv";
-dotenv.config();
+import { config } from "../config/env.config";
 export class GeminiService {
     genAI;
     embeddingModel;
     chatModel;
     constructor() {
-        const apiKey = process.env.GEMINI_API_KEY || "";
+        const apiKey = config.GEMINI_API_KEY || "";
         this.genAI = new GoogleGenerativeAI(apiKey);
         this.embeddingModel = this.genAI.getGenerativeModel({ model: "text-embedding-004" });
-        this.chatModel = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        this.chatModel = this.genAI.getGenerativeModel({ model: config.GEMINI_MODEL });
     }
     /**
      * Generate embedding for a given text

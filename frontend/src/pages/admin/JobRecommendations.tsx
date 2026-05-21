@@ -61,7 +61,6 @@ interface Recommendation {
     scores: {
         experience: number;
         skills: number;
-        semantic: number;
         education: number;
         location: number;
         industry: number;
@@ -474,7 +473,6 @@ const JobRecommendationsPage: React.FC = () => {
                                         {[
                                             { key: "experience", label: "Experience" },
                                             { key: "skills", label: "Skills" },
-                                            { key: "semantic", label: "Semantic" },
                                             { key: "education", label: "Education" },
                                             { key: "location", label: "Location" },
                                             { key: "industry", label: "Industry" },
@@ -578,9 +576,8 @@ const JobRecommendationsPage: React.FC = () => {
                                     </CardHeader>
                                     <CardContent className="space-y-4">
                                         {[
-                                            { key: "experience", label: "Experience Match", weight: 25 },
-                                            { key: "skills", label: "Skills Match", weight: 25 },
-                                            { key: "semantic", label: "Semantic Similarity", weight: 20 },
+                                            { key: "experience", label: "Experience Match", weight: 35 },
+                                            { key: "skills", label: "Skills Match", weight: 35 },
                                             { key: "education", label: "Education Match", weight: 10 },
                                             { key: "location", label: "Location Match", weight: 10 },
                                             { key: "industry", label: "Industry Match", weight: 5 },

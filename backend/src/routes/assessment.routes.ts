@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { verifyToken } from "../middleware/auth.middleware";
+import { requireSecureBrowser } from "../middleware/secure-browser.middleware";
 import {
   createAssessmentFromAi,
   createAssessmentFromCsv,
@@ -20,7 +21,7 @@ router.post("/csv", createAssessmentFromCsv);
 router.post("/upload", createAssessmentFromUpload);
 router.get("/", listAssessments);
 router.get("/:id/candidate", getCandidateAssessment);
-router.post("/:id/attempts", submitAssessmentAttempt);
+router.post("/:id/attempts", requireSecureBrowser, submitAssessmentAttempt);
 router.get("/:id", getAssessment);
 router.delete("/:id", deleteAssessment);
 

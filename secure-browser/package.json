@@ -1,0 +1,30 @@
+{
+  "name": "amanzi-secure-browser",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "electron ."
+  },
+  "dependencies": {
+    "electron": "^37.10.3",
+    "electron-builder": "^26.8.1",
+    "electron-store": "^11.0.2",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.0",
+    "@types/semver": "^7.7.1",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.0.13",
+    "wait-on": "^9.0.10"
+  },
+  "description": "This is the Phase 6 secure desktop scaffold. It is intentionally separate from the existing web application so the production build can be signed, notarized, updated, and distributed independently.",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

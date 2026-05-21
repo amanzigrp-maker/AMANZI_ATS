@@ -23,7 +23,6 @@ from loguru import logger
 from config import settings
 from database.db import Database
 from services.advanced_hybrid_parser import AdvancedHybridParser
-from services.embedding_factory import get_embedding_service
 from services.enhanced_matching_service import EnhancedMatchingService
 from services.duplicate_checker import DuplicateChecker
 from services.resume_text_cleaner import ResumeTextCleaner
@@ -53,7 +52,6 @@ logger.add(
 SERVICE_STATUS = {
     "db": False,
     "gemini": False,
-    "embeddings": False,
     "matching": False,
 }
 
@@ -62,8 +60,7 @@ SERVICE_STATUS = {
 # ---------------------------------------------------------------------
 db = Database()
 parser_service = AdvancedHybridParser()
-embedding_service = get_embedding_service()  # Uses factory to get configured provider
-enhanced_matcher = EnhancedMatchingService(db, embedding_service)
+enhanced_matcher = EnhancedMatchingService(db)
 duplicate_checker = DuplicateChecker(db)
 
 resume_text_cleaner = ResumeTextCleaner(
@@ -79,7 +76,7 @@ job_text_cleaner = JobTextCleaner(
 )
 
 ocr_service = OCRResumeParser()
-question_service = QuestionService(db, embedding_service)
+question_service = QuestionService(db)
 
 
 @asynccontextmanager
@@ -98,11 +95,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"❌ Database connection failed: {e}")
 
-    # 2. Gemini & Embeddings
+    # 2. Gemini
     try:
-        # Load embedding service (Gemini)
-        await embedding_service.load_models()
-        SERVICE_STATUS["embeddings"] = embedding_service.is_loaded()
         SERVICE_STATUS["gemini"] = True
         logger.success("✅ Gemini AI initialized")
     except Exception as e:
@@ -123,7 +117,6 @@ async def lifespan(app: FastAPI):
     logger.info(f"PORT            : {settings.worker_api_port}")
     logger.info(f"DATABASE        : {'✅ READY' if SERVICE_STATUS['db'] else '❌ DOWN'}")
     logger.info(f"RESUME PARSER   : {'✅ READY (Gemini)' if SERVICE_STATUS['gemini'] else '❌ DOWN'}")
-    logger.info(f"SEMANTIC SEARCH : {'✅ ENABLED' if SERVICE_STATUS['embeddings'] else '⚠️ DISABLED (Optional)'}")
     logger.info("===================================")
     logger.success("🚀 ATS AI Worker is READY")
 
@@ -254,16 +247,6 @@ async def process_resume_task(resume_id: int, file_path: str, filename: str, is_
         parsed = normalize_parsed_data(parsed)
         parsed = resume_text_cleaner.clean_parsed_resume(parsed)
 
-        sections = resume_text_cleaner.build_embedding_sections(parsed)
-
-        # 🔹 Section embeddings (OPTIONAL)
-        if sections and settings.enable_semantic_search and SERVICE_STATUS["embeddings"]:
-            try:
-                logger.debug(f"🧠 Generating background embeddings for resume_id={resume_id}")
-                await embedding_service.batch_encode([s.get("content", "") for s in sections])
-            except Exception as e:
-                logger.warning(f"⚠️ Optional background embedding skipped for resume_id={resume_id}: {e}")
-
         if is_bulk:
             await db.store_parsed_resume_data(resume_id, parsed)
             
@@ -286,7 +269,6 @@ async def health():
         "services": {
             "database": "ready" if SERVICE_STATUS["db"] else "down",
             "gemini": "ready" if SERVICE_STATUS["gemini"] else "down",
-            "embeddings": "ready" if SERVICE_STATUS["embeddings"] else "down",
             "matching": "ready" if SERVICE_STATUS["matching"] else "down",
         },
     }
@@ -343,163 +325,6 @@ async def gemini_rank_candidates(request: Request):
             "message": str(e),
             "ranked_candidates": body.get("candidates", [])
         }
-
-
-# ---------------------------------------------------------------------
-# Embed Job API  (MULTI-SECTION, 384 DIM SAFE)
-# ---------------------------------------------------------------------
-@app.post("/api/embed-job")
-async def embed_job(request: Request):
-
-    body = await request.json()
-    job_id = body.get("job_id")
-
-    if not isinstance(job_id, int):
-        raise HTTPException(400, "job_id must be an integer")
-
-    if not SERVICE_STATUS["embeddings"]:
-        raise HTTPException(503, "Embedding model not loaded")
-
-    job = await db.get_job_data(job_id)
-    if not job:
-        raise HTTPException(404, "Job not found")
-
-    sections = job_text_cleaner.build_job_embedding_sections(job)
-    texts = [s["content"] for s in sections if s.get("content")]
-
-    if not texts:
-        raise HTTPException(400, "Nothing to embed")
-
-    embeddings = await embedding_service.batch_encode(texts)
-
-    embedded_sections = []
-    for sec, emb in zip(sections, embeddings):
-        embedded_sections.append({
-            "section": sec["section"],
-            "embedding": emb,
-        })
-
-    await db.upsert_job_section_embeddings(
-        job_id=job_id,
-        sections=embedded_sections,
-        model_name=getattr(embedding_service, "model_name", ""),
-    )
-
-    logger.success(f"✅ Job embeddings stored for job_id={job_id}")
-
-    return {
-        "success": True,
-        "job_id": job_id,
-        "count": len(embedded_sections),
-    }
-
-
-@app.post("/api/embed-assessment")
-async def embed_assessment(request: Request):
-    body = await request.json()
-    assessment_id = body.get("assessment_id")
-
-    if not isinstance(assessment_id, int):
-        raise HTTPException(400, "assessment_id must be an integer")
-
-    if not embedding_service.is_loaded():
-        raise HTTPException(503, "Embedding model not loaded")
-
-    questions = await db.get_assessment_questions(assessment_id)
-    if not questions:
-        raise HTTPException(404, "Assessment questions not found")
-
-    payload = []
-    texts = []
-    for question in questions:
-        content = build_assessment_question_embedding_text(question)
-        if not content:
-            continue
-        payload.append({
-            "question_id": int(question.get("question_id")),
-            "topic": str(question.get("topic") or "").strip(),
-            "content": content,
-        })
-        texts.append(content)
-
-    if not texts:
-        raise HTTPException(400, "Assessment has no embeddable questions")
-
-    embeddings = await embedding_service.batch_encode(texts)
-    for item, embedding in zip(payload, embeddings):
-        item["embedding"] = embedding
-
-    await db.upsert_question_embeddings(
-        assessment_id=assessment_id,
-        questions=payload,
-        model_name=getattr(embedding_service, "model_name", ""),
-    )
-
-    return {
-        "success": True,
-        "assessment_id": assessment_id,
-        "count": len(payload),
-    }
-
-
-@app.post("/api/semantic/question-search")
-async def semantic_question_search(request: Request):
-    body = await request.json()
-    assessment_id = body.get("assessment_id")
-    query_text = str(body.get("query_text") or "").strip()
-    top_k = max(1, min(int(body.get("top_k", 8) or 8), 20))
-    exclude_question_ids = body.get("exclude_question_ids") or []
-
-    if not isinstance(assessment_id, int):
-        raise HTTPException(400, "assessment_id must be an integer")
-    if not query_text:
-        raise HTTPException(400, "query_text is required")
-    if not embedding_service.is_loaded():
-        raise HTTPException(503, "Embedding model not loaded")
-
-    query_embedding = await embedding_service.encode(query_text)
-    matches = await db.semantic_search_assessment_questions(
-        assessment_id=assessment_id,
-        query_embedding=query_embedding,
-        top_k=top_k,
-        exclude_question_ids=exclude_question_ids,
-    )
-
-    return {
-        "success": True,
-        "assessment_id": assessment_id,
-        "count": len(matches),
-        "matches": jsonable_encoder(matches),
-    }
-
-
-@app.post("/api/semantic/candidate-context")
-async def semantic_candidate_context(request: Request):
-    body = await request.json()
-    candidate_email = str(body.get("candidate_email") or "").strip()
-    query_text = str(body.get("query_text") or "").strip()
-    top_k = max(1, min(int(body.get("top_k", 4) or 4), 12))
-
-    if not candidate_email:
-        raise HTTPException(400, "candidate_email is required")
-    if not query_text:
-        raise HTTPException(400, "query_text is required")
-    if not embedding_service.is_loaded():
-        raise HTTPException(503, "Embedding model not loaded")
-
-    query_embedding = await embedding_service.encode(query_text)
-    matches = await db.semantic_search_candidate_context(
-        candidate_email=candidate_email,
-        query_embedding=query_embedding,
-        top_k=top_k,
-    )
-
-    return {
-        "success": True,
-        "candidate_email": candidate_email,
-        "count": len(matches),
-        "matches": jsonable_encoder(matches),
-    }
 
 
 # ---------------------------------------------------------------------
@@ -570,27 +395,8 @@ async def parse_resume(request: Request, background_tasks: BackgroundTasks):
                 candidate_id = await db.store_parsed_resume_data(resume_id, parsed)
                 logger.info(f"✅ Stored candidate_id={candidate_id}")
 
-                # 🔹 Section embeddings
-                sections = resume_text_cleaner.build_embedding_sections(parsed)
-
-                if sections and settings.enable_semantic_search and SERVICE_STATUS["embeddings"]:
-                    logger.debug(f"🧠 Generating embeddings for {len(sections)} sections")
-                    texts = [s.get("content") for s in sections if s.get("content")]
-                    try:
-                        embeddings = await embedding_service.batch_encode(texts)
-                        await db.store_section_embeddings(
-                            resume_id=resume_id,
-                            candidate_id=candidate_id,
-                            sections=sections,
-                            embeddings=embeddings,
-                        )
-                        await db.store_candidate_embeddings(
-                            candidate_id=candidate_id,
-                            sections=sections,
-                            embeddings=embeddings,
-                        )
-                    except Exception as e:
-                        logger.warning(f"⚠️ Embedding storage failed but parsing succeeded: {e}")
+                # Extra extraction successful
+                pass
             else:
                 logger.info(f"✨ Single parse mode: Extraction successful for {email}")
         else:

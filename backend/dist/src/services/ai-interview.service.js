@@ -1,11 +1,12 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { config } from "../config/env.config";
 let genAI = null;
 let model = null;
 const initAI = () => {
     if (genAI)
         return;
-    const apiKey = process.env.GEMINI_API_KEY || "";
-    const modelName = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    const apiKey = config.GEMINI_API_KEY || "";
+    const modelName = config.GEMINI_MODEL;
     genAI = new GoogleGenerativeAI(apiKey);
     model = genAI.getGenerativeModel({ model: modelName });
 };

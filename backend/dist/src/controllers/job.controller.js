@@ -24,9 +24,7 @@ export const AI_CANDIDATES_FOR_JOB_SQL = `
             ''
           ) AS experience_summary,
 
-          COALESCE(MAX(1 - (j_resp.embedding <=> c_exp.embedding)), 0) AS experience_score,
-          COALESCE(MAX(1 - (j_skill.embedding <=> c_skill.embedding)), 0) AS skills_score,
-
+          -- Base overlap score using standard array intersection
           COALESCE(
             CARDINALITY(
               ARRAY(
@@ -54,71 +52,86 @@ export const AI_CANDIDATES_FOR_JOB_SQL = `
             )
           END AS overlap_ratio,
 
-          LEAST(
-            1,
-            COALESCE(
-              CARDINALITY(
-                ARRAY(
-                  SELECT unnest(cand.skills::text[])
-                  INTERSECT
-                  SELECT unnest(j.skills::text[])
-                )
-              ),
-              0
-            )::double precision / 5
-          ) AS skill_overlap_boost,
-
+          -- Heuristic final score (normalized 0-1)
           (
-              0.5 * COALESCE(MAX(1 - (j_skill.embedding <=> c_skill.embedding)), 0) +
-              0.3 * COALESCE(MAX(1 - (j_resp.embedding <=> c_exp.embedding)), 0) +
-              0.2 * LEAST(
-                1,
-                COALESCE(
-                  CARDINALITY(
-                    ARRAY(
-                      SELECT unnest(cand.skills::text[])
-                      INTERSECT
-                      SELECT unnest(j.skills::text[])
-                    )
-                  ),
-                  0
-                )::double precision / 5
+              0.6 * (
+                CASE
+                  WHEN j.min_experience_years IS NULL OR j.min_experience_years = 0 THEN 1.0
+                  WHEN cand.total_experience_years >= j.min_experience_years THEN 1.0
+                  WHEN cand.total_experience_years >= j.min_experience_years - 1 THEN 0.7
+                  ELSE 0.3
+                END
+              ) +
+              0.4 * (
+                CASE
+                  WHEN COALESCE(CARDINALITY(j.skills::text[]), 0) = 0 THEN 0
+                  ELSE (
+                    COALESCE(
+                      CARDINALITY(
+                        ARRAY(
+                          SELECT unnest(cand.skills::text[])
+                          INTERSECT
+                          SELECT unnest(j.skills::text[])
+                        )
+                      ),
+                      0
+                    )::double precision / GREATEST(CARDINALITY(j.skills::text[]), 1)
+                  )
+                END
               )
           ) AS final_score,
 
           CASE
             WHEN (
-              0.5 * COALESCE(MAX(1 - (j_skill.embedding <=> c_skill.embedding)), 0) +
-              0.3 * COALESCE(MAX(1 - (j_resp.embedding <=> c_exp.embedding)), 0) +
-              0.2 * LEAST(
-                1,
-                COALESCE(
-                  CARDINALITY(
-                    ARRAY(
-                      SELECT unnest(cand.skills::text[])
-                      INTERSECT
-                      SELECT unnest(j.skills::text[])
-                    )
-                  ),
-                  0
-                )::double precision / 5
+              0.6 * (
+                CASE
+                  WHEN j.min_experience_years IS NULL OR j.min_experience_years = 0 THEN 1.0
+                  WHEN cand.total_experience_years >= j.min_experience_years THEN 1.0
+                  ELSE 0.5
+                END
+              ) +
+              0.4 * (
+                CASE
+                  WHEN COALESCE(CARDINALITY(j.skills::text[]), 0) = 0 THEN 0
+                  ELSE (
+                    COALESCE(
+                      CARDINALITY(
+                        ARRAY(
+                          SELECT unnest(cand.skills::text[])
+                          INTERSECT
+                          SELECT unnest(j.skills::text[])
+                        )
+                      ),
+                      0
+                    )::double precision / GREATEST(CARDINALITY(j.skills::text[]), 1)
+                  )
+                END
               )
             ) >= 0.75 THEN 'Strong'
             WHEN (
-              0.5 * COALESCE(MAX(1 - (j_skill.embedding <=> c_skill.embedding)), 0) +
-              0.3 * COALESCE(MAX(1 - (j_resp.embedding <=> c_exp.embedding)), 0) +
-              0.2 * LEAST(
-                1,
-                COALESCE(
-                  CARDINALITY(
-                    ARRAY(
-                      SELECT unnest(cand.skills::text[])
-                      INTERSECT
-                      SELECT unnest(j.skills::text[])
-                    )
-                  ),
-                  0
-                )::double precision / 5
+              0.6 * (
+                CASE
+                  WHEN j.min_experience_years IS NULL OR j.min_experience_years = 0 THEN 1.0
+                  WHEN cand.total_experience_years >= j.min_experience_years THEN 1.0
+                  ELSE 0.5
+                END
+              ) +
+              0.4 * (
+                CASE
+                  WHEN COALESCE(CARDINALITY(j.skills::text[]), 0) = 0 THEN 0
+                  ELSE (
+                    COALESCE(
+                      CARDINALITY(
+                        ARRAY(
+                          SELECT unnest(cand.skills::text[])
+                          INTERSECT
+                          SELECT unnest(j.skills::text[])
+                        )
+                      ),
+                      0
+                    )::double precision / GREATEST(CARDINALITY(j.skills::text[]), 1)
+                  )
+                END
               )
             ) >= 0.55 THEN 'Good'
             ELSE 'Partial'
@@ -132,34 +145,11 @@ export const AI_CANDIDATES_FOR_JOB_SQL = `
         ON r.candidate_id = cand.candidate_id
        AND r.job_id = $1
 
-      LEFT JOIN candidate_embeddings c_exp
-        ON cand.candidate_id = c_exp.candidate_id
-       AND c_exp.section = 'resume_experience'
-
-      LEFT JOIN candidate_embeddings c_skill
-        ON cand.candidate_id = c_skill.candidate_id
-       AND c_skill.section = 'resume_skills'
-
-      LEFT JOIN job_section_embeddings j_resp
-        ON j_resp.job_id = $1
-       AND j_resp.section = 'responsibilities'
-
-      LEFT JOIN job_section_embeddings j_skill
-        ON j_skill.job_id = $1
-       AND j_skill.section = 'skills'
-
       WHERE
-        -- Only filter by experience, not location (AI matching should be location-agnostic)
         (
           j.min_experience_years IS NULL
-          OR cand.total_experience_years >= j.min_experience_years
+          OR cand.total_experience_years >= j.min_experience_years - 2 -- inclusive buffer
         )
-
-      GROUP BY cand.candidate_id, cand.full_name, cand.email, cand.phone, cand.total_experience_years, cand.current_designation, cand.skills, r.parsed_json, j.job_id, j.skills
-
-      HAVING
-          -- Allow all candidates to be ranked, prioritize those with embeddings via scoring.
-          TRUE
 
       ORDER BY final_score DESC
       LIMIT 25;
@@ -180,8 +170,8 @@ export async function computeAiCandidatesForJob(jobId) {
         current_designation: r.current_designation ? String(r.current_designation) : "",
         skills: Array.isArray(r.skills) ? r.skills.map(String) : [],
         experience_summary: r.experience_summary ? String(r.experience_summary) : "",
-        experience_score: Number(r.experience_score) || 0,
-        skills_score: Number(r.skills_score) || 0,
+        experience_score: 0,
+        skills_score: 0,
         final_score: Number(r.final_score) || 0,
         fit_label: r.fit_label ? String(r.fit_label) : "",
     })).slice(0, 10); // Return top 10
@@ -390,13 +380,7 @@ export const createJob = async (req, res) => {
             }));
         }
         await client.query("COMMIT");
-        // Fire-and-forget: generate/refresh job embeddings (pgvector)
-        try {
-            void aiWorkerService.embedJob(Number(job.job_id));
-        }
-        catch (e) {
-            console.warn("⚠️ embedJob trigger failed (createJob)", e);
-        }
+        // AI logic (Gemini) will be triggered by frontend when needed or via background tasks
         try {
             await notificationService.sendBulkNotifications(notifications);
         }

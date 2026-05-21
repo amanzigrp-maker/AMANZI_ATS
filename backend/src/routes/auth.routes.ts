@@ -2,9 +2,11 @@
 import { Router } from 'express';
 import { createUser, findUserByEmail } from '../services/user.service';
 import { logAudit } from '../services/audit.service';
+import { rateLimiter } from '../middleware/rate-limiter.middleware';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { pool } from '../lib/database';
+import { config } from '../config/env.config';
 
 const router = Router();
 
@@ -12,8 +14,8 @@ const router = Router();
 // SAFE SECRET ACCESS
 // -----------------------------------------------------------------------------
 const getJwtSecrets = () => {
-  const jwtSecret = process.env.JWT_SECRET;
-  const refreshSecret = process.env.REFRESH_TOKEN_SECRET;
+  const jwtSecret = config.JWT_SECRET;
+  const refreshSecret = config.REFRESH_TOKEN_SECRET;
 
   if (!jwtSecret || !refreshSecret) {
     throw new Error('[AUTH] Missing JWT_SECRET or REFRESH_TOKEN_SECRET');
@@ -25,7 +27,7 @@ const getJwtSecrets = () => {
 // -----------------------------------------------------------------------------
 // POST /api/auth/login
 // -----------------------------------------------------------------------------
-router.post('/login', async (req, res) => {
+router.post('/login', rateLimiter(15, 60000), async (req, res) => {
   console.log(`[AUTH] 📥 Login request received for: ${req.body?.email}`);
   res.setHeader('Content-Type', 'application/json');
   try {

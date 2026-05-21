@@ -14,7 +14,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { TimerEngineService } from '../modules/interview-session/timer-engine.service';
 import { RecoveryEngineService } from '../modules/interview-session/recovery-engine.service';
 import { SessionState } from '../common/types';
-
+import { calculateSuspicionScore } from '../services/proctoring.service';
 const getUserId = (req: any) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
 
 /**
@@ -1020,7 +1020,7 @@ export const inviteCredentials = async (req: Request, res: Response) => {
     await sendInterviewLink(
       candidate.email,
       candidateName,
-      `${frontendUrl}/interview-login?candidateId=${candidateId}&email=${encodeURIComponent(candidate.email)}`,
+      `${frontendUrl}/interview?token=${encodeURIComponent(token)}&candidateId=${candidateId}`,
       plainPassword,
       duration,
       Number(questionCount) || 10
@@ -2151,6 +2151,28 @@ export const processHeartbeat = async (req: Request, res: Response) => {
     }
 
     return res.json({ success: true, ...result, isFinished: false });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+export const pauseSession = async (req: Request, res: Response) => {
+  try {
+    const { session_id, reason } = req.body;
+    if (!session_id) return res.status(400).json({ error: "session_id required" });
+    await TimerEngineService.pauseTimer(Number(session_id), reason || "Manual pause");
+    return res.json({ success: true });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+export const getSessionSuspicionReport = async (req: Request, res: Response) => {
+  try {
+    const sessionId = req.query.sessionId as string;
+    if (!sessionId) return res.status(400).json({ error: "sessionId required" });
+    const report = await calculateSuspicionScore(sessionId);
+    return res.json({ success: true, report });
   } catch (error: any) {
     return res.status(500).json({ success: false, error: error.message });
   }

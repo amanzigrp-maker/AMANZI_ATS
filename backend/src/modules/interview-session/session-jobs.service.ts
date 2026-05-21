@@ -36,10 +36,10 @@ export class SessionJobsService {
             const result = await pool.query(`
                 UPDATE interview_sessions
                 SET state = $1, completed_at = $2, status = 'completed'
-                WHERE state IN ($3, $4)
+                WHERE state = $3
                 AND expires_at < $2
                 RETURNING id
-            `, [SessionState.EXPIRED, now, SessionState.ACTIVE, SessionState.PAUSED]);
+            `, [SessionState.EXPIRED, now, SessionState.ACTIVE]);
 
             if (result.rowCount && result.rowCount > 0) {
                 console.log(`🧹 Cleaned up ${result.rowCount} expired sessions.`);
@@ -61,13 +61,17 @@ export class SessionJobsService {
         try {
             const heartbeatGrace = 90; // 90 seconds
             const result = await pool.query(`
-                SELECT id FROM interview_sessions
+                SELECT id, last_activity_at FROM interview_sessions
                 WHERE state = $1
                 AND last_activity_at < NOW() - INTERVAL '${heartbeatGrace} seconds'
             `, [SessionState.ACTIVE]);
 
             for (const row of result.rows) {
-                await TimerEngineService.pauseTimer(row.id, "Heartbeat timeout (automatic pause)");
+                await TimerEngineService.pauseTimer(
+                    row.id,
+                    "Heartbeat timeout (automatic pause)",
+                    row.last_activity_at ? new Date(row.last_activity_at) : undefined
+                );
             }
         } catch (error) {
             console.error("❌ Inactive Cleaner Error:", error);

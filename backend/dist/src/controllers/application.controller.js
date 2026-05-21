@@ -533,7 +533,7 @@ export const updateApplicationStatus = async (req, res) => {
         const { applicationId } = req.params;
         const { status, notes } = req.body;
         const userId = req.user?.id;
-        const roleNormalized = role?.toLowerCase();
+        const roleNormalized = req.user?.role?.toLowerCase();
         if (roleNormalized !== "admin" && roleNormalized !== "lead" && roleNormalized !== "recruiter") {
             return res
                 .status(403)

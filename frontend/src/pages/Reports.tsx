@@ -48,11 +48,31 @@ const Reports: React.FC = () => {
   const [interviewReportLoading, setInterviewReportLoading] = useState(true);
   const [interviewReport, setInterviewReport] = useState<any[]>([]);
   const [expandedInterviewId, setExpandedInterviewId] = useState<number | null>(null);
+  const [suspicionReports, setSuspicionReports] = useState<Record<number, any>>({});
+  const [suspicionLoading, setSuspicionLoading] = useState<Record<number, boolean>>({});
+
+  const fetchSuspicionReport = async (sessionId: number) => {
+    if (suspicionReports[sessionId] || suspicionLoading[sessionId]) return;
+    setSuspicionLoading(prev => ({ ...prev, [sessionId]: true }));
+    try {
+      const res = await authenticatedFetch(`/api/interview/report/suspicion?session_id=${sessionId}`);
+      if (res.ok) {
+        const payload = await res.json();
+        if (payload.success) {
+          setSuspicionReports(prev => ({ ...prev, [sessionId]: payload.data }));
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch suspicion report:', e);
+    } finally {
+      setSuspicionLoading(prev => ({ ...prev, [sessionId]: false }));
+    }
+  };
 
   const [activeReportTab, setActiveReportTab] = useState<'uploads' | 'activity' | 'interviews'>('uploads');
 
   const [fromDate, setFromDate] = useState(
-    dayjs().format('YYYY-MM-DD')
+    dayjs().subtract(1, 'day').format('YYYY-MM-DD')
   );
 
   const [toDate, setToDate] = useState(
@@ -784,7 +804,13 @@ const Reports: React.FC = () => {
                                   <div className="flex items-center gap-2">
                                     <button
                                       type="button"
-                                      onClick={() => setExpandedInterviewId(expandedInterviewId === r.session_id ? null : r.session_id)}
+                                      onClick={() => {
+                                        const isCurrentlyExpanded = expandedInterviewId === r.session_id;
+                                        setExpandedInterviewId(isCurrentlyExpanded ? null : r.session_id);
+                                        if (!isCurrentlyExpanded) {
+                                          fetchSuspicionReport(r.session_id);
+                                        }
+                                      }}
                                       className="flex items-center gap-2 rounded-lg border border-transparent px-2 py-1 hover:border-blue-200 hover:bg-blue-50"
                                     >
                                       <Trophy className="w-3.5 h-3.5" style={{ color: perfColor }} />
@@ -886,6 +912,69 @@ const Reports: React.FC = () => {
                                 <tr>
                                   <td colSpan={7} className="bg-slate-50 px-6 py-4">
                                     <div className="space-y-3">
+                                      {/* Suspicion Score & Timeline Report */}
+                                      {suspicionLoading[r.session_id] && (
+                                        <div className="animate-pulse rounded-lg border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">
+                                          Running integrity analysis & compiling proctoring logs...
+                                        </div>
+                                      )}
+                                      
+                                      {!suspicionLoading[r.session_id] && suspicionReports[r.session_id] && (() => {
+                                        const suspicion = suspicionReports[r.session_id];
+                                        return (
+                                          <div className="rounded-lg border border-red-100 bg-red-50/30 p-4">
+                                            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-red-100 pb-3">
+                                              <div>
+                                                <h4 className="text-sm font-semibold text-red-950 flex items-center gap-1.5">
+                                                  <span className="relative flex h-2 w-2">
+                                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                                                  </span>
+                                                  Proctoring & Integrity Analysis
+                                                </h4>
+                                                <p className="text-[11px] text-red-700/80 mt-0.5">Chronological proctoring warnings and real-time behavioral diagnostics.</p>
+                                              </div>
+                                              <div className="flex items-center gap-3">
+                                                <div className="text-right">
+                                                  <div className="text-[10px] uppercase font-bold text-red-600/70 tracking-wider">Integrity Risk Score</div>
+                                                  <div className="text-xl font-black text-red-700">{suspicion.score}/100</div>
+                                                </div>
+                                                <span className={cn(
+                                                  "rounded-full px-2.5 py-1 text-xs font-bold border",
+                                                  suspicion.score >= 50 ? "bg-red-500 text-white border-red-600" :
+                                                  suspicion.score >= 25 ? "bg-amber-500 text-white border-amber-600" :
+                                                  "bg-emerald-500 text-white border-emerald-600"
+                                                )}>
+                                                  {suspicion.score >= 50 ? "High Risk" : suspicion.score >= 25 ? "Medium Risk" : "Low Risk"}
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            {suspicion.timeline && suspicion.timeline.length > 0 ? (
+                                              <div className="mt-3 space-y-2">
+                                                <div className="text-[10px] font-bold uppercase text-red-800/60 tracking-wider">Violation Log Timeline</div>
+                                                <div className="max-h-40 overflow-y-auto space-y-1.5 pr-2">
+                                                  {suspicion.timeline.map((log: any, logIdx: number) => (
+                                                    <div key={logIdx} className="flex items-start justify-between rounded bg-white px-3 py-2 text-xs border border-red-50/50 shadow-sm">
+                                                      <div>
+                                                        <span className="font-bold text-red-700 uppercase tracking-wide text-[10px] bg-red-50 px-1.5 py-0.5 rounded border border-red-100 mr-2">{log.type}</span>
+                                                        <span className="text-slate-700">{log.detail}</span>
+                                                      </div>
+                                                      <span className="text-[10px] text-slate-400 font-mono tabular-nums">{dayjs(log.timestamp).format('HH:mm:ss')}</span>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <div className="mt-3 text-xs text-emerald-700 font-semibold flex items-center gap-1">
+                                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                                No proctoring violations or suspicious activity detected. Excellent candidate integrity.
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
+
                                       {(r.details || []).map((d: any, detailIdx: number) => (
                                         <div key={`${r.session_id}-${d.question_id}`} className="rounded-lg border border-slate-200 bg-white p-4">
                                           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">

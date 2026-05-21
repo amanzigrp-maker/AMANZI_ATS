@@ -9,10 +9,9 @@ from database.db import Database
 
 class EnhancedMatchingService:
     """
-    AI-powered comprehensive candidate-job matching with 7 scoring dimensions:
-    - Experience Match (25%)
-    - Skills Match (25%)
-    - Semantic Similarity (20%)
+    AI-powered comprehensive candidate-job matching with 6 scoring dimensions:
+    - Experience Match (35%)
+    - Skills Match (35%)
     - Education Match (10%)
     - Location Match (10%)
     - Industry Match (5%)
@@ -21,33 +20,22 @@ class EnhancedMatchingService:
     
     # Scoring weights
     WEIGHTS = {
-        'experience': 0.25,
-        'skills': 0.25,
-        'semantic': 0.20,
+        'experience': 0.35,
+        'skills': 0.35,
         'education': 0.10,
         'location': 0.10,
         'industry': 0.05,
         'recency': 0.05,
     }
     
-    def __init__(self, db: Database | None = None, embedding_service: Any = None):
-        # Use provided or get configured embedding service
-        if embedding_service:
-            self.embedding_service = embedding_service
-        else:
-            from services.embedding_factory import get_embedding_service
-            self.embedding_service = get_embedding_service()
-            
+    def __init__(self, db: Database | None = None):
         # IMPORTANT: use shared DB instance (already connected) when provided.
         # If not provided, we fall back to a new Database() (may require connect()).
         self.db = db or Database()
         
     async def load_models(self):
-        """Load required models"""
-        # If the embedding service is already loaded (from outside), we skip
-        if hasattr(self.embedding_service, 'is_loaded') and self.embedding_service.is_loaded():
-            return
-        await self.embedding_service.load_models()
+        """No models to load"""
+        pass
     
     async def search_talent_pool(
         self,
@@ -71,22 +59,12 @@ class EnhancedMatchingService:
         try:
             logger.info(f"Searching talent pool for job {job_id}")
             
-            # Get all candidates with embeddings
-            candidates = await self._get_candidates_with_embeddings(filters)
+            # Get all candidates
+            candidates = await self._get_candidates(filters)
             
             if not candidates:
                 logger.warning(f"No candidates found for job {job_id}")
                 return []
-
-            candidate_ids = [
-                int(candidate.get('candidate_id'))
-                for candidate in candidates
-                if candidate.get('candidate_id')
-            ]
-            semantic_scores = await self.db.get_candidate_semantic_scores(
-                job_id=job_id,
-                candidate_ids=candidate_ids,
-            )
             
             # Calculate scores for each candidate
             matches = []
@@ -96,7 +74,7 @@ class EnhancedMatchingService:
                     job_id=job_id,
                     job_data=job_data,
                     candidate=candidate,
-                    semantic_context=semantic_scores.get(candidate_id),
+                    semantic_context=None,
                 )
                 if match_result:
                     matches.append(match_result)
@@ -142,8 +120,6 @@ class EnhancedMatchingService:
             candidate_experience = float(candidate.get('total_experience_years') or 0)
             candidate_location = candidate.get('location', '')
             candidate_industry = candidate.get('current_company', '')
-            semantic_score = self._resolve_semantic_score(semantic_context)
-            
             # Calculate individual scores
             scores = {
                 'experience': self._calculate_experience_score(
@@ -152,7 +128,6 @@ class EnhancedMatchingService:
                 'skills': self._calculate_skills_match(
                     candidate_skills, required_skills
                 )[0],
-                'semantic': semantic_score,
                 'education': self._calculate_education_match(
                     candidate.get('education', []), job_data.get('preferred_education')
                 ),
@@ -209,14 +184,6 @@ class EnhancedMatchingService:
             return [s.strip() for s in skills.split(',') if s.strip()]
         return []
 
-    def _resolve_semantic_score(self, semantic_context: Optional[Dict[str, Any]]) -> float:
-        if semantic_context and semantic_context.get('semantic_score') is not None:
-            try:
-                return max(0.0, min(1.0, float(semantic_context['semantic_score'])))
-            except Exception:
-                pass
-        return 0.5
-    
     def _calculate_experience_score(
         self,
         candidate_years: float,
@@ -535,8 +502,6 @@ class EnhancedMatchingService:
                     strengths.append("strong experience")
                 elif factor == 'skills':
                     strengths.append("relevant skills")
-                elif factor == 'semantic':
-                    strengths.append("well-aligned background")
                 elif factor == 'education':
                     strengths.append("strong educational background")
                 elif factor == 'location':
@@ -559,7 +524,7 @@ class EnhancedMatchingService:
         
         return " ".join(explanations)
     
-    async def _get_candidates_with_embeddings(
+    async def _get_candidates(
         self,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:

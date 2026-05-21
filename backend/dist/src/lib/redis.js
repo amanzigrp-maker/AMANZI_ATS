@@ -1,20 +1,15 @@
 import Redis from "ioredis";
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-dotenv.config({ path: path.join(__dirname, "..", "..", "..", ".env") });
-const { REDIS_HOST = "localhost", REDIS_PORT = "6379", REDIS_PASSWORD, REDIS_ENABLED = "false", } = process.env;
+import { config } from "../config/env.config";
 class RedisService {
     client = null;
-    isEnabled = REDIS_ENABLED === "true";
+    isEnabled = config.REDIS_ENABLED;
     constructor() {
         if (this.isEnabled) {
             this.client = new Redis({
-                host: REDIS_HOST,
-                port: Number(REDIS_PORT),
-                password: REDIS_PASSWORD,
+                host: config.REDIS_HOST,
+                port: config.REDIS_PORT,
+                password: config.REDIS_PASSWORD,
+                db: config.REDIS_DB,
                 retryStrategy: (times) => {
                     return Math.min(times * 50, 2000);
                 },

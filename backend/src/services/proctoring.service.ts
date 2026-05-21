@@ -1,6 +1,7 @@
 import { Server, Socket } from "socket.io";
 import { pool } from "../lib/database";
 import { logDebug, logInfo } from "../lib/logging";
+import { enterpriseSecurityService } from "../modules/enterprise-security/enterprise-security.service";
 
 interface ProctorEvent {
   candidateId: string;
@@ -9,6 +10,8 @@ interface ProctorEvent {
   detail: string;
   timestamp: string;
 }
+
+import { trackFailure } from "../config/sentry.config";
 
 const candidateSocketsByInterview = new Map<string, Set<string>>();
 const interviewByCandidateSocket = new Map<string, string>();
@@ -20,7 +23,7 @@ const saveProctorEvent = async (data: ProctorEvent) => {
       [data.interviewId, data.candidateId, data.type, data.detail, data.timestamp]
     );
   } catch (err) {
-    console.error("Failed to save proctor log:", err);
+    trackFailure("WebSocket.ProctorEventSave", err, { eventData: data });
   }
 };
 
@@ -100,6 +103,15 @@ export const setupSocketHandlers = (io: Server) => {
       socket.to(room).emit("proctor-event-admin", data);
 
       await saveProctorEvent(data);
+      await enterpriseSecurityService.recordEvent({
+        eventType: data.type === "violation" ? "proctoring.violation" : "proctoring.warning",
+        severity: data.type === "violation" ? "high" : "medium",
+        interviewId: data.interviewId,
+        sessionId: data.interviewId,
+        candidateId: data.candidateId,
+        source: "browser",
+        payload: { detail: data.detail, timestamp: data.timestamp },
+      });
     });
 
     socket.on("toggle-live-monitoring", (data: { interviewId: string; enabled: boolean }) => {
@@ -129,4 +141,52 @@ export const getProctoringLogs = async (interviewId: string) => {
     [interviewId]
   );
   return result.rows;
+};
+
+export const calculateSuspicionScore = async (interviewId: string) => {
+  const logs = await getProctoringLogs(interviewId);
+  let score = 0;
+  const breakdown: Record<string, number> = {};
+
+  logs.forEach((log: any) => {
+    const detail = String(log.detail || '').toLowerCase();
+    const type = String(log.type || '').toLowerCase();
+    const title = String(log.type || '');
+
+    let points = 0;
+    if (detail.includes('fullscreen exited')) {
+      points = 25;
+    } else if (detail.includes('tab switch') || detail.includes('switched tabs')) {
+      points = 30;
+    } else if (detail.includes('devtools') || detail.includes('developer tools') || detail.includes('debugger')) {
+      points = 40;
+    } else if (detail.includes('keyboard violation') || detail.includes('shortcut')) {
+      points = 15;
+    } else if (detail.includes('right-click') || detail.includes('context menu')) {
+      points = 5;
+    } else if (detail.includes('audio') || detail.includes('noise')) {
+      points = 10;
+    } else if (detail.includes('multiple faces')) {
+      points = 25;
+    } else if (detail.includes('no face')) {
+      points = 15;
+    } else if (detail.includes('eye') || detail.includes('gaze') || detail.includes('head turn') || detail.includes('looking away')) {
+      points = 15;
+    }
+
+    if (points > 0) {
+      breakdown[title] = (breakdown[title] || 0) + points;
+      score += points;
+    }
+  });
+
+  return {
+    score: Math.min(100, score),
+    breakdown,
+    timeline: logs.map((log: any) => ({
+      type: log.type,
+      detail: log.detail,
+      timestamp: log.timestamp
+    }))
+  };
 };

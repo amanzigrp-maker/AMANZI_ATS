@@ -1,13 +1,8 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
+import { config } from "../config/env.config";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, "..", "..", ".env") });
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY || "");
 
 export interface GeneratedQuestion {
   question_text: string;
@@ -29,7 +24,7 @@ export class GeminiQuestionService {
 
     while (retries >= 0) {
       try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const model = genAI.getGenerativeModel({ model: config.GEMINI_MODEL });
 
         // Map theta to human-readable difficulty
         let difficultyLabel = "Medium";

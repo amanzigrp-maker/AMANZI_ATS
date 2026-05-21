@@ -528,7 +528,7 @@ export default function Landing() {
                 {[...Array(3)].map((_, i) => (
                   <div key={i} className="flex gap-5">
                     {[
-                      { title: "AI Matching", desc: "Automated ranking based on semantic relevance." },
+                      { title: "AI Matching", desc: "Automated ranking based on Gemini AI intelligence." },
                       { title: "Smart Scheduling", desc: "Syncs instantly with your team's calendar." },
                       { title: "Deep Analytics", desc: "Visualize your entire hiring funnel in real-time." },
                       { title: "Team Collab", desc: "Hire together with shared ratings and collaborative reviews." }

@@ -1,5 +1,5 @@
 
-import { pool } from "../lib/database";
+import { pool } from "../../lib/database";
 import { geminiService } from "../../services/gemini.service";
 import { DifficultyLevel } from "../../common/types";
 

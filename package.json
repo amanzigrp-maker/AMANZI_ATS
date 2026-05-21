@@ -11,8 +11,16 @@
     "server": "npm run dev:backend",
     "build:frontend": "cd frontend && npm run build",
     "build:backend": "cd backend && npm run build",
+    "build:all": "npm run build:frontend && npm run build:backend",
+    "lint:frontend": "cd frontend && npm run lint",
+    "lint:backend": "cd backend && npm run lint",
+    "lint:all": "npm run lint:frontend && npm run lint:backend",
+    "ci:validate": "npm run lint:all && npm run build:all",
     "start": "npm run build:frontend && npm run dev:backend",
-    "install:python-deps": "cd python-worker && pip install -r requirements.txt"
+    "install:python-deps": "cd python-worker && pip install -r requirements.txt",
+    "deploy:staging": "npm run build:all && pm2 start ecosystem.config.js --env staging",
+    "deploy:prod": "npm run build:all && pm2 start ecosystem.config.js --env production",
+    "pm2:restart": "pm2 reload ecosystem.config.js"
   },
   "dependencies": {
     "@elastic/elasticsearch": "^9.2.0",

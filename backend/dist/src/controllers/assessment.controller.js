@@ -5,7 +5,7 @@ import os from "os";
 import path from "path";
 import mammoth from "mammoth";
 import { pool } from "../lib/database";
-import { aiWorkerService } from "../services/ai-worker.service";
+import { config } from "../config/env.config";
 const optionKeys = ["A", "B", "C", "D", "E", "F", "G", "H", "1", "2", "3", "4", "5", "6", "7", "8"];
 const getUserId = (req) => Number(req.user?.userid ?? req.user?.id ?? 0) || null;
 const parseCsvLine = (line) => {
@@ -601,7 +601,7 @@ const fallbackQuestions = (role, topic, count) => {
     }));
 };
 const generateAiQuestions = async (role, topic, count, prompt, experienceYears = 3) => {
-    const apiKey = process.env.GEMINI_API_KEY || "";
+    const apiKey = config.GEMINI_API_KEY || "";
     if (!apiKey) {
         console.warn("⚠️ GEMINI_API_KEY is missing. Using fallback questions.");
         return fallbackQuestions(role, topic, count);
@@ -609,7 +609,7 @@ const generateAiQuestions = async (role, topic, count, prompt, experienceYears =
     try {
         const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({
-            model: process.env.GEMINI_MODEL || "gemini-2.5-flash"
+            model: config.GEMINI_MODEL
         });
         let retries = 0;
         const maxRetries = 3;
@@ -656,7 +656,17 @@ Rules: exactly one correct_option per question (must match a key in options). No
                     console.warn("⚠️ AI returned zero questions. Using fallback.");
                     return fallbackQuestions(role, topic, count);
                 }
-                return rawQuestions.slice(0, count).map(validateQuestion);
+                const validated = rawQuestions.slice(0, count).map(validateQuestion);
+                // Centralized Duplicate Validation (Exact string match only)
+                const questionTexts = validated.map(q => q.question_text);
+                const duplicateCheck = await pool.query("SELECT question_text FROM questions WHERE question_text = ANY($1)", [questionTexts]);
+                const existingTexts = new Set(duplicateCheck.rows.map((r) => r.question_text));
+                const uniqueQuestions = validated.filter(q => !existingTexts.has(q.question_text));
+                if (uniqueQuestions.length === 0 && validated.length > 0) {
+                    console.warn("⚠️ All generated questions were duplicates. Returning fallback to ensure assessment is not empty.");
+                    return fallbackQuestions(role, topic, count);
+                }
+                return uniqueQuestions;
             }
             catch (error) {
                 lastError = error;
@@ -694,7 +704,7 @@ Rules: exactly one correct_option per question (must match a key in options). No
     }
 };
 const parseQuestionsWithAi = async (rawText) => {
-    const apiKey = process.env.GEMINI_API_KEY || "";
+    const apiKey = config.GEMINI_API_KEY || "";
     if (!apiKey || rawText.length < 50)
         return [];
     const tryWithModel = async (modelName) => {
@@ -742,7 +752,7 @@ const parseQuestionsWithAi = async (rawText) => {
     try {
         let rawQuestions = [];
         try {
-            rawQuestions = await tryWithModel(process.env.GEMINI_MODEL || "gemini-1.5-flash");
+            rawQuestions = await tryWithModel(config.GEMINI_MODEL);
         }
         catch (e) {
             console.warn("Retrying AI parse with fallback model...");
@@ -823,13 +833,6 @@ const createAssessmentWithQuestions = async (req, payload) => {
     finally {
         client.release();
     }
-};
-const triggerAssessmentEmbedding = (assessmentId) => {
-    if (!Number.isInteger(assessmentId))
-        return;
-    aiWorkerService.embedAssessment(assessmentId).catch((error) => {
-        console.warn(`Failed to embed assessment ${assessmentId}:`, error instanceof Error ? error.message : error);
-    });
 };
 export const listAssessments = async (req, res) => {
     try {
@@ -1024,7 +1027,6 @@ export const createAssessmentFromAi = async (req, res) => {
             prompt: req.body.prompt || "",
             questions,
         });
-        triggerAssessmentEmbedding(Number(assessment.assessment_id));
         return res.status(201).json({ success: true, data: assessment, question_count: questions.length });
     }
     catch (error) {
@@ -1054,7 +1056,6 @@ export const createAssessmentFromCsv = async (req, res) => {
             source_file: req.body.source_file || "browser-upload.csv",
             questions,
         });
-        triggerAssessmentEmbedding(Number(assessment.assessment_id));
         return res.status(201).json({ success: true, data: assessment, question_count: questions.length });
     }
     catch (error) {
@@ -1173,7 +1174,6 @@ export const createAssessmentFromUpload = async (req, res) => {
             source_file: file.filename,
             questions: enrichedQuestions,
         });
-        triggerAssessmentEmbedding(Number(assessment.assessment_id));
         return res.status(201).json({
             success: true,
             data: assessment,

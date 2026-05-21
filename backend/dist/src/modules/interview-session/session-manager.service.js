@@ -1,4 +1,4 @@
-import { pool } from "../lib/database";
+import { pool } from "../../lib/database";
 import { SessionState, EnterpriseError } from "../../common/types";
 import crypto from "crypto";
 export class SessionManagementService {

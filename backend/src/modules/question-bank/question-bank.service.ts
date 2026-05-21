@@ -1,5 +1,5 @@
 
-import { pool } from "../lib/database";
+import { pool } from "../../lib/database";
 import crypto from "crypto";
 import { geminiService } from "../../services/gemini.service";
 import { QuestionBankEntry, DifficultyLevel, CognitiveLevel, EnterpriseError, SimilarityResult } from "../../common/types";

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { config } from "../config/env.config";
 
 export type AuthenticatedRequest = Request & {
   user?: {
@@ -16,13 +17,7 @@ export type AuthenticatedRequest = Request & {
 // INTERNAL HELPER - SAFE SECRET ACCESS
 // -----------------------------------------------------------------------------
 export const getJwtSecret = (): string => {
-  const secret = process.env.JWT_SECRET;
-
-  if (!secret) {
-    throw new Error("[AUTH] Missing JWT_SECRET");
-  }
-
-  return secret;
+  return config.JWT_SECRET;
 };
 
 // -----------------------------------------------------------------------------

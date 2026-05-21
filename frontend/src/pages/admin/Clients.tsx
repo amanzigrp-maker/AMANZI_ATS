@@ -239,7 +239,6 @@ const Clients = () => {
 
   useEffect(() => {
     fetchClients();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

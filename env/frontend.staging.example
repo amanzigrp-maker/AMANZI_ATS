@@ -1,0 +1,5 @@
+VITE_APP_ENV=staging
+VITE_APP_NAME=Amanzi ATS Staging
+VITE_API_BASE_URL=https://staging-api.example.com
+VITE_PYTHON_WORKER_BASE_URL=https://staging-worker.example.com
+VITE_SECURE_BROWSER_REQUIRED=false

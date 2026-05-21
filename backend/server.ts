@@ -1,29 +1,26 @@
-// --- Reload triggered ---
 // -----------------------------------------------------------------------------
 // ENV SETUP (MUST BE FIRST)
 // -----------------------------------------------------------------------------
-import dotenv from "dotenv";
+import { config, isProduction } from "./src/config/env.config";
+import { initializeSentry } from "./src/config/sentry.config";
+initializeSentry();
+
+import { installConsoleFilters } from "./src/lib/logging";
+installConsoleFilters();
+
 import { fileURLToPath } from "url";
 import path from "path";
-import { installConsoleFilters } from "./src/lib/logging";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-dotenv.config({
-  path: path.join(__dirname, "..", ".env"),
-  override: true
-});
-
-installConsoleFilters();
 
 // -----------------------------------------------------------------------------
 // CORE IMPORTS
 // -----------------------------------------------------------------------------
 import express from "express";
-import cors from "cors";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import { getSocketIOSecurityConfig, setupSecurityMiddleware, authRateLimiter, uploadRateLimiter } from "./src/middleware/security-hardening.middleware";
 
 // -----------------------------------------------------------------------------
 // INTERNAL IMPORTS
@@ -60,34 +57,33 @@ import { ExamResumptionModule } from "./src/modules/exam-resumption/exam-resumpt
 // -----------------------------------------------------------------------------
 const app = express();
 const httpServer = createServer(app);
-const io = new Server(httpServer, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
+const io = new Server(httpServer, getSocketIOSecurityConfig());
 
-const PORT = Number(process.env.PORT) || 3003;
+const PORT = config.PORT;
 
 // -----------------------------------------------------------------------------
 // MIDDLEWARE
 // -----------------------------------------------------------------------------
-app.use(cors());
+setupSecurityMiddleware(app);
 
 app.get("/favicon.ico", (_, res) => res.sendStatus(204));
-app.get("/api/health", (_, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
-
-app.use(express.json({ limit: "100mb" }));
-app.use(express.urlencoded({ limit: "100mb", extended: true }));
+app.get("/api/health", async (_, res) => {
+  const dbStatus = await testConnection();
+  if (dbStatus) {
+    res.json({ status: "ok", timestamp: new Date().toISOString(), db: "connected" });
+  } else {
+    res.status(503).json({ status: "error", timestamp: new Date().toISOString(), db: "disconnected" });
+  }
+});
 
 // -----------------------------------------------------------------------------
 // ROUTES
 // -----------------------------------------------------------------------------
-app.use("/api/auth", authRoutes);
-app.use("/api/auth", passwordResetRoutes);
+app.use("/api/auth", authRateLimiter, authRoutes);
+app.use("/api/auth", authRateLimiter, passwordResetRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/admin", adminRoutes);
-app.use("/api/resumes", resumeRoutes);
+app.use("/api/resumes", uploadRateLimiter, resumeRoutes);
 app.use("/api/candidates", candidateRoutes);
 app.use("/api/jobs", jobRoutes);
 app.use("/api/dashboard", dashboardRoutes);
@@ -110,6 +106,9 @@ setupSocketHandlers(io);
 // -----------------------------------------------------------------------------
 // GLOBAL ERROR HANDLER
 // -----------------------------------------------------------------------------
+import * as Sentry from "@sentry/node";
+Sentry.setupExpressErrorHandler(app);
+
 app.use(
   (
     err: any,
@@ -190,6 +189,9 @@ const bootstrapServer = async () => {
       console.log(`📡 Server running on port ${PORT}`);
       console.log(`🌍 Accessible at http://<YOUR-EC2-IP>:${PORT}`);
       console.log("⚡ ATS Monolithic Application ready with Socket.io!");
+      if (process.send) {
+        process.send("ready");
+      }
     });
 
     console.log("🤖 Initializing AI Worker in background...");

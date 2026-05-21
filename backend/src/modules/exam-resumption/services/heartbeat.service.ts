@@ -45,11 +45,15 @@ export class HeartbeatService {
      */
     public static async detectMissingHeartbeats(): Promise<void> {
         try {
+            // Qualify columns and use EXISTS for better performance/reliability
             const result = await pool.query(`
-                SELECT session_id FROM exam_snapshots 
-                WHERE is_active = true 
-                AND last_heartbeat_at < NOW() - INTERVAL '45 seconds'
-                AND session_id IN (SELECT id FROM interview_sessions WHERE state = 'ACTIVE')
+                SELECT s.session_id FROM exam_snapshots s
+                WHERE s.is_active = true 
+                AND s.last_heartbeat_at < NOW() - INTERVAL '45 seconds'
+                AND EXISTS (
+                    SELECT 1 FROM interview_sessions i 
+                    WHERE i.id = s.session_id AND i.state = 'ACTIVE'
+                )
             `);
 
             for (const row of result.rows) {

@@ -9,150 +9,17 @@ import path from 'path';
 import fs from 'fs/promises';
 import axios from 'axios';
 import { logDebug, logInfo, logWarn, shouldLog } from '../lib/logging';
+import { config } from '../config/env.config';
 
 export class AIWorkerService {
   private pythonProcess: ChildProcess | null = null;
   private isInitialized = false;
 
   private readonly pythonWorkerPath: string;
-  private readonly baseUrl = 'http://127.0.0.1:8001';
+  private readonly baseUrl = config.PYTHON_WORKER_BASE_URL;
 
   constructor() {
     this.pythonWorkerPath = path.join(process.cwd(), '..', 'python-worker');
-  }
-
-  async embedJob(jobId: number): Promise<void> {
-    if (!this.isInitialized) {
-      logWarn('embedJob skipped: AI Worker Service not initialized');
-      return;
-    }
-
-    if (!Number.isInteger(jobId)) {
-      logWarn('embedJob skipped: invalid jobId', jobId);
-      return;
-    }
-
-    try {
-      const response = await axios.post(
-        `${this.baseUrl}/api/embed-job`,
-        { job_id: jobId },
-        {
-          timeout: 90_000,
-          headers: { 'Content-Type': 'application/json' },
-          validateStatus: (status) => status < 500,
-        }
-      );
-
-      if (response.status >= 400) {
-        logWarn(`embedJob failed | job_id=${jobId} | status=${response.status}`, response.data);
-        return;
-      }
-
-      logDebug(`embedJob queued/updated | job_id=${jobId}`);
-    } catch (err: any) {
-      logWarn(`embedJob error | job_id=${jobId}`, err?.response?.data || err.message);
-    }
-  }
-
-  async embedAssessment(assessmentId: number): Promise<void> {
-    if (!this.isInitialized) {
-      logWarn('embedAssessment skipped: AI Worker Service not initialized');
-      return;
-    }
-
-    if (!Number.isInteger(assessmentId)) {
-      logWarn('embedAssessment skipped: invalid assessmentId', assessmentId);
-      return;
-    }
-
-    try {
-      const response = await axios.post(
-        `${this.baseUrl}/api/embed-assessment`,
-        { assessment_id: assessmentId },
-        {
-          timeout: 90_000,
-          headers: { 'Content-Type': 'application/json' },
-          validateStatus: (status) => status < 500,
-        }
-      );
-
-      if (response.status >= 400) {
-        logWarn(`embedAssessment failed | assessment_id=${assessmentId} | status=${response.status}`, response.data);
-        return;
-      }
-
-      logDebug(`embedAssessment queued/updated | assessment_id=${assessmentId}`);
-    } catch (err: any) {
-      logWarn(`embedAssessment error | assessment_id=${assessmentId}`, err?.response?.data || err.message);
-    }
-  }
-
-  async semanticQuestionSearch(
-    assessmentId: number,
-    queryText: string,
-    topK: number = 8,
-    excludeQuestionIds: number[] = []
-  ): Promise<any[]> {
-    if (!this.isInitialized) return [];
-    if (!Number.isInteger(assessmentId) || !String(queryText || '').trim()) return [];
-
-    try {
-      const response = await axios.post(
-        `${this.baseUrl}/api/semantic/question-search`,
-        {
-          assessment_id: assessmentId,
-          query_text: queryText,
-          top_k: topK,
-          exclude_question_ids: excludeQuestionIds,
-        },
-        {
-          timeout: 30_000,
-          headers: { 'Content-Type': 'application/json' },
-          validateStatus: (status) => status < 500,
-        }
-      );
-
-      if (response.status >= 400) {
-        logWarn(`semanticQuestionSearch failed | assessment_id=${assessmentId} | status=${response.status}`, response.data);
-        return [];
-      }
-
-      return Array.isArray(response.data?.matches) ? response.data.matches : [];
-    } catch (err: any) {
-      logWarn(`semanticQuestionSearch error | assessment_id=${assessmentId}`, err?.response?.data || err.message);
-      return [];
-    }
-  }
-
-  async semanticCandidateContext(candidateEmail: string, queryText: string, topK: number = 4): Promise<any[]> {
-    if (!this.isInitialized) return [];
-    if (!String(candidateEmail || '').trim() || !String(queryText || '').trim()) return [];
-
-    try {
-      const response = await axios.post(
-        `${this.baseUrl}/api/semantic/candidate-context`,
-        {
-          candidate_email: candidateEmail,
-          query_text: queryText,
-          top_k: topK,
-        },
-        {
-          timeout: 30_000,
-          headers: { 'Content-Type': 'application/json' },
-          validateStatus: (status) => status < 500,
-        }
-      );
-
-      if (response.status >= 400) {
-        logWarn(`semanticCandidateContext failed | candidate_email=${candidateEmail} | status=${response.status}`, response.data);
-        return [];
-      }
-
-      return Array.isArray(response.data?.matches) ? response.data.matches : [];
-    } catch (err: any) {
-      logWarn(`semanticCandidateContext error | candidate_email=${candidateEmail}`, err?.response?.data || err.message);
-      return [];
-    }
   }
 
   async initialize(): Promise<void> {
@@ -205,8 +72,8 @@ export class AIWorkerService {
         cwd: this.pythonWorkerPath,
         env: {
           ...process.env,
-          WORKER_API_HOST: '127.0.0.1',
-          WORKER_API_PORT: '8001',
+          WORKER_API_HOST: config.WORKER_API_HOST,
+          WORKER_API_PORT: String(config.WORKER_API_PORT),
           PYTHONIOENCODING: 'utf-8',
           HF_HUB_DISABLE_PROGRESS_BARS: '1',
           TRANSFORMERS_NO_ADVISORY_WARNINGS: '1',
@@ -307,6 +174,33 @@ export class AIWorkerService {
       console.error('Python parse failed:', err?.response?.data || err.message);
       throw err;
     }
+  }
+
+  async semanticQuestionSearch(
+    assessmentId: number,
+    queryText: string,
+    topK: number,
+    excludeQuestionIds: number[]
+  ): Promise<any[]> {
+    logInfo(`[AIWorkerService] semanticQuestionSearch called for assessmentId=${assessmentId}`);
+    return [];
+  }
+
+  async embedAssessment(assessmentId: number): Promise<void> {
+    logInfo(`[AIWorkerService] embedAssessment called for assessmentId=${assessmentId}`);
+  }
+
+  async semanticCandidateContext(
+    candidateEmail: string,
+    queryText: string,
+    topK: number
+  ): Promise<any[]> {
+    logInfo(`[AIWorkerService] semanticCandidateContext called for ${candidateEmail}`);
+    return [];
+  }
+
+  async embedJob(jobId: number): Promise<void> {
+    logInfo(`[AIWorkerService] embedJob called for jobId=${jobId}`);
   }
 
   async healthCheck(): Promise<boolean> {

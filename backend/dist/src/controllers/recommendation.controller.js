@@ -4,7 +4,8 @@
  * Handles API requests for the candidate recommendation engine
  */
 import { pool } from "../lib/database";
-const PYTHON_WORKER_URL = process.env.PYTHON_WORKER_BASE_URL || "http://127.0.0.1:8001";
+import { config } from "../config/env.config";
+const PYTHON_WORKER_URL = config.PYTHON_WORKER_BASE_URL;
 /**
  * POST /api/recommendations/search
  * Search talent pool for matching candidates
@@ -59,7 +60,8 @@ export const searchTalentPool = async (req, res) => {
 export const generateRecommendations = async (req, res) => {
     try {
         const { jobId } = req.params;
-        const job_id = parseInt(jobId);
+        const jobIdStr = Array.isArray(jobId) ? jobId[0] : jobId;
+        const job_id = parseInt(jobIdStr);
         if (isNaN(job_id)) {
             return res.status(400).json({ error: "Invalid job ID" });
         }
@@ -102,7 +104,8 @@ export const generateRecommendations = async (req, res) => {
 export const getRecommendations = async (req, res) => {
     try {
         const { jobId } = req.params;
-        const job_id = parseInt(jobId);
+        const jobIdStr = Array.isArray(jobId) ? jobId[0] : jobId;
+        const job_id = parseInt(jobIdStr);
         const status = req.query.status;
         const limit = parseInt(req.query.limit) || 50;
         const offset = parseInt(req.query.offset) || 0;
@@ -197,7 +200,8 @@ export const getRecommendations = async (req, res) => {
 export const getRecommendationStats = async (req, res) => {
     try {
         const { jobId } = req.params;
-        const job_id = parseInt(jobId);
+        const jobIdStr = Array.isArray(jobId) ? jobId[0] : jobId;
+        const job_id = parseInt(jobIdStr);
         if (isNaN(job_id)) {
             return res.status(400).json({ error: "Invalid job ID" });
         }
@@ -251,8 +255,10 @@ export const getRecommendationStats = async (req, res) => {
 export const getRecommendationDetail = async (req, res) => {
     try {
         const { jobId, candidateId } = req.params;
-        const job_id = parseInt(jobId);
-        const candidate_id = parseInt(candidateId);
+        const jobIdStr = Array.isArray(jobId) ? jobId[0] : jobId;
+        const candidateIdStr = Array.isArray(candidateId) ? candidateId[0] : candidateId;
+        const job_id = parseInt(jobIdStr);
+        const candidate_id = parseInt(candidateIdStr);
         if (isNaN(job_id) || isNaN(candidate_id)) {
             return res.status(400).json({ error: "Invalid job or candidate ID" });
         }
@@ -333,8 +339,10 @@ export const updateRecommendationStatus = async (req, res) => {
     try {
         const { jobId, candidateId } = req.params;
         const { status } = req.body;
-        const job_id = parseInt(jobId);
-        const candidate_id = parseInt(candidateId);
+        const jobIdStr = Array.isArray(jobId) ? jobId[0] : jobId;
+        const candidateIdStr = Array.isArray(candidateId) ? candidateId[0] : candidateId;
+        const job_id = parseInt(jobIdStr);
+        const candidate_id = parseInt(candidateIdStr);
         if (isNaN(job_id) || isNaN(candidate_id)) {
             return res.status(400).json({ error: "Invalid job or candidate ID" });
         }

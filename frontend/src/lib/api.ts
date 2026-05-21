@@ -57,7 +57,7 @@ const getNewAccessToken = async (): Promise<string | null> => {
  * @returns {Promise<Response>} The fetch response.
  */
 export const authenticatedFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
-  let accessToken = localStorage.getItem('accessToken');
+  const accessToken = localStorage.getItem('accessToken');
 
   // Set Authorization header and Content-Type if a body is present
   const headers = new Headers(options.headers);

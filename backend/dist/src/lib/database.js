@@ -1,28 +1,19 @@
 import { Pool } from "pg";
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
-// Fix __dirname for ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-// Load ENV from the project root .env (three levels up from src/lib)
-dotenv.config({ path: path.join(__dirname, "..", "..", "..", ".env") });
-// Destructure ENV
-const { DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, NODE_ENV, } = process.env;
+import { config, isProduction } from "../config/env.config";
 // -----------------------------------------------------------------------------
 // VALIDATION (NO SILENT FAILURES)
 // -----------------------------------------------------------------------------
 function validateEnv() {
     const missing = [];
-    if (!DB_HOST)
+    if (!config.DB_HOST)
         missing.push("DB_HOST");
-    if (!DB_PORT)
+    if (!config.DB_PORT)
         missing.push("DB_PORT");
-    if (!DB_NAME)
+    if (!config.DB_NAME)
         missing.push("DB_NAME");
-    if (!DB_USER)
+    if (!config.DB_USER)
         missing.push("DB_USER");
-    if (!DB_PASSWORD)
+    if (!config.DB_PASSWORD)
         missing.push("DB_PASSWORD");
     if (missing.length > 0) {
         console.error("❌ Missing ENV variables:");
@@ -38,12 +29,12 @@ validateEnv();
 // CREATE POOL
 // -----------------------------------------------------------------------------
 export const pool = new Pool({
-    host: DB_HOST,
-    port: Number(DB_PORT),
-    database: DB_NAME,
-    user: DB_USER,
-    password: DB_PASSWORD,
-    ssl: NODE_ENV === "production" ? { rejectUnauthorized: false } : false,
+    host: config.DB_HOST,
+    port: config.DB_PORT,
+    database: config.DB_NAME,
+    user: config.DB_USER,
+    password: config.DB_PASSWORD,
+    ssl: isProduction ? { rejectUnauthorized: false } : false,
     max: 10,
     idleTimeoutMillis: 20000,
     connectionTimeoutMillis: 3000,

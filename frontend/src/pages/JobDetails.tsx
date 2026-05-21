@@ -247,7 +247,7 @@ function JobMatches({
           <div>
             <CardTitle className="text-lg">Candidate Matches</CardTitle>
             <CardDescription>
-              Find ranked candidates using semantic matching (pgvector)
+              Find ranked candidates using Gemini AI-driven qualitative matching
             </CardDescription>
           </div>
           <Button onClick={handleFindMatches} disabled={loading} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white">
@@ -385,7 +385,7 @@ function CandidateMatchesCard({ jobId }: { jobId: number }) {
           <div>
             <CardTitle className="text-lg">Candidate Matches</CardTitle>
             <CardDescription>
-              Find ranked candidates using semantic matching (pgvector)
+              Find ranked candidates using Gemini AI-driven qualitative matching
             </CardDescription>
           </div>
           <Button

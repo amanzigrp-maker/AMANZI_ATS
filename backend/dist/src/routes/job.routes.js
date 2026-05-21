@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { verifyToken, isLead } from "../middleware/auth.middleware";
 import { createJob, getJobs, getJobById, getAiCandidatesForJob, updateJob, deleteJob, assignJob, } from "../controllers/job.controller";
-import { getJobMatches, rankJobApplicants } from "../controllers/job-match.controller";
+import { rankJobApplicants } from "../controllers/job-match.controller";
 import jobAssignmentService from "../services/job-assignment.service";
 /**
  * Job Routes
@@ -24,7 +24,6 @@ router.get("/", getJobs);
  * Semantic matches (pgvector only)
  * ==========================================
  */
-router.get("/:job_id/matches", getJobMatches);
 router.get("/:job_id/rank-applicants", rankJobApplicants);
 router.get("/:job_id/ai-candidates", getAiCandidatesForJob);
 /**

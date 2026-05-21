@@ -3,6 +3,7 @@
  * Advanced full-text search for resumes, candidates, and jobs
  */
 import { Client } from '@elastic/elasticsearch';
+import { config } from '../config/env.config';
 
 class ElasticsearchService {
   private client: Client | null = null;
@@ -12,10 +13,10 @@ class ElasticsearchService {
   private indexCandidates: string;
 
   constructor() {
-    this.enabled = process.env.ELASTICSEARCH_ENABLED === 'true';
-    this.indexResumes = process.env.ELASTICSEARCH_INDEX_RESUMES || 'ats_resumes';
-    this.indexJobs = process.env.ELASTICSEARCH_INDEX_JOBS || 'ats_jobs';
-    this.indexCandidates = process.env.ELASTICSEARCH_INDEX_CANDIDATES || 'ats_candidates';
+    this.enabled = config.ELASTICSEARCH_ENABLED;
+    this.indexResumes = config.ELASTICSEARCH_INDEX_RESUMES;
+    this.indexJobs = config.ELASTICSEARCH_INDEX_JOBS;
+    this.indexCandidates = config.ELASTICSEARCH_INDEX_CANDIDATES;
 
     if (this.enabled) {
       this.initialize();
@@ -25,7 +26,7 @@ class ElasticsearchService {
   private async initialize() {
     try {
       this.client = new Client({
-        node: process.env.ELASTICSEARCH_URL || 'http://localhost:9200',
+        node: config.ELASTICSEARCH_URL,
       });
 
       await this.client.ping();
@@ -68,7 +69,7 @@ class ElasticsearchService {
               }
             }
           }
-        });
+        } as any);
 
       }
 
@@ -94,7 +95,7 @@ class ElasticsearchService {
               }
             }
           }
-        });
+        } as any);
 
       }
 
@@ -123,7 +124,7 @@ class ElasticsearchService {
               }
             }
           }
-        });
+        } as any);
 
       }
     } catch (error) {
@@ -302,7 +303,7 @@ class ElasticsearchService {
             }
           }
         }
-      });
+      } as any);
 
       return {
         total: (result.hits.total as any).value,
@@ -405,7 +406,7 @@ class ElasticsearchService {
             }
           }
         }
-      });
+      } as any);
 
       return {
         total: (result.hits.total as any).value,
@@ -444,7 +445,7 @@ class ElasticsearchService {
             }
           }
         }
-      });
+      } as any);
 
       return (result.aggregations?.skills_suggestions as any)?.buckets.map((b: any) => b.key) || [];
     } catch (error) {

@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import pool from '../lib/database.js';
+import { config } from '../config/env.config';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 export class CertificateService {
@@ -19,7 +20,7 @@ export class CertificateService {
         try {
             const page = await browser.newPage();
             // 1. Prepare dynamic data
-            const qrDataUrl = await QRCode.toDataURL(`${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-certificate/${data.certificateId}`, {
+            const qrDataUrl = await QRCode.toDataURL(`${config.FRONTEND_URL}/verify-certificate/${data.certificateId}`, {
                 margin: 1,
                 width: 256
             });

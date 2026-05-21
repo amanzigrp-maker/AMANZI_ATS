@@ -66,9 +66,18 @@ export class ExamResumptionService {
             return;
         const session = result.rows[0];
         if (session.state === SessionState.ACTIVE) {
-            await pool.query("UPDATE interview_sessions SET state = $1, last_activity_at = CURRENT_TIMESTAMP WHERE id = $2", [SessionState.PAUSED, sessionId]);
+            const now = new Date();
+            // We need expires_at to calculate current remaining time accurately
+            const timeRes = await pool.query("SELECT expires_at, remaining_seconds FROM interview_sessions WHERE id = $1", [sessionId]);
+            const sessionData = timeRes.rows[0];
+            let remainingSeconds = sessionData.remaining_seconds;
+            if (sessionData.expires_at) {
+                const expiresAt = new Date(sessionData.expires_at);
+                remainingSeconds = Math.max(0, Math.floor((expiresAt.getTime() - now.getTime()) / 1000));
+            }
+            await pool.query("UPDATE interview_sessions SET state = $1, paused_at = $2, last_activity_at = $3, remaining_seconds = $4 WHERE id = $5", [SessionState.PAUSED, now, now, remainingSeconds, sessionId]);
             // Record the pause in audit
-            await pool.query("INSERT INTO exam_state_audit (session_id, old_state, new_state, reason) VALUES ($1, $2, $3, $4)", [sessionId, SessionState.ACTIVE, SessionState.PAUSED, "Heartbeat timeout"]);
+            await pool.query("INSERT INTO exam_state_audit (session_id, old_state, new_state, reason) VALUES ($1, $2, $3, $4)", [sessionId, SessionState.ACTIVE, SessionState.PAUSED, "Heartbeat timeout (Automatic Disruption Detection)"]);
         }
     }
     static async recordDisruption(sessionId, candidateId, type, ip, fingerprint, isSuspicious, isResume = false) {

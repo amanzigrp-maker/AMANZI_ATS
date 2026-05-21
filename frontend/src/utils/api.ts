@@ -1,8 +1,9 @@
 import axios, { type AxiosRequestHeaders } from 'axios';
+import { frontendConfig } from '@/config/environment';
 
 // Axios instance with global no-cache headers
 const api = axios.create({
-  baseURL: '/',
+  baseURL: frontendConfig.apiBaseUrl,
   withCredentials: true,
   headers: {
     'Cache-Control': 'no-cache',

@@ -335,7 +335,7 @@ export default function DashboardResumeUploader({ onClose, userRole, selectedJob
 
       const result = await response.json();
 
-      let total = files.length;
+      const total = files.length;
       let successCount = 0;
       let duplicateCount = 0;
 

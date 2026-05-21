@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { AdaptiveEngineService, AdaptiveSessionState } from '../services/adaptiveEngine.service';
 import { pool } from '../lib/database';
 import { sendCompletionReport } from './interview.controller';
+import { CertificateService } from '../services/certificate.service';
+import { sendInterviewResults } from '../services/email.service';
 
 // ... (sessionStore stays the same)
 
