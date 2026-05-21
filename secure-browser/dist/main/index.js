@@ -15,8 +15,12 @@ if (process.env.IGNORE_GPU_BLACKLIST === 'true') {
     app.commandLine.appendSwitch('ignore-gpu-blacklist');
 }
 const PROTOCOL = "amanzi-secure-browser";
-const API_BASE_URL = process.env.AMANZI_API_BASE_URL ?? "http://localhost:3003";
-const FRONTEND_BASE_URL = process.env.AMANZI_FRONTEND_URL ?? "http://localhost:8080";
+const API_BASE_URL = process.env.AMANZI_API_BASE_URL ?? (process.env.NODE_ENV === "development"
+    ? "http://localhost:3003"
+    : "http://13.232.152.176:3003");
+const FRONTEND_BASE_URL = process.env.AMANZI_FRONTEND_URL ?? (process.env.NODE_ENV === "development"
+    ? "http://localhost:8080"
+    : "http://13.232.152.176");
 const DEFAULT_URL = process.env.AMANZI_EXAM_URL ?? `${FRONTEND_BASE_URL}/interview`;
 let mainWindow = null;
 let startupUrl = DEFAULT_URL;
@@ -31,15 +35,6 @@ const postSecurityEvent = async (payload) => {
         body: JSON.stringify(payload),
     }).catch(() => undefined);
 };
-// --- PHASE 1: Protocol Registration ---
-import fs from 'fs';
-const logDebug = (msg) => {
-    try {
-        fs.appendFileSync(path.join(app.getPath('userData'), 'deep-link-debug.txt'), new Date().toISOString() + ': ' + msg + '\n');
-    }
-    catch (e) { }
-};
-logDebug(`App started with argv: ${JSON.stringify(process.argv)}`);
 if (process.defaultApp) {
     if (process.argv.length >= 2) {
         app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
@@ -49,29 +44,24 @@ else {
     app.setAsDefaultProtocolClient(PROTOCOL);
 }
 const handleDeepLink = (rawUrl) => {
-    logDebug(`handleDeepLink called with: ${rawUrl}`);
     try {
         const parsed = new URL(rawUrl);
         if (parsed.protocol === `${PROTOCOL}:`) {
             let targetPath = parsed.host + parsed.pathname;
             targetPath = targetPath.replace(/^\/+/, ''); // Remove leading slashes
             const finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
-            logDebug(`Parsed finalUrl: ${finalUrl}`);
             if (mainWindow) {
-                logDebug(`Loading into mainWindow...`);
                 void mainWindow.loadURL(finalUrl);
                 if (mainWindow.isMinimized())
                     mainWindow.restore();
                 mainWindow.focus();
             }
             else {
-                logDebug(`Setting startupUrl...`);
                 startupUrl = finalUrl;
             }
         }
     }
     catch (err) {
-        logDebug(`Deep link error: ${err.message}`);
         console.error("Invalid deep link payload:", err);
     }
 };
@@ -87,7 +77,6 @@ if (!gotTheLock) {
     process.exit(0);
 }
 app.on("second-instance", (event, commandLine) => {
-    logDebug(`second-instance event fired with: ${JSON.stringify(commandLine)}`);
     // Focus window on duplicate launch
     if (mainWindow) {
         if (mainWindow.isMinimized())
@@ -97,7 +86,6 @@ app.on("second-instance", (event, commandLine) => {
     // Parse URL from commandLine for Windows/Linux
     const url = commandLine.find((arg) => arg.startsWith(`${PROTOCOL}://`));
     if (url) {
-        logDebug(`Found url in second-instance: ${url}`);
         handleDeepLink(url);
     }
 });
@@ -106,113 +94,13 @@ app.on("open-url", (event, url) => {
     event.preventDefault();
     handleDeepLink(url);
 });
-const showCrashScreen = (title, message) => {
+import { dialog } from "electron";
+const handleCrash = (title, message) => {
     if (!mainWindow)
         return;
-    // Stop monitoring to prevent secondary triggers
-    try {
-        mainWindow.webContents.removeAllListeners("render-process-gone");
-        mainWindow.webContents.removeAllListeners("did-fail-load");
-    }
-    catch (e) { }
-    const html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Application Crash Diagnostics</title>
-      <style>
-        body {
-          background-color: #020617;
-          color: #f8fafc;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          height: 100vh;
-          margin: 0;
-          padding: 24px;
-          box-sizing: border-box;
-        }
-        .card {
-          background-color: #0f172a;
-          border: 1px solid #ef4444;
-          border-radius: 12px;
-          padding: 32px;
-          max-width: 600px;
-          width: 100%;
-          box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-        }
-        h1 {
-          color: #ef4444;
-          margin-top: 0;
-          font-size: 24px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        p {
-          color: #94a3b8;
-          font-size: 14px;
-          line-height: 1.6;
-        }
-        .details {
-          background-color: #020617;
-          border: 1px solid #334155;
-          border-radius: 6px;
-          padding: 16px;
-          font-family: monospace;
-          font-size: 12px;
-          color: #cbd5e1;
-          margin-top: 16px;
-          white-space: pre-wrap;
-          word-break: break-all;
-        }
-        .actions {
-          margin-top: 24px;
-          display: flex;
-          gap: 12px;
-        }
-        button {
-          background-color: #ef4444;
-          color: white;
-          border: none;
-          padding: 10px 16px;
-          border-radius: 6px;
-          font-weight: bold;
-          cursor: pointer;
-          font-size: 14px;
-        }
-        button:hover {
-          background-color: #dc2626;
-        }
-        button.secondary {
-          background-color: #334155;
-          color: #f8fafc;
-        }
-        button.secondary:hover {
-          background-color: #475569;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="card">
-        <h1>⚠️ ${title}</h1>
-        <p>The secure browser has encountered a critical crash/unresponsive state. Please report this information to your test administrator.</p>
-        <div class="details">${message}</div>
-        <div class="actions">
-          <button onclick="window.location.reload()">Reload Application</button>
-          <button class="secondary" onclick="window.close()">Close Browser</button>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
-    try {
-        mainWindow.setKiosk(false);
-        mainWindow.setFullScreen(false);
-    }
-    catch (e) { }
-    void mainWindow.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+    console.error(`[CRASH] ${title}: ${message}`);
+    dialog.showErrorBox(title, message + "\n\nPlease restart the secure browser.");
+    app.quit();
 };
 const createWindow = () => {
     const isDev = !app.isPackaged || process.env.NODE_ENV === "development" || process.env.DEBUG === "true";
@@ -233,20 +121,17 @@ const createWindow = () => {
     }
     // Task 3: Electron Renderer Crash Logging & Recovery
     mainWindow.webContents.on("render-process-gone", (event, details) => {
-        logDebug(`Renderer process gone. Reason: ${details.reason}, Exit Code: ${details.exitCode}`);
-        showCrashScreen("Renderer Process Gone", `Renderer process terminated unexpectedly.\n\nDetails:\nReason: ${details.reason}\nExit Code: ${details.exitCode}`);
+        handleCrash("Renderer Process Gone", `Renderer process terminated unexpectedly.\n\nDetails:\nReason: ${details.reason}\nExit Code: ${details.exitCode}`);
     });
     app.on("gpu-process-crashed", () => {
-        logDebug("GPU process crashed.");
-        showCrashScreen("GPU Process Crashed", "Chromium GPU process crashed. Try launching with environment flag DISABLE_GPU=true to disable GPU acceleration.");
+        handleCrash("GPU Process Crashed", "Chromium GPU process crashed. Try launching with environment flag DISABLE_GPU=true to disable GPU acceleration.");
     });
     mainWindow.on("unresponsive", () => {
-        logDebug("Main window unresponsive.");
-        showCrashScreen("Renderer Unresponsive", "Renderer process stopped responding. The main threat loop might be blocked or executing an infinite loop.");
+        handleCrash("Renderer Unresponsive", "Renderer process stopped responding. The main threat loop might be blocked or executing an infinite loop.");
     });
     mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
-        logDebug(`did-fail-load: ${validatedURL} (${errorCode}: ${errorDescription})`);
-        showCrashScreen("Page Load Failure", `Failed to load URL: ${validatedURL}\n\nError: ${errorDescription} (${errorCode})`);
+        console.error(`did-fail-load: ${validatedURL} (${errorCode}: ${errorDescription})`);
+        handleCrash("Page Load Failure", `Failed to load URL: ${validatedURL}\n\nError: ${errorDescription} (${errorCode})`);
     });
     mainWindow.once("ready-to-show", () => mainWindow?.show());
     void mainWindow.loadURL(startupUrl);
@@ -278,8 +163,7 @@ const createWindow = () => {
             return;
         const timeSinceLastHeartbeat = Date.now() - lastHeartbeatTime;
         if (timeSinceLastHeartbeat > 15000) {
-            logDebug(`Heartbeat lost. Time since last heartbeat: ${timeSinceLastHeartbeat}ms`);
-            showCrashScreen("Renderer Heartbeat Timeout", "The renderer process has stopped responding. The main loop might be blocked or executing an infinite loop.");
+            handleCrash("Renderer Heartbeat Timeout", "The renderer process has stopped responding. The main loop might be blocked or executing an infinite loop.");
             clearInterval(heartbeatChecker);
         }
     }, 5000);

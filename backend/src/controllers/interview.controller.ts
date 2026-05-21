@@ -928,7 +928,11 @@ export const generateAndSendLink = async (req: Request, res: Response) => {
 
     // 4. Generate link
     // Use environment variable for frontend URL, fallback to localhost if not set
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const frontendUrl = process.env.FRONTEND_URL || (
+      process.env.NODE_ENV === "production" || process.env.APP_ENV === "production"
+        ? 'http://13.232.152.176'
+        : 'http://localhost:8080'
+    );
     const loginUrl = `${frontendUrl}/interview?token=${encodeURIComponent(token)}&candidateId=${candidateId}`;
 
     // 5. Send email
@@ -1016,7 +1020,11 @@ export const inviteCredentials = async (req: Request, res: Response) => {
       ]
     );
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    const frontendUrl = process.env.FRONTEND_URL || (
+      process.env.NODE_ENV === "production" || process.env.APP_ENV === "production"
+        ? 'http://13.232.152.176'
+        : 'http://localhost:8080'
+    );
     await sendInterviewLink(
       candidate.email,
       candidateName,

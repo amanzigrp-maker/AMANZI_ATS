@@ -17,8 +17,16 @@ if (process.env.IGNORE_GPU_BLACKLIST === 'true') {
 }
 
 const PROTOCOL = "amanzi-secure-browser";
-const API_BASE_URL = process.env.AMANZI_API_BASE_URL ?? "http://localhost:3003";
-const FRONTEND_BASE_URL = process.env.AMANZI_FRONTEND_URL ?? "http://localhost:8080";
+const API_BASE_URL = process.env.AMANZI_API_BASE_URL ?? (
+  process.env.NODE_ENV === "development"
+    ? "http://localhost:3003"
+    : "http://13.232.152.176:3003"
+);
+const FRONTEND_BASE_URL = process.env.AMANZI_FRONTEND_URL ?? (
+  process.env.NODE_ENV === "development"
+    ? "http://localhost:8080"
+    : "http://13.232.152.176"
+);
 const DEFAULT_URL = process.env.AMANZI_EXAM_URL ?? `${FRONTEND_BASE_URL}/interview`;
 
 let mainWindow: BrowserWindow | null = null;
@@ -53,8 +61,6 @@ const handleDeepLink = (rawUrl: string) => {
     if (parsed.protocol === `${PROTOCOL}:`) {
       let targetPath = parsed.host + parsed.pathname;
       targetPath = targetPath.replace(/^\/+/, ''); // Remove leading slashes
-      const finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
-      
       const finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
       
       if (mainWindow) {
