@@ -21,12 +21,12 @@ const PROTOCOL = "amanzi-secure-browser";
 const API_BASE_URL = process.env.AMANZI_API_BASE_URL ?? (
   isDev
     ? "http://localhost:3003"
-    : "http://13.232.152.176:3003"
+    : "http://35.154.121.208:3003"
 );
 const FRONTEND_BASE_URL = process.env.AMANZI_FRONTEND_URL ?? (
   isDev
     ? "http://localhost:8080"
-    : "http://13.232.152.176"
+    : "http://35.154.121.208"
 );
 const DEFAULT_URL = process.env.AMANZI_EXAM_URL ?? `${FRONTEND_BASE_URL}/interview`;
 
