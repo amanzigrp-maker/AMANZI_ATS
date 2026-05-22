@@ -32,7 +32,7 @@ const envSchema = z.object({
     PORT: z.coerce.number().int().positive().default(3003),
     HOST: z.string().default("0.0.0.0"),
     FRONTEND_URL: z.string().url().default(process.env.NODE_ENV === "production" || process.env.APP_ENV === "production"
-        ? "http://13.232.152.176"
+        ? "http://35.154.121.208"
         : "http://localhost:8080"),
     API_BASE_URL: optionalUrl,
     DB_HOST: z.string().min(1, "DB_HOST is required"),
