@@ -16,14 +16,15 @@ if (process.env.IGNORE_GPU_BLACKLIST === 'true') {
   app.commandLine.appendSwitch('ignore-gpu-blacklist');
 }
 
+const isDev = !app.isPackaged || process.env.NODE_ENV === "development" || process.env.DEBUG === "true";
 const PROTOCOL = "amanzi-secure-browser";
 const API_BASE_URL = process.env.AMANZI_API_BASE_URL ?? (
-  process.env.NODE_ENV === "development"
+  isDev
     ? "http://localhost:3003"
     : "http://13.232.152.176:3003"
 );
 const FRONTEND_BASE_URL = process.env.AMANZI_FRONTEND_URL ?? (
-  process.env.NODE_ENV === "development"
+  isDev
     ? "http://localhost:8080"
     : "http://13.232.152.176"
 );
@@ -119,8 +120,6 @@ const handleCrash = (title: string, message: string) => {
 };
 
 const createWindow = () => {
-  const isDev = !app.isPackaged || process.env.NODE_ENV === "development" || process.env.DEBUG === "true";
-
   mainWindow = new BrowserWindow({
     fullscreen: true,
     kiosk: true,

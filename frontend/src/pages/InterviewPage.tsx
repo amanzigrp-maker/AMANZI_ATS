@@ -46,7 +46,23 @@ export default function InterviewPage() {
   const navigate = useNavigate();
 
   // State
-  const [status, setStatus] = useState<"login" | "loading" | "verification" | "instructions" | "interviewing" | "completed" | "error">(token ? "loading" : "login");
+  // Determine initial status: if there's a stored session matching the current URL token (or if no token but session exists), start as "loading" to revalidate it. Otherwise, start as "login".
+  const getInitialStatus = () => {
+    const storedToken = localStorage.getItem("interviewToken");
+    const storedUser = localStorage.getItem("interviewUser");
+    if (storedToken && storedUser && storedUser !== "undefined") {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        const activeToken = parsedUser.token || parsedUser.interview_token || parsedUser.jwt;
+        if (!token || activeToken === token || parsedUser.token === token) {
+          return "loading";
+        }
+      } catch (e) {}
+    }
+    return "login";
+  };
+
+  const [status, setStatus] = useState<"login" | "loading" | "verification" | "instructions" | "interviewing" | "completed" | "error">(getInitialStatus());
   const [errorHeader, setErrorHeader] = useState("Invalid Link");
   const [errorMessage, setErrorMessage] = useState("This interview link is invalid or has expired.");
   
@@ -92,48 +108,34 @@ export default function InterviewPage() {
   const [isGeneratingCert, setIsGeneratingCert] = useState(false);
 
 
-  // 1. Validate Token on Mount (Fallback for old flow)
+  // Revalidate existing session from localStorage if token matches or is not present
   useEffect(() => {
-    if (!token) return;
-    const validate = async () => {
-      try {
-        const params = new URLSearchParams({ token });
-        if (candidateIdFromLink) params.set("candidateId", candidateIdFromLink);
-        const res = await fetch(`/api/interview/validate?${params.toString()}`);
-        const data = await res.json();
-        if (res.ok && data.success) {
-          handleAuthSuccess(data.data);
-          if (data.data.total_questions) {
-            setTotalQuestions(data.data.total_questions);
-          }
-        } else {
-          setErrorHeader(data.error || "Access Denied");
-          setErrorMessage(data.message || data.error || "Please contact your recruiter for a new link.");
-          setStatus("error");
-        }
-      } catch (err) {
-        setErrorHeader("Connection Error");
-        setErrorMessage("Could not connect to the assessment server.");
-        setStatus("error");
-      }
-    };
-    validate();
-  }, [token, candidateIdFromLink]);
-
-  useEffect(() => {
-    if (token) return;
-
     const storedToken = localStorage.getItem("interviewToken");
     const storedUser = localStorage.getItem("interviewUser");
     if (!storedToken || !storedUser || storedUser === "undefined") return;
 
+    let parsedUser;
+    try {
+      parsedUser = JSON.parse(storedUser);
+    } catch (e) {
+      return;
+    }
+
+    const activeToken = parsedUser.token || parsedUser.interview_token || parsedUser.jwt;
+    if (!activeToken) return;
+
+    // If there is a token in the URL, only restore if it matches our stored token
+    if (token && parsedUser.token !== token && activeToken !== token) {
+      // Clear different session
+      localStorage.removeItem("interviewToken");
+      localStorage.removeItem("interviewUser");
+      setStatus("login");
+      return;
+    }
+
     // Re-validate with server to get latest authoritative state (especially remaining time)
     const revalidate = async () => {
       try {
-        const parsedUser = JSON.parse(storedUser);
-        const activeToken = parsedUser.token || parsedUser.interview_token || parsedUser.jwt;
-        if (!activeToken) return;
-        
         setInterviewToken(activeToken);
 
         const params = new URLSearchParams({ token: activeToken });
@@ -141,6 +143,8 @@ export default function InterviewPage() {
         const data = await res.json();
         
         if (res.ok && data.success) {
+          localStorage.setItem("interviewToken", data.data.jwt);
+          localStorage.setItem("interviewUser", JSON.stringify(data.data));
           handleAuthSuccess(data.data);
         } else {
           // If token is invalid now, clear storage
@@ -152,7 +156,6 @@ export default function InterviewPage() {
         console.error("Session revalidation error:", error);
         // Fallback to local data if server is down, but this is risky for timers
         try {
-          const parsedUser = JSON.parse(storedUser);
           handleAuthSuccess({ ...parsedUser, jwt: storedToken });
         } catch (e) {}
       }
@@ -176,6 +179,8 @@ export default function InterviewPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         setInterviewToken(data.data.token);
+        localStorage.setItem("interviewToken", data.data.jwt);
+        localStorage.setItem("interviewUser", JSON.stringify(data.data));
         handleAuthSuccess(data.data);
       } else {
         setStatus("login");
