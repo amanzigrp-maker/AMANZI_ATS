@@ -2185,3 +2185,38 @@ export const getSessionSuspicionReport = async (req: Request, res: Response) => 
     return res.status(500).json({ success: false, error: error.message });
   }
 };
+
+/**
+ * Serves the Amanzi Secure Browser setup installer executable.
+ * Creates a mock executable in storage/downloads if it doesn't already exist.
+ */
+export const downloadSecureBrowser = async (req: Request, res: Response) => {
+  try {
+    const downloadDir = path.join(process.cwd(), 'storage', 'downloads');
+    const filePath = path.join(downloadDir, 'Amanzi_Secure_Browser_Setup.exe');
+
+    // Make sure directory exists
+    await fs.mkdir(downloadDir, { recursive: true });
+
+    // Check if file exists
+    let exists = true;
+    try {
+      await fs.access(filePath);
+    } catch {
+      exists = false;
+    }
+
+    if (!exists) {
+      // Create a dummy 1MB buffer and write it
+      const buffer = Buffer.alloc(1024 * 1024);
+      await fs.writeFile(filePath, buffer);
+    }
+
+    res.setHeader('Content-Disposition', 'attachment; filename="Amanzi_Secure_Browser_Setup.exe"');
+    return res.sendFile(path.resolve(filePath));
+  } catch (error: any) {
+    console.error('Download secure browser error:', error);
+    return res.status(500).json({ success: false, error: error.message || 'Failed to download secure browser' });
+  }
+};
+

@@ -18,7 +18,10 @@ import {
   Mail, 
   Loader2, 
   AlertCircle,
-  ShieldAlert
+  ShieldAlert,
+  Download,
+  ArrowRight,
+  ShieldCheck
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -112,33 +115,81 @@ export default function InterviewLogin() {
         </div>
 
         {!isElectron ? (
-          <Card className="bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl rounded-2xl overflow-hidden">
-            <CardHeader className="text-center">
-              <div className="mx-auto w-12 h-12 bg-amber-500/20 rounded-full flex items-center justify-center mb-4 border border-amber-500/30">
-                <ShieldAlert className="w-6 h-6 text-amber-500" />
+          <Card className="bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl rounded-3xl overflow-hidden border">
+            <CardHeader className="text-center pt-8 pb-4">
+              <div className="mx-auto w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4 border border-blue-500/20 shadow-[0_0_20px_rgba(59,130,246,0.15)]">
+                <ShieldCheck className="w-8 h-8 text-blue-500" />
               </div>
-              <CardTitle className="text-white text-xl">Secure Browser Required</CardTitle>
-              <CardDescription className="text-slate-400 mt-2">
-                This assessment can only be accessed using the Amanzi Secure Browser to ensure exam integrity.
+              <CardTitle className="text-white text-2xl font-extrabold tracking-tight font-outfit">
+                Secure Browser Required
+              </CardTitle>
+              <CardDescription className="text-slate-400 mt-2 text-sm max-w-sm mx-auto">
+                To proceed with your assessment, you must install and launch the **Amanzi Secure Browser** application.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-slate-300 text-center px-4">
-                We've attempted to automatically open the Secure Browser. If you do not see a prompt, click the button below.
-              </p>
+
+            <CardContent className="px-6 py-4 space-y-4">
+              {/* Step-by-step Setup Guide */}
+              <div className="space-y-4">
+                {/* Step 1 */}
+                <div className="flex items-start gap-3 p-3 bg-white/5 border border-white/5 rounded-xl">
+                  <div className="w-6 h-6 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400 text-xs font-bold shrink-0 mt-0.5">
+                    1
+                  </div>
+                  <div className="flex-grow">
+                    <h4 className="text-white font-semibold text-xs">Download & Install App</h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Download the installer for your computer to set up the secure assessment client.
+                    </p>
+                    <Button 
+                      asChild
+                      size="sm"
+                      className="mt-2 bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-semibold py-1.5 px-3 rounded-lg shadow-lg active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer w-fit"
+                    >
+                      <a href="/api/interview/download-app" download>
+                        <Download className="w-3 h-3 text-white" />
+                        Download Installer
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Step 2 */}
+                <div className="flex items-start gap-3 p-3 bg-white/5 border border-white/5 rounded-xl">
+                  <div className="w-6 h-6 bg-indigo-500/20 rounded-full flex items-center justify-center text-indigo-400 text-xs font-bold shrink-0 mt-0.5">
+                    2
+                  </div>
+                  <div>
+                    <h4 className="text-white font-semibold text-xs">Launch the Interview</h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Once installed, click the launch button below or use the protocol link to open the portal inside the Secure Browser.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Security Banner */}
+              <div className="p-3 bg-slate-800/30 rounded-xl border border-white/5 text-left flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-[10px] text-slate-400 leading-relaxed">
+                  The secure browser locks virtual environments and recording tools to ensure compliance.
+                </p>
+              </div>
             </CardContent>
-            <CardFooter className="flex flex-col gap-4">
+
+            <CardFooter className="bg-slate-900/60 px-6 py-4 border-t border-white/5 flex flex-col gap-3">
               <Button 
                 asChild
-                className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.2)] transition-all active:scale-[0.98] cursor-pointer"
+                className="w-full h-11 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-[0_0_15px_rgba(37,99,235,0.2)] transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 text-sm"
               >
                 <a href={secureProtocolUrl}>
-                  Launch Amanzi Secure Browser
+                  Launch Secure Browser
+                  <ArrowRight className="w-4.5 h-4.5" />
                 </a>
               </Button>
-              <div className="flex items-center gap-2 justify-center">
+              <div className="flex items-center gap-2 justify-center mt-1">
                 <Lock className="w-3 h-3 text-emerald-500 opacity-60" />
-                <span className="text-[10px] text-slate-500 uppercase font-bold">Encrypted Link</span>
+                <span className="text-[9px] text-slate-500 uppercase font-bold tracking-wider">Encrypted Connection</span>
               </div>
             </CardFooter>
           </Card>

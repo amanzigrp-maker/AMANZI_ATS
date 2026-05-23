@@ -18,7 +18,8 @@ import {
   exportInterviewReport,
   updateCandidateDecision,
   getRecentInvites,
-  getSessionSuspicionReport
+  getSessionSuspicionReport,
+  downloadSecureBrowser
 } from '../controllers/interview.controller';
 import { verifyToken } from '../middleware/auth.middleware';
 import { rateLimiter } from '../middleware/rate-limiter.middleware';
@@ -37,6 +38,9 @@ router.post('/invite-credentials', verifyToken, inviteCredentials);
 
 // 1. Validate link (Public - generates Candidate JWT) - Legacy or alternative option
 router.get('/validate', validateLink);
+
+// Download Secure Browser application installer (Public)
+router.get('/download-app', downloadSecureBrowser);
 
 // 1.5 Login candidate via temporary credentials (JWT Authentication Flow)
 router.post('/login', rateLimiter(15, 60000), candidateLogin);
