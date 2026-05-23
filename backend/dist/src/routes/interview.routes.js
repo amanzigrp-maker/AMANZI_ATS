@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { searchCandidates, generateAndSendLink, validateLink, candidateLogin, inviteCredentials, saveInterviewVerification, confirmInterviewStart, submitInterviewFeedback, generateQuestions, submitAdaptiveAnswer, getQuestions, submitAnswers, processHeartbeat, pauseSession, getInterviewReport, exportInterviewReport, updateCandidateDecision, getRecentInvites, getSessionSuspicionReport } from '../controllers/interview.controller';
+import { searchCandidates, generateAndSendLink, validateLink, candidateLogin, inviteCredentials, saveInterviewVerification, confirmInterviewStart, submitInterviewFeedback, generateQuestions, submitAdaptiveAnswer, getQuestions, submitAnswers, processHeartbeat, pauseSession, getInterviewReport, exportInterviewReport, updateCandidateDecision, getRecentInvites, getSessionSuspicionReport, downloadSecureBrowser } from '../controllers/interview.controller';
 import { verifyToken } from '../middleware/auth.middleware';
 import { rateLimiter } from '../middleware/rate-limiter.middleware';
 const router = Router();
@@ -12,6 +12,8 @@ router.post('/invite-credentials', verifyToken, inviteCredentials);
 // --- Public / Candidate Interview Routes ---
 // 1. Validate link (Public - generates Candidate JWT) - Legacy or alternative option
 router.get('/validate', validateLink);
+// Download Secure Browser application installer (Public)
+router.get('/download-app', downloadSecureBrowser);
 // 1.5 Login candidate via temporary credentials (JWT Authentication Flow)
 router.post('/login', rateLimiter(15, 60000), candidateLogin);
 // 2. Start session & generate questions (Authenticated Candidate)

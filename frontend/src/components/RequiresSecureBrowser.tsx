@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo } from 'react';
 import { Card, CardHeader, CardContent, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, ShieldAlert } from 'lucide-react';
+import { AlertCircle, ShieldAlert, Download, ArrowRight, ShieldCheck } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
 
 export default function RequiresSecureBrowser({ children }: { children: React.ReactNode }) {
   const isElectron = useMemo(() => {
@@ -71,37 +72,121 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
   }
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#020617] p-6">
+    <div className="min-h-screen w-full flex items-center justify-center bg-[#020617] p-6 relative overflow-hidden">
+      {/* Background Gradients */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 blur-[120px] rounded-full" />
+        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-500/10 blur-[130px] rounded-full" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-500/10 blur-[130px] rounded-full" />
       </div>
-      <Card className="bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl rounded-2xl max-w-md w-full overflow-hidden text-center relative z-10">
-        <CardHeader>
-          <div className="mx-auto w-12 h-12 bg-amber-500/20 rounded-full flex items-center justify-center mb-4 border border-amber-500/30">
-            <AlertCircle className="w-6 h-6 text-amber-500" />
-          </div>
-          <CardTitle className="text-white text-xl">Secure Browser Required</CardTitle>
-          <CardDescription className="text-slate-400 mt-2">
-            This assessment can only be accessed using the Amanzi Secure Browser to ensure exam integrity.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-slate-300">
-            We've attempted to automatically open the Secure Browser. If you do not see a prompt, click the button below.
-          </p>
-        </CardContent>
-        <CardFooter>
-          <Button 
-            asChild
-            className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl"
-          >
-            <a href={secureProtocolUrl}>
-              Launch Amanzi Secure Browser
-            </a>
-          </Button>
-        </CardFooter>
-      </Card>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="max-w-2xl w-full relative z-10"
+      >
+        <Card className="bg-slate-900/40 border-white/10 backdrop-blur-3xl shadow-2xl rounded-3xl overflow-hidden border">
+          <CardHeader className="text-center pt-8 pb-4">
+            <div className="mx-auto w-16 h-16 bg-blue-500/10 rounded-2xl flex items-center justify-center mb-4 border border-blue-500/20 shadow-[0_0_20px_rgba(59,130,246,0.15)]">
+              <ShieldCheck className="w-8 h-8 text-blue-500" />
+            </div>
+            <CardTitle className="text-white text-3xl font-extrabold tracking-tight font-outfit">
+              Secure Browser Required
+            </CardTitle>
+            <CardDescription className="text-slate-400 mt-2 text-base max-w-md mx-auto">
+              To proceed with your assessment, you must install and launch the **Amanzi Secure Browser** application.
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent className="px-8 py-6 space-y-6">
+            {/* Step-by-step Setup Guide */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              
+              {/* Step 1 */}
+              <div className="flex flex-col items-center text-center p-5 bg-white/5 border border-white/5 rounded-2xl transition-all duration-300 hover:bg-white/10 hover:border-white/10">
+                <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400 font-bold mb-3 border border-blue-500/20">
+                  1
+                </div>
+                <h3 className="text-white font-semibold text-sm mb-1">Download App</h3>
+                <p className="text-xs text-slate-400 mb-4 flex-grow">
+                  Download the secure browser setup client for your computer.
+                </p>
+                <Button 
+                  asChild
+                  className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold py-2 px-3 rounded-lg shadow-lg active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <a href="/api/interview/download-app" download>
+                    <Download className="w-3.5 h-3.5 text-white" />
+                    Download App
+                  </a>
+                </Button>
+              </div>
+
+              {/* Step 2 */}
+              <div className="flex flex-col items-center text-center p-5 bg-white/5 border border-white/5 rounded-2xl transition-all duration-300 hover:bg-white/10 hover:border-white/10">
+                <div className="w-10 h-10 bg-indigo-500/20 rounded-full flex items-center justify-center text-indigo-400 font-bold mb-3 border border-indigo-500/20">
+                  2
+                </div>
+                <h3 className="text-white font-semibold text-sm mb-1">Install Installer</h3>
+                <p className="text-xs text-slate-400 flex-grow">
+                  Run the downloaded installer to set up the app on your computer.
+                </p>
+                <div className="mt-4 text-[10px] text-slate-500 uppercase tracking-widest font-bold bg-white/5 px-2.5 py-1 rounded-full border border-white/5">
+                  Setup Process
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="flex flex-col items-center text-center p-5 bg-white/5 border border-white/5 rounded-2xl transition-all duration-300 hover:bg-white/10 hover:border-white/10">
+                <div className="w-10 h-10 bg-purple-500/20 rounded-full flex items-center justify-center text-purple-400 font-bold mb-3 border border-purple-500/20">
+                  3
+                </div>
+                <h3 className="text-white font-semibold text-sm mb-1">Launch Interview</h3>
+                <p className="text-xs text-slate-400 mb-4 flex-grow">
+                  Launch the app using the button below or direct link.
+                </p>
+                <Button 
+                  asChild
+                  variant="outline"
+                  className="w-full border-slate-700 hover:border-slate-600 bg-slate-800/40 text-slate-300 hover:text-white text-xs font-semibold py-2 px-3 rounded-lg active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <a href={secureProtocolUrl}>
+                    Launch App
+                  </a>
+                </Button>
+              </div>
+
+            </div>
+
+            {/* Why Secure Browser Card */}
+            <div className="p-4 bg-slate-800/30 rounded-2xl border border-white/5 text-left flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-bold text-slate-300 uppercase tracking-wider">Exam Environment Security</p>
+                <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                  The Secure Browser restricts virtual machines, unauthorized screen recording or casting software, and external browser extensions to verify candidate identity and ensure a balanced, verified exam environment.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+
+          <CardFooter className="bg-slate-900/60 px-8 py-5 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-4">
+            <span className="text-[11px] text-slate-500 uppercase font-bold tracking-wider">
+              Ready to begin?
+            </span>
+            <Button 
+              asChild
+              className="w-full md:w-auto h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-6 rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.25)] transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
+            >
+              <a href={secureProtocolUrl}>
+                Launch Amanzi Secure Browser
+                <ArrowRight className="w-4 h-4" />
+              </a>
+            </Button>
+          </CardFooter>
+        </Card>
+      </motion.div>
     </div>
   );
 }
+
