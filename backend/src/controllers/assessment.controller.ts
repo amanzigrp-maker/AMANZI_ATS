@@ -948,8 +948,55 @@ const createAssessmentWithQuestions = async (
       }
     }
 
+    // Automatically generate reusable question paper snapshot in the library
+    try {
+      const { QuestionPaperService } = await import("../services/question-paper.service");
+      await QuestionPaperService.saveQuestionPaperSnapshot(client, {
+        title: payload.title,
+        description: payload.description || "",
+        created_by: getUserId(req),
+        assessment_id: assessment.rows[0].assessment_id,
+        subject: payload.role || "General",
+        questions: payload.questions
+      });
+    } catch (paperErr) {
+      console.error("⚠️ Failed to generate question paper library entry:", paperErr);
+    }
+
     await client.query("COMMIT");
-    return assessment.rows[0];
+
+    // Auto Question Shelf System integration (Synchronous)
+    const questionsToSync = payload.questions.map((q) => ({
+      question_text: q.question_text,
+      options: q.options,
+      correct_option: q.correct_option,
+      difficulty: q.difficulty,
+      topic: q.topic || payload.role || payload.title || "General",
+      explanation: q.explanation || ""
+    }));
+
+    let shelfAddedCount = 0;
+    let shelfSkippedCount = 0;
+
+    try {
+      const { QuestionShelfService } = await import("../modules/question-bank/question-shelf.service");
+      for (const q of questionsToSync) {
+        const wasAdded = await QuestionShelfService.saveQuestionToShelf(q, q.topic, payload.title);
+        if (wasAdded) {
+          shelfAddedCount++;
+        } else {
+          shelfSkippedCount++;
+        }
+      }
+    } catch (shelfErr) {
+      console.error("⚠️ Question Shelf synchronization failed:", shelfErr);
+    }
+
+    return {
+      assessment: assessment.rows[0],
+      shelf_added_count: shelfAddedCount,
+      shelf_skipped_count: shelfSkippedCount
+    };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => { });
     throw error;
@@ -1183,7 +1230,7 @@ export const createAssessmentFromAi = async (req: Request, res: Response) => {
     const questions = await generateAiQuestions(req.body.role || "", req.body.topic || "", count, req.body.prompt || "", experienceYears);
 
     console.log(`✅ Generated ${questions.length} questions. Creating assessment...`);
-    const assessment = await createAssessmentWithQuestions(req, {
+    const { assessment, shelf_added_count, shelf_skipped_count } = await createAssessmentWithQuestions(req, {
       title: req.body.title || `${req.body.role || "General"} assessment`,
       description: req.body.description || req.body.prompt || "",
       role: req.body.role || "",
@@ -1193,9 +1240,13 @@ export const createAssessmentFromAi = async (req: Request, res: Response) => {
       questions,
     });
 
-
-
-    return res.status(201).json({ success: true, data: assessment, question_count: questions.length });
+    return res.status(201).json({
+      success: true,
+      data: assessment,
+      question_count: questions.length,
+      shelf_added_count,
+      shelf_skipped_count
+    });
   } catch (error: any) {
     console.error("❌ createAssessmentFromAi failed:", error);
     return res.status(400).json({
@@ -1216,7 +1267,7 @@ export const createAssessmentFromCsv = async (req: Request, res: Response) => {
       });
     }
 
-    const assessment = await createAssessmentWithQuestions(req, {
+    const { assessment, shelf_added_count, shelf_skipped_count } = await createAssessmentWithQuestions(req, {
       title: req.body.title || "Uploaded assessment",
       description: req.body.description || "",
       role: req.body.role || "",
@@ -1226,9 +1277,13 @@ export const createAssessmentFromCsv = async (req: Request, res: Response) => {
       questions,
     });
 
-
-
-    return res.status(201).json({ success: true, data: assessment, question_count: questions.length });
+    return res.status(201).json({
+      success: true,
+      data: assessment,
+      question_count: questions.length,
+      shelf_added_count,
+      shelf_skipped_count
+    });
   } catch (error: any) {
     return res.status(400).json({ error: error.message || "Failed to import CSV" });
   }
@@ -1338,7 +1393,7 @@ export const createAssessmentFromUpload = async (req: Request, res: Response) =>
       },
     }));
 
-    const assessment = await createAssessmentWithQuestions(req, {
+    const { assessment, shelf_added_count, shelf_skipped_count } = await createAssessmentWithQuestions(req, {
       title: fields.title || path.basename(file.filename, extension) || "Uploaded assessment",
       description: fields.description || "",
       role: fields.role || "",
@@ -1348,15 +1403,14 @@ export const createAssessmentFromUpload = async (req: Request, res: Response) =>
       questions: enrichedQuestions,
     });
 
-
-
     return res.status(201).json({
       success: true,
       data: assessment,
       question_count: questions.length,
       attempted_questions: attemptedQuestions || questions.length,
       parse_accuracy: parseAccuracy,
-      parser,
+      shelf_added_count,
+      shelf_skipped_count
     });
   } catch (error: any) {
     return res.status(400).json({ error: error.message || "Failed to upload assessment file" });

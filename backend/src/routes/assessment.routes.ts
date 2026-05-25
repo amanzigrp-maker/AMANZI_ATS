@@ -11,10 +11,18 @@ import {
   submitAssessmentAttempt,
   deleteAssessment,
 } from "../controllers/assessment.controller";
+import { QuestionShelfController } from "../controllers/questionShelf.controller";
 
 const router = Router();
 
 router.use(verifyToken);
+
+// Question Shelf Endpoints
+router.get("/shelves", QuestionShelfController.listShelves);
+router.get("/shelves/:category", QuestionShelfController.getShelfDetail);
+router.post("/shelves/:category", QuestionShelfController.addQuestionToShelf);
+router.delete("/shelves/:category/questions", QuestionShelfController.deleteQuestionFromShelf);
+router.delete("/shelves/:category", QuestionShelfController.deleteShelf);
 
 router.post("/ai", createAssessmentFromAi);
 router.post("/csv", createAssessmentFromCsv);

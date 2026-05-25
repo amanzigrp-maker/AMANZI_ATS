@@ -8,13 +8,15 @@ import { motion } from 'framer-motion';
 export default function RequiresSecureBrowser({ children }: { children: React.ReactNode }) {
   const isElectron = useMemo(() => {
     const userAgent = navigator.userAgent.toLowerCase();
-    return userAgent.indexOf('electron') > -1 || userAgent.indexOf('amanzi-secure-browser') > -1;
+    return (
+      userAgent.indexOf('electron') > -1 ||
+      userAgent.indexOf('amanzi-secure-browser') > -1 ||
+      typeof (window as any).amanziSecureBrowser !== 'undefined'
+    );
   }, []);
 
   const secureProtocolUrl = useMemo(() => {
-    const path = window.location.pathname.replace(/^\/+/, '');
-    const search = window.location.search;
-    return `amanzi-secure-browser://${path}${search}`;
+    return `amanzi-secure-browser://launch?url=${encodeURIComponent(window.location.href)}`;
   }, []);
 
   useEffect(() => {

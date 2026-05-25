@@ -60,9 +60,20 @@ const handleDeepLink = (rawUrl: string) => {
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol === `${PROTOCOL}:`) {
-      let targetPath = parsed.host + parsed.pathname;
-      targetPath = targetPath.replace(/^\/+/, ''); // Remove leading slashes
-      const finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
+      const dynamicUrl = parsed.searchParams.get('url');
+      let finalUrl = "";
+      
+      if (dynamicUrl) {
+        finalUrl = dynamicUrl;
+      } else if (parsed.host && (parsed.host.includes("localhost") || parsed.host.includes("127.0.0.1") || parsed.host.includes(":"))) {
+        // If it includes a dynamic dev port/host, load directly
+        finalUrl = `http://${parsed.host}${parsed.pathname}${parsed.search}`;
+      } else {
+        // Fallback to configured FRONTEND_BASE_URL
+        let targetPath = parsed.host + parsed.pathname;
+        targetPath = targetPath.replace(/^\/+/, ''); // Remove leading slashes
+        finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
+      }
       
       if (mainWindow) {
         void mainWindow.loadURL(finalUrl);
@@ -121,8 +132,10 @@ const handleCrash = (title: string, message: string) => {
 
 const createWindow = () => {
   mainWindow = new BrowserWindow({
-    fullscreen: true,
-    kiosk: true,
+    fullscreen: !isDev,
+    kiosk: !isDev,
+    width: isDev ? 1280 : undefined,
+    height: isDev ? 720 : undefined,
     show: false,
     webPreferences: {
       preload: path.join(app.getAppPath(), "dist", "preload", "index.js"),
@@ -136,6 +149,14 @@ const createWindow = () => {
   if (isDev) {
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
+
+  // Append secure browser identification to the user agent
+  const defaultUserAgent = mainWindow.webContents.getUserAgent();
+  mainWindow.webContents.setUserAgent(`${defaultUserAgent} amanzi-secure-browser`);
+
+  mainWindow.webContents.on("dom-ready", () => {
+    mainWindow?.focus();
+  });
 
   // Task 3: Electron Renderer Crash Logging & Recovery
   mainWindow.webContents.on("render-process-gone", (event, details) => {
@@ -167,7 +188,10 @@ const createWindow = () => {
     );
   });
 
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  mainWindow.once("ready-to-show", () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
   void mainWindow.loadURL(startupUrl);
 
   const shortcuts = new GlobalShortcutLockService();
@@ -199,14 +223,14 @@ const createWindow = () => {
   const heartbeatChecker = setInterval(() => {
     if (!mainWindow) return;
     const timeSinceLastHeartbeat = Date.now() - lastHeartbeatTime;
-    if (timeSinceLastHeartbeat > 15000) {
+    if (timeSinceLastHeartbeat > 90000) {
       handleCrash(
         "Renderer Heartbeat Timeout",
         "The renderer process has stopped responding. The main loop might be blocked or executing an infinite loop."
       );
       clearInterval(heartbeatChecker);
     }
-  }, 5000);
+  }, 10000);
 
   mainWindow.on("closed", () => {
     shortcuts.unlock();
