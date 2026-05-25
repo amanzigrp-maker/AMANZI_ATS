@@ -58,3 +58,5 @@ dist-installer/
 *.dmg
 *.zip
 *.tar.gz
+
+secure-browser/dist/
