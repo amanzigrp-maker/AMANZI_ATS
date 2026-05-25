@@ -1,7 +1,10 @@
-import { execFile } from "node:child_process";
-import { platform } from "node:os";
-import { promisify } from "node:util";
-const execFileAsync = promisify(execFile);
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ProcessMonitorService = void 0;
+const node_child_process_1 = require("node:child_process");
+const node_os_1 = require("node:os");
+const node_util_1 = require("node:util");
+const execFileAsync = (0, node_util_1.promisify)(node_child_process_1.execFile);
 const threats = [
     { name: "OBS", match: /\b(obs|obs64)\b/i, category: "screen_capture", action: "close_exam" },
     { name: "AnyDesk", match: /anydesk/i, category: "remote_desktop", action: "close_exam" },
@@ -13,14 +16,14 @@ const threats = [
     { name: "Remote Desktop", match: /(mstsc|vnc|parsecd|chrome remote desktop|rustdesk)/i, category: "remote_desktop", action: "close_exam" },
 ];
 const processListCommand = () => {
-    const os = platform();
+    const os = (0, node_os_1.platform)();
     if (os === "win32")
         return { command: "tasklist.exe", args: ["/FO", "CSV", "/NH"] };
     if (os === "darwin")
         return { command: "ps", args: ["-axo", "comm"] };
     return { command: "ps", args: ["-eo", "comm"] };
 };
-export class ProcessMonitorService {
+class ProcessMonitorService {
     onThreat;
     intervalMs;
     timer = null;
@@ -52,3 +55,4 @@ export class ProcessMonitorService {
         }
     }
 }
+exports.ProcessMonitorService = ProcessMonitorService;

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardHeader, CardContent, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { AlertCircle, ShieldAlert, Download, ArrowRight, ShieldCheck } from 'lucide-react';
@@ -6,9 +6,16 @@ import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 
 export default function RequiresSecureBrowser({ children }: { children: React.ReactNode }) {
+  const [isLaunching, setIsLaunching] = useState(false);
+  const [launchFailed, setLaunchFailed] = useState(false);
+
   const isElectron = useMemo(() => {
     const userAgent = navigator.userAgent.toLowerCase();
-    return userAgent.indexOf('electron') > -1 || userAgent.indexOf('amanzi-secure-browser') > -1;
+    return (
+      userAgent.indexOf('electron') > -1 || 
+      userAgent.indexOf('amanzi-secure-browser') > -1 ||
+      typeof (window as any).amanziSecureBrowser !== 'undefined'
+    );
   }, []);
 
   const secureProtocolUrl = useMemo(() => {
@@ -19,9 +26,40 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
 
   useEffect(() => {
     if (!isElectron) {
-      window.location.href = secureProtocolUrl;
+      // Auto-attempt launch on mount
+      const timer = setTimeout(() => {
+        window.location.href = secureProtocolUrl;
+      }, 1000);
+      return () => clearTimeout(timer);
     }
   }, [isElectron, secureProtocolUrl]);
+
+  const handleLaunch = () => {
+    setIsLaunching(true);
+    setLaunchFailed(false);
+
+    // Attempt to open the custom protocol
+    window.location.href = secureProtocolUrl;
+
+    let hasBlurred = false;
+    const onBlur = () => {
+      hasBlurred = true;
+      setIsLaunching(false);
+    };
+
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('pagehide', onBlur);
+
+    // After 3 seconds, check if window lost focus
+    setTimeout(() => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pagehide', onBlur);
+      if (!hasBlurred) {
+        setIsLaunching(false);
+        setLaunchFailed(true);
+      }
+    }, 3000);
+  };
 
   const [searchParams] = useSearchParams();
   const securityHold = searchParams.get('securityHold');
@@ -98,6 +136,32 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
             </CardDescription>
           </CardHeader>
 
+          {/* Launch Status / Alert Messages */}
+          {(isLaunching || launchFailed) && (
+            <div className="px-8 pb-2">
+              {isLaunching && (
+                <div className="p-4 bg-blue-950/40 border border-blue-500/30 rounded-2xl text-left flex items-center gap-3 text-blue-300 animate-pulse">
+                  <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                  <div className="text-xs">
+                    <p className="font-bold">Attempting to launch Amanzi Secure Browser...</p>
+                    <p className="text-slate-400 mt-0.5">Please click &quot;Open&quot; if prompted by your system.</p>
+                  </div>
+                </div>
+              )}
+              {launchFailed && (
+                <div className="p-4 bg-amber-950/40 border border-amber-500/30 rounded-2xl text-left flex items-start gap-3 text-amber-300">
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-400" />
+                  <div className="text-xs">
+                    <p className="font-bold">Browser didn&apos;t open?</p>
+                    <p className="text-slate-400 mt-0.5">
+                      If the app is already installed, click <strong className="text-white">Launch</strong> again. Otherwise, please download and run the installer below.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           <CardContent className="px-8 py-6 space-y-6">
             {/* Step-by-step Setup Guide */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -146,13 +210,11 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
                   Launch the app using the button below or direct link.
                 </p>
                 <Button 
-                  asChild
+                  onClick={handleLaunch}
                   variant="outline"
-                  className="w-full border-slate-700 hover:border-slate-600 bg-slate-800/40 text-slate-300 hover:text-white text-xs font-semibold py-2 px-3 rounded-lg active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
+                  className="w-full border-slate-700 hover:border-slate-600 bg-slate-800/40 text-slate-300 hover:text-white text-xs font-semibold py-2 px-3 rounded-lg active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <a href={secureProtocolUrl}>
-                    Launch App
-                  </a>
+                  Launch App
                 </Button>
               </div>
 
@@ -171,17 +233,30 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
           </CardContent>
 
           <CardFooter className="bg-slate-900/60 px-8 py-5 border-t border-white/5 flex flex-col md:flex-row items-center justify-between gap-4">
-            <span className="text-[11px] text-slate-500 uppercase font-bold tracking-wider">
-              Ready to begin?
-            </span>
+            <div className="flex flex-col items-start gap-0.5 text-left">
+              <span className="text-[11px] text-slate-400 uppercase font-bold tracking-wider">
+                Already installed?
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Skip downloading and start the exam directly
+              </span>
+            </div>
             <Button 
-              asChild
+              onClick={handleLaunch}
+              disabled={isLaunching}
               className="w-full md:w-auto h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-6 rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.25)] transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"
             >
-              <a href={secureProtocolUrl}>
-                Launch Amanzi Secure Browser
-                <ArrowRight className="w-4 h-4" />
-              </a>
+              {isLaunching ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Launching...
+                </>
+              ) : (
+                <>
+                  Launch Amanzi Secure Browser
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </Button>
           </CardFooter>
         </Card>

@@ -262,27 +262,32 @@ export const sendInterviewLink = async (
   try {
     const displayPassword = password || 'Contact recruiter';
     const transporter = createTransporter();
+    const companyName = config.EMAIL_FROM_NAME || 'Amanzi';
+    const contactEmail = 'support@amanzi.com';
 
     // If email is not configured, log to console for development
     if (!transporter) {
       console.log('\n==============================================');
       console.log('📧 [DEV MODE] Interview Login Details');
       console.log('==============================================');
-      console.log(`To: ${to}`);
-      console.log(`Name: ${name}`);
-      console.log(`Login URL: ${loginUrl}`);
+      console.log(`Dear ${name || 'Candidate'},`);
+      console.log(`\nGreetings from ${companyName}.`);
+      console.log('\nPlease find below the online assessment test details for your further evaluation process.');
+      console.log(`\nAssessment Test Link: ${loginUrl}`);
+      console.log(`Username/User ID: ${to}`);
       console.log(`Password: ${displayPassword}`);
-      console.log(`Duration: ${duration || 'N/A'} mins`);
-      console.log(`Questions: ${questionCount || 'N/A'}`);
-      console.log(`Note: Login details valid for the test duration.`);
+      console.log('\nKindly ensure that you complete the assessment within the stipulated timeline. We request you to use a stable internet connection and attempt the test in a distraction-free environment.');
+      console.log(`\nIn case of any issues while accessing the assessment portal, please feel free to reach out to us.`);
+      console.log('\nWishing you all the best for your assessment.');
+      console.log(`\nRegards,\nAmanzi Hiring Team\nRecruitment Team\n${companyName}\n${contactEmail}`);
       console.log('==============================================\n');
       return;
     }
 
     const mailOptions = {
-      from: `"${config.EMAIL_FROM_NAME}" <${config.EMAIL_USER}>`,
+      from: `"${companyName}" <${config.EMAIL_USER}>`,
       to: to,
-      subject: 'Interview Invitation - Amanzi ATS',
+      subject: `Interview Invitation - ${companyName} ATS`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -292,48 +297,45 @@ export const sendInterviewLink = async (
             .container { max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e5e7eb; border-radius: 12px; }
             .header { text-align: center; padding-bottom: 20px; border-bottom: 1px solid #e5e7eb; }
             .content { padding: 30px 20px; }
-            .button { display: inline-block; padding: 12px 24px; background-color: #4F46E5; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; margin: 20px 0; }
-            .creds { background-color: #f3f4f6; padding: 15px; border-radius: 6px; margin: 15px 0; font-family: monospace; }
-            .warning { background-color: #FFFBEB; border-left: 4px solid #F59E0B; padding: 15px; margin: 25px 0; font-size: 14px; }
+            .creds { background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0; }
+            .creds p { margin: 8px 0; }
             .footer { text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; padding-top: 20px; }
-            .bold { font-weight: 700; color: #111827; }
           </style>
         </head>
         <body>
           <div class="container">
             <div class="header">
-               <h1 style="color: #4F46E5; margin: 0;">Amanzi ATS</h1>
+               <h1 style="color: #4F46E5; margin: 0;">${companyName} ATS</h1>
             </div>
             <div class="content">
-              <p>Dear <span class="bold">${name}</span>,</p>
-              <p>You have been invited for an interview. A temporary account has been created for your assessment.</p>
+              <p>Dear ${name || 'Candidate'},</p>
+              
+              <p>Greetings from ${companyName}.</p>
+              
+              <p>Please find below the online assessment test details for your further evaluation process.</p>
               
               <div class="creds">
-                <p style="margin: 5px 0;"><strong>Email:</strong> ${to}</p>
-                <p style="margin: 5px 0;"><strong>Password:</strong> ${displayPassword}</p>
-                <p style="margin: 5px 0;"><strong>Total Duration:</strong> ${duration || 30} minutes</p>
-                <p style="margin: 5px 0;"><strong>Total Questions:</strong> ${questionCount || 10} questions</p>
+                <p><strong>Assessment Test Link:</strong> <a href="${loginUrl}" style="color: #4F46E5; text-decoration: underline;">Start Assessment</a></p>
+                <p><strong>Username/User ID:</strong> ${to}</p>
+                <p><strong>Password:</strong> ${displayPassword}</p>
               </div>
 
-              <div style="text-align: center;">
-                <a href="${loginUrl}" class="button" style="color: white;">Login to Assessment</a>
-              </div>
-
-              <div class="warning" style="background-color: #FFFBEB; border-left: 4px solid #F59E0B; padding: 15px; margin: 25px 0; font-size: 14px;">
-                <strong>🚨 IMPORTANT SECURITY NOTICE:</strong>
-                <ul style="margin: 10px 0; padding-left: 20px;">
-                  <li>This account is disabled after the test is completed.</li>
-                  <li>Do not share these credentials.</li>
-                  <li>Ensure you have a stable connection before starting.</li>
-                </ul>
-              </div>
-
-              <p>If you have any issues, please contact the recruitment team immediately.</p>
+              <p>Kindly ensure that you complete the assessment within the stipulated timeline. We request you to use a stable internet connection and attempt the test in a distraction-free environment.</p>
               
-              <p>Best regards,<br>Amanzi Recruitment Team</p>
+              <p>In case of any issues while accessing the assessment portal, please feel free to reach out to us.</p>
+              
+              <p>Wishing you all the best for your assessment.</p>
+              
+              <p style="margin-top: 25px; line-height: 1.4;">
+                Regards,<br>
+                <strong>Amanzi Hiring Team</strong><br>
+                Recruitment Team<br>
+                ${companyName}<br>
+                <a href="mailto:${contactEmail}" style="color: #4F46E5; text-decoration: none;">${contactEmail}</a>
+              </p>
             </div>
             <div class="footer">
-              <p>&copy; ${new Date().getFullYear()} Amanzi. All rights reserved.</p>
+              <p>&copy; ${new Date().getFullYear()} ${companyName}. All rights reserved.</p>
               <p>This is an automated message, please do not reply.</p>
             </div>
           </div>
@@ -341,29 +343,27 @@ export const sendInterviewLink = async (
         </html>
       `,
       text: `
-        Interview Invitation - Amanzi ATS
-        
-        Dear ${name},
-        
-        You have been invited for an interview. A temporary account has been created for your assessment.
-        
-        Email: ${to}
-        Password: ${displayPassword}
-        
-        Total Duration: ${duration || 30} minutes
-        Total Questions: ${questionCount || 10} questions
-        
-        Login URL: ${loginUrl}
-        
-        IMPORTANT SECURITY NOTICE:
-        - This account is disabled after the test is completed.
-        - Do not share these credentials.
-        - Ensure you have a stable connection before starting.
-        
-        If you have any issues, please contact the recruitment team immediately.
-        
-        Best regards,
-        Amanzi Recruitment Team
+Dear ${name || 'Candidate'},
+
+Greetings from ${companyName}.
+
+Please find below the online assessment test details for your further evaluation process.
+
+Assessment Test Link: ${loginUrl}
+Username/User ID: ${to}
+Password: ${displayPassword}
+
+Kindly ensure that you complete the assessment within the stipulated timeline. We request you to use a stable internet connection and attempt the test in a distraction-free environment.
+
+In case of any issues while accessing the assessment portal, please feel free to reach out to us.
+
+Wishing you all the best for your assessment.
+
+Regards,
+Amanzi Hiring Team
+Recruitment Team
+${companyName}
+${contactEmail}
       `,
     };
 

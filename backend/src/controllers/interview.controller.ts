@@ -2198,15 +2198,53 @@ export const downloadSecureBrowser = async (req: Request, res: Response) => {
     // Make sure directory exists
     await fs.mkdir(downloadDir, { recursive: true });
 
-    // Check if file exists
-    let exists = true;
+    // Try to find the real installer from the secure-browser dist folder
+    const secureBrowserDistDir = path.join(process.cwd(), '..', 'secure-browser', 'dist');
+    let realInstallerPath: string | null = null;
+    let realInstallerSize = 0;
+
     try {
-      await fs.access(filePath);
-    } catch {
-      exists = false;
+      const files = await fs.readdir(secureBrowserDistDir);
+      const exeFiles = files.filter(f => 
+        (f.startsWith('Amanzi Secure Browser Setup') || f.startsWith('Amanzi_Secure_Browser_Setup')) && 
+        f.endsWith('.exe')
+      );
+      if (exeFiles.length > 0) {
+        // Sort to get the latest/highest version, or just pick the first one
+        exeFiles.sort();
+        const selectedExeFile = exeFiles[exeFiles.length - 1];
+        realInstallerPath = path.join(secureBrowserDistDir, selectedExeFile);
+        const sourceStats = await fs.stat(realInstallerPath);
+        realInstallerSize = sourceStats.size;
+      }
+    } catch (e) {
+      console.log('Could not find secure-browser/dist directory or installer file:', e);
     }
 
-    if (!exists) {
+    // Decide if we need to copy the real installer or write a dummy fallback
+    let shouldCopy = false;
+    let shouldWriteDummy = false;
+
+    try {
+      const destStats = await fs.stat(filePath);
+      if (realInstallerPath && realInstallerSize > 0 && destStats.size !== realInstallerSize) {
+        // Destination exists but size is different (e.g. it is the 1MB dummy or older version)
+        shouldCopy = true;
+      }
+    } catch {
+      // Destination does not exist
+      if (realInstallerPath) {
+        shouldCopy = true;
+      } else {
+        shouldWriteDummy = true;
+      }
+    }
+
+    if (shouldCopy && realInstallerPath) {
+      console.log(`Copying real secure browser installer from ${realInstallerPath} to ${filePath}...`);
+      await fs.copyFile(realInstallerPath, filePath);
+    } else if (shouldWriteDummy) {
+      console.log(`Creating dummy secure browser installer at ${filePath}...`);
       // Create a dummy 1MB buffer and write it
       const buffer = Buffer.alloc(1024 * 1024);
       await fs.writeFile(filePath, buffer);

@@ -1,0 +1,12 @@
+directories:
+  output: dist
+  buildResources: build
+appId: com.amanzi.securebrowser
+productName: Amanzi Secure Browser
+files:
+  - filter:
+      - dist/main/**/*
+      - dist/preload/**/*
+win:
+  target: nsis
+electronVersion: 37.10.3

@@ -1,20 +1,25 @@
-import { app, BrowserWindow, ipcMain } from "electron";
-import path from "node:path";
-import { ProcessMonitorService } from "./security/process-monitor.service.js";
-import { GlobalShortcutLockService } from "./security/global-shortcut-lock.service.js";
-import { SecureUpdateService } from "./updates/secure-update.service.js";
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const electron_1 = require("electron");
+const node_path_1 = __importDefault(require("node:path"));
+const process_monitor_service_js_1 = require("./security/process-monitor.service.js");
+const global_shortcut_lock_service_js_1 = require("./security/global-shortcut-lock.service.js");
+const secure_update_service_js_1 = require("./updates/secure-update.service.js");
 // GPU stability configuration switches (Task 9)
 if (process.env.DISABLE_GPU === 'true' || process.env.AMANZI_DISABLE_GPU === 'true') {
-    app.commandLine.appendSwitch('disable-gpu');
-    app.commandLine.appendSwitch('disable-gpu-compositing');
+    electron_1.app.commandLine.appendSwitch('disable-gpu');
+    electron_1.app.commandLine.appendSwitch('disable-gpu-compositing');
 }
 if (process.env.DISABLE_SOFTWARE_RASTERIZER === 'true') {
-    app.commandLine.appendSwitch('disable-software-rasterizer');
+    electron_1.app.commandLine.appendSwitch('disable-software-rasterizer');
 }
 if (process.env.IGNORE_GPU_BLACKLIST === 'true') {
-    app.commandLine.appendSwitch('ignore-gpu-blacklist');
+    electron_1.app.commandLine.appendSwitch('ignore-gpu-blacklist');
 }
-const isDev = !app.isPackaged || process.env.NODE_ENV === "development" || process.env.DEBUG === "true";
+const isDev = !electron_1.app.isPackaged || process.env.NODE_ENV === "development" || process.env.DEBUG === "true";
 const PROTOCOL = "amanzi-secure-browser";
 const API_BASE_URL = process.env.AMANZI_API_BASE_URL ?? (isDev
     ? "http://localhost:3003"
@@ -38,11 +43,11 @@ const postSecurityEvent = async (payload) => {
 };
 if (process.defaultApp) {
     if (process.argv.length >= 2) {
-        app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [path.resolve(process.argv[1])]);
+        electron_1.app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [node_path_1.default.resolve(process.argv[1])]);
     }
 }
 else {
-    app.setAsDefaultProtocolClient(PROTOCOL);
+    electron_1.app.setAsDefaultProtocolClient(PROTOCOL);
 }
 const handleDeepLink = (rawUrl) => {
     try {
@@ -72,12 +77,12 @@ if (initialUrl) {
     handleDeepLink(initialUrl);
 }
 // --- PHASE 4: Single Instance Lock ---
-const gotTheLock = app.requestSingleInstanceLock();
+const gotTheLock = electron_1.app.requestSingleInstanceLock();
 if (!gotTheLock) {
-    app.quit();
+    electron_1.app.quit();
     process.exit(0);
 }
-app.on("second-instance", (event, commandLine) => {
+electron_1.app.on("second-instance", (event, commandLine) => {
     // Focus window on duplicate launch
     if (mainWindow) {
         if (mainWindow.isMinimized())
@@ -91,25 +96,25 @@ app.on("second-instance", (event, commandLine) => {
     }
 });
 // macOS open-url event
-app.on("open-url", (event, url) => {
+electron_1.app.on("open-url", (event, url) => {
     event.preventDefault();
     handleDeepLink(url);
 });
-import { dialog } from "electron";
+const electron_2 = require("electron");
 const handleCrash = (title, message) => {
     if (!mainWindow)
         return;
     console.error(`[CRASH] ${title}: ${message}`);
-    dialog.showErrorBox(title, message + "\n\nPlease restart the secure browser.");
-    app.quit();
+    electron_2.dialog.showErrorBox(title, message + "\n\nPlease restart the secure browser.");
+    electron_1.app.quit();
 };
 const createWindow = () => {
-    mainWindow = new BrowserWindow({
+    mainWindow = new electron_1.BrowserWindow({
         fullscreen: true,
         kiosk: true,
         show: false,
         webPreferences: {
-            preload: path.join(app.getAppPath(), "dist", "preload", "index.js"),
+            preload: node_path_1.default.join(electron_1.app.getAppPath(), "dist", "preload", "index.js"),
             nodeIntegration: false,
             contextIsolation: true,
             sandbox: true,
@@ -123,7 +128,7 @@ const createWindow = () => {
     mainWindow.webContents.on("render-process-gone", (event, details) => {
         handleCrash("Renderer Process Gone", `Renderer process terminated unexpectedly.\n\nDetails:\nReason: ${details.reason}\nExit Code: ${details.exitCode}`);
     });
-    app.on("gpu-process-crashed", () => {
+    electron_1.app.on("gpu-process-crashed", () => {
         handleCrash("GPU Process Crashed", "Chromium GPU process crashed. Try launching with environment flag DISABLE_GPU=true to disable GPU acceleration.");
     });
     mainWindow.on("unresponsive", () => {
@@ -135,7 +140,7 @@ const createWindow = () => {
     });
     mainWindow.once("ready-to-show", () => mainWindow?.show());
     void mainWindow.loadURL(startupUrl);
-    const shortcuts = new GlobalShortcutLockService();
+    const shortcuts = new global_shortcut_lock_service_js_1.GlobalShortcutLockService();
     shortcuts.lock((accelerator) => {
         void postSecurityEvent({
             eventType: "secure_browser.shortcut_blocked",
@@ -144,7 +149,7 @@ const createWindow = () => {
             payload: { accelerator },
         });
     });
-    const monitor = new ProcessMonitorService((threat) => {
+    const monitor = new process_monitor_service_js_1.ProcessMonitorService((threat) => {
         void postSecurityEvent({
             eventType: "secure_browser.process_detected",
             severity: threat.action === "close_exam" ? "critical" : "high",
@@ -174,21 +179,21 @@ const createWindow = () => {
         mainWindow = null;
     });
 };
-app.whenReady().then(async () => {
-    new SecureUpdateService().configure();
+electron_1.app.whenReady().then(async () => {
+    new secure_update_service_js_1.SecureUpdateService().configure();
     createWindow();
 });
-ipcMain.handle("secure-browser:platform-limitations", () => ({
+electron_1.ipcMain.handle("secure-browser:platform-limitations", () => ({
     shortcutLocking: "Best effort. Alt+Tab, Ctrl+Alt+Delete, Command+Tab, and OS task switching cannot be guaranteed in consumer OS userland.",
     processMonitoring: "Best effort. Requires adequate permissions and can be bypassed by renamed binaries, kernel-level tampering, or external devices.",
     integrity: "Strongest with signed builds, notarization, and external manifest verification.",
 }));
-ipcMain.handle("secure-browser:get-env-flags", () => ({
+electron_1.ipcMain.handle("secure-browser:get-env-flags", () => ({
     ENABLE_TF: process.env.ENABLE_TF !== 'false',
     ENABLE_FACEMESH: process.env.ENABLE_FACEMESH !== 'false',
     ENABLE_PROCTORING: process.env.ENABLE_PROCTORING !== 'false',
     FORCE_CPU: process.env.FORCE_CPU === 'true' || process.env.DISABLE_WEBGL === 'true' || process.env.AMANZI_FORCE_CPU === 'true'
 }));
-ipcMain.on("secure-browser:heartbeat", () => {
+electron_1.ipcMain.on("secure-browser:heartbeat", () => {
     lastHeartbeatTime = Date.now();
 });

@@ -1,6 +1,6 @@
-import electronUpdater from "electron-updater";
-
+import * as electronUpdater from "electron-updater";
 const { autoUpdater } = electronUpdater;
+
 
 export class SecureUpdateService {
   configure() {
