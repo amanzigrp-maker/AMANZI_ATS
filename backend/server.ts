@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// ENV SETUP (MUST BE FIRST)
+// ENV SETUP (MUST BE FIRST) - Reloaded for port 8080 updates
 // -----------------------------------------------------------------------------
 import { config, isProduction } from "./src/config/env.config";
 import { initializeSentry } from "./src/config/sentry.config";
@@ -50,6 +50,8 @@ import adaptiveInterviewRoutes from "./src/routes/adaptiveInterview.routes";
 import assessmentRoutes from "./src/routes/assessment.routes";
 import certificateRoutes from "./src/routes/certificate.routes";
 import sessionRoutes from "./src/routes/session.routes";
+import questionPaperRoutes from "./src/routes/questionPaper.routes";
+import bulkInviteRoutes from "./src/routes/bulkInvite.routes";
 import { ExamResumptionModule } from "./src/modules/exam-resumption/exam-resumption.module";
 
 // -----------------------------------------------------------------------------
@@ -60,6 +62,7 @@ const httpServer = createServer(app);
 const io = new Server(httpServer, getSocketIOSecurityConfig());
 
 const PORT = config.PORT;
+let bulkInviteInterval: NodeJS.Timeout | undefined;
 
 // -----------------------------------------------------------------------------
 // MIDDLEWARE
@@ -97,6 +100,8 @@ app.use("/api/interview/adaptive", adaptiveInterviewRoutes);
 app.use("/api/assessments", assessmentRoutes);
 app.use("/api/certificates", certificateRoutes);
 app.use("/api/session", sessionRoutes);
+app.use("/api/question-papers", questionPaperRoutes);
+app.use("/api/bulk-invites", bulkInviteRoutes);
 
 
 
@@ -148,6 +153,11 @@ if (process.env.NODE_ENV === "production") {
 const gracefulShutdown = async (signal: string) => {
   console.log(`\n🔄 Received ${signal}. Shutting down...`);
 
+  if (bulkInviteInterval) {
+    clearInterval(bulkInviteInterval);
+    console.log("✅ Bulk Invite queue processor stopped");
+  }
+
   // Force exit after 5 seconds if cleanup hangs
   const forceExit = setTimeout(() => {
     console.log("⚠️ Shutdown timed out, forcing exit.");
@@ -184,6 +194,15 @@ const bootstrapServer = async () => {
 
     // Start background workers
     ExamResumptionModule.init();
+
+    bulkInviteInterval = setInterval(async () => {
+      try {
+        const { BulkInviteService } = await import("./src/services/bulk-invite.service");
+        await BulkInviteService.processPendingInvites(5);
+      } catch (err) {
+        console.error("❌ BulkInvite queue processor error:", err);
+      }
+    }, 10000);
 
     httpServer.listen(PORT, "0.0.0.0", () => {
       console.log(`📡 Server running on port ${PORT}`);

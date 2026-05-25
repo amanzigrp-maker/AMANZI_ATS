@@ -38,13 +38,15 @@ export default function InterviewLogin() {
   // Detect if we are inside the Electron Secure Browser
   const isElectron = useMemo(() => {
     const userAgent = navigator.userAgent.toLowerCase();
-    return userAgent.indexOf('electron') > -1 || userAgent.indexOf('amanzi-secure-browser') > -1;
+    return (
+      userAgent.indexOf('electron') > -1 ||
+      userAgent.indexOf('amanzi-secure-browser') > -1 ||
+      typeof (window as any).amanziSecureBrowser !== 'undefined'
+    );
   }, []);
 
   const secureProtocolUrl = useMemo(() => {
-    const path = window.location.pathname.replace(/^\/+/, '');
-    const search = window.location.search;
-    return `amanzi-secure-browser://${path}${search}`;
+    return `amanzi-secure-browser://launch?url=${encodeURIComponent(window.location.href)}`;
   }, []);
 
   useEffect(() => {

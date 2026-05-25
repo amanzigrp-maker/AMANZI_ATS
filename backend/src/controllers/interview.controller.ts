@@ -1105,17 +1105,24 @@ export const candidateLogin = async (req: Request, res: Response) => {
     const fingerprint = req.body.fingerprint || `${req.ip}-${userAgent}`;
     const fingerprintHash = crypto.createHash("sha256").update(fingerprint).digest("hex");
 
-    if (!tokenData.device_id) {
-      await pool.query(
-        'UPDATE interview_tokens SET device_id = $1, fingerprint_hash = $2 WHERE token = $3',
-        [fingerprint, fingerprintHash, tokenData.token]
-      );
-    } else if (tokenData.device_id !== fingerprint && tokenData.fingerprint_hash !== fingerprintHash) {
+    if (tokenData.device_id && tokenData.device_id !== fingerprint && tokenData.fingerprint_hash !== fingerprintHash) {
       // Allow slight variations in UA if fingerprint matches, but here we are strict for production
       return res.status(403).json({
         success: false,
         error: 'Security alert: Access restricted to original device.'
       });
+    }
+
+    if (!tokenData.device_id) {
+      await pool.query(
+        "UPDATE interview_tokens SET device_id = $1, fingerprint_hash = $2, status = 'opened' WHERE token = $3",
+        [fingerprint, fingerprintHash, tokenData.token]
+      );
+    } else {
+      await pool.query(
+        "UPDATE interview_tokens SET status = 'opened' WHERE token = $1",
+        [tokenData.token]
+      );
     }
 
     // 6. Generate Candidate JWT
@@ -1313,6 +1320,9 @@ export const confirmInterviewStart = async (req: Request, res: Response) => {
     
     // Create Initial Snapshot
     await RecoveryEngineService.createSnapshot(Number(session_id), "START");
+
+    // Update token status to started
+    await pool.query("UPDATE interview_tokens SET status = 'started' WHERE token = $1", [interviewToken]);
 
     return res.json({ success: true });
   } catch (error) {
@@ -1540,6 +1550,10 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
         `UPDATE interview_sessions SET is_submitted = true, state = 'SUBMITTED', completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
         [targetCount, score, Number(session_id)]
       );
+      await client.query(
+        `UPDATE interview_tokens SET status = 'completed' WHERE token = (SELECT token FROM interview_sessions WHERE id = $1)`,
+        [Number(session_id)]
+      );
       await client.query('COMMIT');
       void sendCompletionReport(Number(session_id));
       await RecoveryEngineService.createSnapshot(Number(session_id), "SUBMIT");
@@ -1559,6 +1573,10 @@ export const submitAdaptiveAnswer = async (req: Request, res: Response) => {
       await client.query(
         `UPDATE interview_sessions SET is_submitted = true, state = 'SUBMITTED', completed_at = CURRENT_TIMESTAMP, total_questions = $1, score = $2 WHERE id = $3`,
         [targetCount, score, Number(session_id)]
+      );
+      await client.query(
+        `UPDATE interview_tokens SET status = 'completed' WHERE token = (SELECT token FROM interview_sessions WHERE id = $1)`,
+        [Number(session_id)]
       );
       await client.query('COMMIT');
       void sendCompletionReport(Number(session_id));
@@ -1684,6 +1702,10 @@ export const submitAnswers = async (req: Request, res: Response) => {
        SET is_submitted = true, score = $1, total_questions = $2, completed_at = CURRENT_TIMESTAMP 
        WHERE id = $3`,
       [score, configuredTotal, session_id]
+    );
+    await client.query(
+      `UPDATE interview_tokens SET status = 'completed' WHERE token = (SELECT token FROM interview_sessions WHERE id = $1)`,
+      [session_id]
     );
 
     await client.query('COMMIT');
@@ -2154,6 +2176,10 @@ export const processHeartbeat = async (req: Request, res: Response) => {
         "UPDATE interview_sessions SET is_submitted = true, state = 'EXPIRED', completed_at = CURRENT_TIMESTAMP WHERE id = $1 AND is_submitted = false",
         [session_id]
       );
+      await pool.query(
+        "UPDATE interview_tokens SET status = 'expired' WHERE token = (SELECT token FROM interview_sessions WHERE id = $1)",
+        [Number(session_id)]
+      );
       void sendCompletionReport(Number(session_id));
       return res.json({ success: true, ...result, isFinished: true });
     }
@@ -2198,6 +2224,45 @@ export const downloadSecureBrowser = async (req: Request, res: Response) => {
     // Make sure directory exists
     await fs.mkdir(downloadDir, { recursive: true });
 
+    // Try to find the real built installer in the workspace
+    const possiblePaths = [
+      path.resolve(process.cwd(), '..', 'secure-browser', 'dist-installer'),
+      path.resolve(process.cwd(), 'secure-browser', 'dist-installer'),
+    ];
+
+    let foundInstallerPath: string | null = null;
+
+    for (const dir of possiblePaths) {
+      try {
+        const files = await fs.readdir(dir);
+        const installerFile = files.find(f => f.startsWith('Amanzi Secure Browser Setup') && f.endsWith('.exe'));
+        if (installerFile) {
+          foundInstallerPath = path.join(dir, installerFile);
+          break;
+        }
+      } catch (e) {
+        // Directory doesn't exist or couldn't be read
+      }
+    }
+
+    if (foundInstallerPath) {
+      const srcStats = await fs.stat(foundInstallerPath);
+      let shouldCopy = false;
+      try {
+        const destStats = await fs.stat(filePath);
+        if (destStats.size !== srcStats.size) {
+          shouldCopy = true;
+        }
+      } catch {
+        shouldCopy = true;
+      }
+
+      if (shouldCopy) {
+        console.log(`Copying real installer from ${foundInstallerPath} to ${filePath}...`);
+        await fs.copyFile(foundInstallerPath, filePath);
+      }
+    }
+
     // Check if file exists
     let exists = true;
     try {
@@ -2207,7 +2272,7 @@ export const downloadSecureBrowser = async (req: Request, res: Response) => {
     }
 
     if (!exists) {
-      // Create a dummy 1MB buffer and write it
+      // Create a dummy 1MB buffer and write it if no real installer was found
       const buffer = Buffer.alloc(1024 * 1024);
       await fs.writeFile(filePath, buffer);
     }

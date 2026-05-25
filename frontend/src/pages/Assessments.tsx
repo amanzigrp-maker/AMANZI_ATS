@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { AnimatedIcon, IconMap } from "@/components/AnimatedIconsax";
 import QuestionContent from "@/components/QuestionContent";
+import QuestionPaperLibrary from "@/components/QuestionPaperLibrary";
 
 type Assessment = {
   assessment_id: number;
@@ -53,6 +54,7 @@ export default function Assessments() {
   });
   const [csvForm, setCsvForm] = useState({
     title: "Uploaded MCQ Assessment",
+    role: "",
     duration_minutes: "30",
     source_file: "questions.csv",
     csv: sampleCsv,
@@ -62,7 +64,7 @@ export default function Assessments() {
   const [invitingAssessment, setInvitingAssessment] = useState<Assessment | null>(null);
   const [candidateSearch, setCandidateSearch] = useState("");
   const [candidateResults, setCandidateResults] = useState<any[]>([]);
-  const [selectedCandidate, setSelectedCandidate] = useState<any | null>(null);
+  const [selectedCandidates, setSelectedCandidates] = useState<any[]>([]);
   const [searchingCandidates, setSearchingCandidates] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [recentInvites, setRecentInvites] = useState<any[]>([]);
@@ -70,10 +72,108 @@ export default function Assessments() {
   const [manualMode, setManualMode] = useState(false);
   const [manualForm, setManualForm] = useState({ name: "", email: "", phone: "" });
 
+  const handleToggleCandidate = (candidate: any) => {
+    setSelectedCandidates((prev) => {
+      const email = (candidate.email || "").trim().toLowerCase();
+      const exists = prev.some((x) => (x.email || "").trim().toLowerCase() === email);
+      if (exists) {
+        return prev.filter((x) => (x.email || "").trim().toLowerCase() !== email);
+      } else {
+        return [
+          ...prev,
+          {
+            candidate_id: candidate.candidate_id,
+            full_name: candidate.full_name || candidate.name || candidate.candidate_name,
+            email: candidate.email || candidate.candidate_email,
+            phone: candidate.phone || candidate.candidate_phone,
+          },
+        ];
+      }
+    });
+  };
+
+  // Question Shelves States
+  const [shelves, setShelves] = useState<any[]>([]);
+  const [selectedShelf, setSelectedShelf] = useState<string | null>(null);
+  const [shelfQuestions, setShelfQuestions] = useState<any[]>([]);
+  const [loadingShelves, setLoadingShelves] = useState(false);
+  const [loadingShelfDetail, setLoadingShelfDetail] = useState(false);
+  const [shelfSearch, setShelfSearch] = useState("");
+
   const totalQuestions = useMemo(
     () => assessments.reduce((sum, assessment) => sum + Number(assessment.question_count || 0), 0),
     [assessments]
   );
+
+  const fetchShelves = async () => {
+    setLoadingShelves(true);
+    try {
+      const response = await authenticatedFetch("/api/assessments/shelves");
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setShelves(Array.isArray(data.data) ? data.data : []);
+      }
+    } catch (error) {
+      console.error("Failed to load shelves", error);
+    } finally {
+      setLoadingShelves(false);
+    }
+  };
+
+  const loadShelfQuestions = async (category: string) => {
+    setSelectedShelf(category);
+    setLoadingShelfDetail(true);
+    try {
+      const response = await authenticatedFetch(`/api/assessments/shelves/${encodeURIComponent(category)}`);
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setShelfQuestions(Array.isArray(data.data) ? data.data : []);
+      }
+    } catch (error) {
+      console.error("Failed to load shelf questions", error);
+    } finally {
+      setLoadingShelfDetail(false);
+    }
+  };
+
+  const handleDeleteShelfQuestion = async (category: string, hash: string) => {
+    if (!window.confirm("Are you sure you want to delete this question from the shelf? This will remove it from filesystem storage and database.")) return;
+    try {
+      const response = await authenticatedFetch(`/api/assessments/shelves/${encodeURIComponent(category)}/questions?hash=${encodeURIComponent(hash)}`, {
+        method: "DELETE"
+      });
+      if (response.ok) {
+        loadShelfQuestions(category);
+        fetchShelves();
+      } else {
+        const data = await response.json().catch(() => ({}));
+        alert(data.error || "Failed to delete question");
+      }
+    } catch (error) {
+      console.error("Failed to delete question", error);
+    }
+  };
+
+  const handleDeleteShelf = async (category: string) => {
+    if (!window.confirm(`Are you sure you want to delete the entire shelf "${category}" and all its questions? This action cannot be undone.`)) return;
+    try {
+      const response = await authenticatedFetch(`/api/assessments/shelves/${encodeURIComponent(category)}`, {
+        method: "DELETE"
+      });
+      if (response.ok) {
+        if (selectedShelf === category) {
+          setSelectedShelf(null);
+          setShelfQuestions([]);
+        }
+        fetchShelves();
+      } else {
+        const data = await response.json().catch(() => ({}));
+        alert(data.error || "Failed to delete shelf");
+      }
+    } catch (error) {
+      console.error("Failed to delete shelf", error);
+    }
+  };
 
   const fetchAssessments = async () => {
     setLoading(true);
@@ -105,6 +205,7 @@ export default function Assessments() {
   useEffect(() => {
     fetchAssessments();
     fetchRecentInvites();
+    fetchShelves();
   }, []);
 
   const submitAi = async (event: React.FormEvent) => {
@@ -123,8 +224,9 @@ export default function Assessments() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "AI generation failed");
-      setMessage(`Created "${data.data.title}" with ${data.question_count} locked-answer questions.`);
+      setMessage(`Created "${data.data.title}" with ${data.question_count} questions. (Question Shelf: ${data.shelf_added_count ?? 0} added, ${data.shelf_skipped_count ?? 0} duplicates skipped)`);
       await fetchAssessments();
+      await fetchShelves();
     } catch (error: any) {
       setMessage(error.message || "AI generation failed");
     } finally {
@@ -169,9 +271,10 @@ export default function Assessments() {
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "File import failed");
       setMessage(
-        `Imported "${data.data.title}" with ${data.question_count} locked-answer questions. Parse accuracy: ${data.parse_accuracy}%.`
+        `Imported "${data.data.title}" with ${data.question_count} questions (Accuracy: ${data.parse_accuracy}%). (Question Shelf: ${data.shelf_added_count ?? 0} added, ${data.shelf_skipped_count ?? 0} duplicates skipped)`
       );
       await fetchAssessments();
+      await fetchShelves();
     } catch (error: any) {
       setMessage(error.message || "File import failed");
     } finally {
@@ -201,44 +304,77 @@ export default function Assessments() {
     e.preventDefault();
     if (!invitingAssessment) return;
 
-    const inviteData = manualMode
-      ? { email: manualForm.email, name: manualForm.name, phone: manualForm.phone }
-      : selectedCandidate
-        ? { email: selectedCandidate.email, name: selectedCandidate.full_name, phone: selectedCandidate.phone }
-        : null;
+    let candidatesToInvite = [...selectedCandidates];
 
-    if (!inviteData || !inviteData.email || !inviteData.name) {
-      alert("Please provide name and email");
+    // Auto-append manual form inputs if filled but not explicitly added to the list
+    if (manualMode && manualForm.name && manualForm.email) {
+      const email = manualForm.email.trim().toLowerCase();
+      if (!candidatesToInvite.some(x => (x.email || "").trim().toLowerCase() === email)) {
+        candidatesToInvite.push({
+          full_name: manualForm.name.trim(),
+          email: email,
+          phone: manualForm.phone ? manualForm.phone.trim() : undefined
+        });
+      }
+    }
+
+    if (candidatesToInvite.length === 0) {
+      alert("Please select or add at least one candidate recipient.");
       return;
     }
 
     setInviting(true);
     try {
-      const response = await authenticatedFetch("/api/interview/send-link", {
-        method: "POST",
-        body: JSON.stringify({
-          ...inviteData,
-          jobRole: invitingAssessment.role || invitingAssessment.title,
-          assessmentId: invitingAssessment.assessment_id,
-          questionSource: "bank",
-          questionCount: invitingAssessment.question_count,
-          validityMins: 30,
-        }),
-      });
+      if (candidatesToInvite.length === 1) {
+        // Dispatch single invite
+        const c = candidatesToInvite[0];
+        const response = await authenticatedFetch("/api/interview/send-link", {
+          method: "POST",
+          body: JSON.stringify({
+            email: c.email,
+            name: c.full_name,
+            phone: c.phone,
+            jobRole: invitingAssessment.role || invitingAssessment.title,
+            assessmentId: invitingAssessment.assessment_id,
+            questionSource: "bank",
+            questionCount: invitingAssessment.question_count,
+            validityMins: 1440,
+          }),
+        });
 
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Failed to send invite");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Failed to send invitation link.");
+        setMessage(`Invitation link dispatched successfully to ${c.full_name}.`);
+      } else {
+        // Dispatch bulk invite job
+        const response = await authenticatedFetch("/api/bulk-invites", {
+          method: "POST",
+          body: JSON.stringify({
+            name: `Recruiter Dispatch - ${new Date().toLocaleDateString()}`,
+            assessment_id: invitingAssessment.assessment_id,
+            candidates: candidatesToInvite.map(c => ({
+              name: c.full_name,
+              email: c.email,
+              phone: c.phone,
+              job_role: invitingAssessment.role || invitingAssessment.title
+            }))
+          })
+        });
 
-      setMessage(`Invitation sent successfully to ${inviteData.name}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Failed to launch bulk invite dispatch.");
+        setMessage(`Successfully queued bulk invite run for ${candidatesToInvite.length} candidates. Track progress in the Bulk Invite dashboard.`);
+      }
+
       setInviteModalOpen(false);
-      setSelectedCandidate(null);
+      setSelectedCandidates([]);
       setCandidateSearch("");
       setCandidateResults([]);
       setManualMode(false);
       setManualForm({ name: "", email: "", phone: "" });
       fetchRecentInvites();
     } catch (error: any) {
-      alert(error.message);
+      alert(error.message || "Failed to process invitation dispatch.");
     } finally {
       setInviting(false);
     }
@@ -308,7 +444,7 @@ export default function Assessments() {
             </CardHeader>
             <CardContent>
               <Tabs defaultValue="ai" className="w-full">
-                <TabsList className="grid w-full grid-cols-3 bg-slate-100/50 p-1">
+                <TabsList className="grid w-full grid-cols-5 bg-slate-100/50 p-1">
                   <TabsTrigger value="ai" className="gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-600">
                     <AnimatedIcon icon={IconMap.Sparkles} size={16} />
                     AI Gen
@@ -320,6 +456,14 @@ export default function Assessments() {
                   <TabsTrigger value="invite" className="gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-600">
                     <AnimatedIcon icon={IconMap.Send} className="h-4 w-4" />
                     Invite
+                  </TabsTrigger>
+                  <TabsTrigger value="library" className="gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-600">
+                    <AnimatedIcon icon="FileText" size={16} />
+                    Library
+                  </TabsTrigger>
+                  <TabsTrigger value="shelves" className="gap-2 data-[state=active]:bg-white data-[state=active]:text-blue-600" onClick={fetchShelves}>
+                    <AnimatedIcon icon="Folder" size={16} />
+                    Shelves
                   </TabsTrigger>
                 </TabsList>
 
@@ -402,98 +546,151 @@ export default function Assessments() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs font-bold text-slate-500 uppercase">Recipient Details</Label>
-                      <Button variant="ghost" size="sm" className="text-[11px] h-7 text-blue-600" onClick={() => { setManualMode(!manualMode); setSelectedCandidate(null); }}>
+                      <Button variant="ghost" size="sm" className="text-[11px] h-7 text-blue-600" onClick={() => { setManualMode(!manualMode); }}>
                         {manualMode ? "Switch to Search" : "Enter Manually"}
                       </Button>
                     </div>
 
                     {!manualMode ? (
-                      <div className="space-y-2">
+                      <div className="space-y-4">
                         <div className="relative">
                           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
                             <AnimatedIcon icon={IconMap.Search} size={16} />
                           </div>
                           <Input
-                            placeholder="Find candidate by name..."
+                            placeholder="Find candidates by name..."
                             className="pl-10 h-10"
                             value={candidateSearch}
                             onChange={(e) => searchCandidates(e.target.value)}
                           />
-                        </div>
-                        {!selectedCandidate && (candidateSearch.length > 0 || recentInvites.length > 0) && (
-                          <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl divide-y z-50 absolute w-full mt-1">
-                            {candidateSearch.length > 0 ? (
-                              candidateResults.length > 0 ? (
-                                candidateResults.map(c => (
-                                  <div key={c.candidate_id} className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group" onClick={() => setSelectedCandidate(c)}>
-                                    <div className="flex items-center gap-2">
-                                      <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                                        {c.full_name.charAt(0)}
+                          {candidateSearch.length > 0 && (
+                            <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl divide-y z-50 absolute w-full mt-1 left-0 right-0">
+                              {candidateResults.length > 0 ? (
+                                candidateResults.map(c => {
+                                  const isSelected = selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === (c.email || "").trim().toLowerCase());
+                                  return (
+                                    <div key={c.candidate_id} className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group" onClick={() => handleToggleCandidate(c)}>
+                                      <div className="flex items-center gap-3">
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => {}}
+                                          className="h-4 w-4 text-blue-600 border-slate-350 rounded focus:ring-blue-500"
+                                        />
+                                        <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                                          {(c.full_name || "").charAt(0)}
+                                        </div>
+                                        <div>
+                                          <p className="text-sm font-medium">{c.full_name}</p>
+                                          <p className="text-[10px] text-slate-400">{c.email}</p>
+                                        </div>
                                       </div>
-                                      <div>
-                                        <p className="text-sm font-medium">{c.full_name}</p>
-                                        <p className="text-[10px] text-slate-400">{c.email}</p>
-                                      </div>
+                                      <AnimatedIcon icon={IconMap.CheckCircle2} size={16} className={`text-emerald-500 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'} transition-opacity`} />
                                     </div>
-                                    <AnimatedIcon icon={IconMap.CheckCircle2} size={16} className="text-emerald-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                  </div>
-                                ))
-                              ) : !searchingCandidates && (
+                                  );
+                                })
+                              ) : !searchingCandidates ? (
                                 <div className="p-4 text-center text-xs text-slate-400 italic">No candidates found.</div>
-                              )
-                            ) : (
-                              <>
-                                <div className="px-3 py-2 bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Recent Recipients</div>
-                                {recentInvites.slice(0, 5).map((invite, idx) => (
+                              ) : null}
+                              {searchingCandidates && (
+                                <div className="p-4 flex items-center justify-center gap-2 text-xs text-slate-400">
+                                  <AnimatedIcon icon={IconMap.Loader2} size={14} className="animate-spin" /> Searching...
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {candidateSearch.length === 0 && recentInvites.length > 0 && (
+                          <div className="rounded-xl border border-slate-150 bg-slate-50/30 overflow-hidden">
+                            <div className="px-3 py-2 bg-slate-100/60 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                              Recent Recipients
+                            </div>
+                            <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 bg-white">
+                              {recentInvites.slice(0, 5).map((invite, idx) => {
+                                const isSelected = selectedCandidates.some(x => (x.candidate_email || x.email || "").trim().toLowerCase() === (invite.candidate_email || "").trim().toLowerCase());
+                                return (
                                   <div
                                     key={invite.token || idx}
-                                    className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group"
-                                    onClick={() => setSelectedCandidate({
-                                      candidate_id: invite.candidate_id,
-                                      full_name: invite.candidate_name,
-                                      email: invite.candidate_email,
-                                      phone: invite.candidate_phone
-                                    })}
+                                    className="p-2.5 hover:bg-blue-50/40 cursor-pointer flex items-center justify-between group transition-colors"
+                                    onClick={() => handleToggleCandidate(invite)}
                                   >
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-3">
+                                      <input
+                                        type="checkbox"
+                                        checked={isSelected}
+                                        onChange={() => {}}
+                                        className="h-4 w-4 text-blue-600 border-slate-350 rounded focus:ring-blue-500"
+                                      />
                                       <div className="h-7 w-7 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-[10px] font-bold">
-                                        {invite.candidate_name.charAt(0)}
+                                        {(invite.candidate_name || "").charAt(0)}
                                       </div>
                                       <div>
-                                        <p className="text-sm font-medium">{invite.candidate_name}</p>
-                                        <p className="text-[10px] text-slate-400">{invite.candidate_email}</p>
+                                        <p className="text-xs font-bold text-slate-800">{invite.candidate_name}</p>
+                                        <p className="text-[10px] text-slate-400 font-mono">{invite.candidate_email}</p>
                                       </div>
                                     </div>
-                                    <AnimatedIcon icon={IconMap.Send} size={14} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
+                                    <AnimatedIcon icon={IconMap.Send} size={12} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
                                   </div>
-                                ))}
-                              </>
-                            )}
-                            {searchingCandidates && (
-                              <div className="p-4 flex items-center justify-center gap-2 text-xs text-slate-400">
-                                <AnimatedIcon icon={IconMap.Loader2} size={14} className="animate-spin" /> Searching...
-                              </div>
-                            )}
+                                );
+                              })}
+                            </div>
                           </div>
                         )}
                       </div>
                     ) : (
                       <div className="grid gap-3">
-                        <Input placeholder="Full Name" className="h-10" value={manualForm.name} onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })} />
-                        <Input placeholder="Email Address" type="email" className="h-10" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })} />
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input placeholder="Full Name" className="h-10" value={manualForm.name} onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })} />
+                          <Input placeholder="Email Address" type="email" className="h-10" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })} />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          className="h-9 text-xs text-blue-600 border border-blue-100 font-semibold"
+                          onClick={() => {
+                            if (!manualForm.name || !manualForm.email) {
+                              alert("Please enter both name and email");
+                              return;
+                            }
+                            const email = manualForm.email.trim().toLowerCase();
+                            if (selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === email)) {
+                              alert("Candidate already added");
+                              return;
+                            }
+                            setSelectedCandidates(prev => [...prev, {
+                              full_name: manualForm.name.trim(),
+                              email: email,
+                              phone: manualForm.phone
+                            }]);
+                            setManualForm({ name: "", email: "", phone: "" });
+                          }}
+                        >
+                          + Add to Recipients List
+                        </Button>
                       </div>
                     )}
 
-                    {selectedCandidate && (
-                      <div className="p-3 rounded-lg border border-blue-50 bg-blue-50/30 flex items-center justify-between animate-in zoom-in-95">
-                        <div className="flex items-center gap-2">
-                          <div className="h-8 w-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xs font-bold">{selectedCandidate.full_name.charAt(0)}</div>
-                          <div>
-                            <p className="text-sm font-semibold">{selectedCandidate.full_name}</p>
-                            <p className="text-[10px] text-slate-500">{selectedCandidate.email}</p>
-                          </div>
+                    {selectedCandidates.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                          <span>Selected Recipients ({selectedCandidates.length})</span>
+                          <Button variant="link" size="sm" className="h-auto p-0 text-[10px] text-red-500 hover:text-red-600" onClick={() => setSelectedCandidates([])}>Clear List</Button>
                         </div>
-                        <Button variant="ghost" size="sm" className="h-7 text-[10px] text-slate-400" onClick={() => setSelectedCandidate(null)}>Change</Button>
+                        <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200">
+                          {selectedCandidates.map((c, index) => (
+                            <Badge key={c.email || index} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100 py-1 pl-2 pr-1.5 text-xs flex items-center gap-1.5">
+                              <span className="max-w-[120px] truncate">{c.full_name}</span>
+                              <button
+                                type="button"
+                                className="text-blue-400 hover:text-blue-600 font-bold text-[13px] leading-none shrink-0"
+                                onClick={() => setSelectedCandidates(prev => prev.filter((_, idx) => idx !== index))}
+                              >
+                                &times;
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
                       </div>
                     )}
 
@@ -511,7 +708,7 @@ export default function Assessments() {
 
                     <Button
                       className="w-full h-11 bg-blue-600 hover:bg-blue-700 shadow-sm font-semibold"
-                      disabled={(!selectedCandidate && (!manualForm.name || !manualForm.email)) || !invitingAssessment || inviting}
+                      disabled={(selectedCandidates.length === 0 && (!manualForm.name || !manualForm.email)) || !invitingAssessment || inviting}
                       onClick={handleSendInvite}
                     >
                       {inviting ? (
@@ -523,6 +720,221 @@ export default function Assessments() {
                     </Button>
                   </div>
                 </TabsContent>
+
+                {/* Question Shelves Tab Content */}
+                <TabsContent value="shelves" className="mt-5 space-y-6">
+                  {loadingShelves ? (
+                    <div className="flex h-32 items-center justify-center">
+                      <AnimatedIcon icon={IconMap.Loader2} size={24} className="animate-spin text-blue-500" />
+                    </div>
+                  ) : shelves.length === 0 ? (
+                    <div className="py-12 text-center text-sm text-slate-400 italic">
+                      No question shelves created yet. Generate or upload an assessment to auto-create them.
+                    </div>
+                  ) : (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {shelves.map((shelf) => {
+                        const isSelected = selectedShelf === shelf.category;
+                        return (
+                          <div
+                            key={shelf.category}
+                            onClick={() => loadShelfQuestions(shelf.category)}
+                            className={`group cursor-pointer relative rounded-2xl border p-5 transition-all duration-300 hover:shadow-xl hover:-translate-y-1 ${
+                              isSelected
+                                ? "border-blue-500 bg-gradient-to-br from-blue-50 to-indigo-50/50 shadow-md"
+                                : "border-slate-200 bg-white/70 backdrop-blur-md hover:border-blue-300"
+                            }`}
+                          >
+                            <div className="absolute -right-4 -top-4 w-16 h-16 rounded-full bg-blue-400/10 blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                            
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex items-start gap-4 flex-1 min-w-0">
+                                <div className={`p-3 rounded-xl transition-all duration-300 shrink-0 ${
+                                  isSelected ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-blue-50 group-hover:text-blue-500"
+                                }`}>
+                                  <AnimatedIcon icon="Folder" size={24} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <h3 className="font-bold text-slate-900 truncate group-hover:text-blue-600 transition-colors">
+                                    {shelf.category}
+                                  </h3>
+                                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5">
+                                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                    {shelf.count} questions
+                                  </p>
+                                </div>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 w-8 p-0 text-slate-400 hover:bg-red-50 hover:text-red-600 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteShelf(shelf.category);
+                                }}
+                                title="Delete Entire Shelf Folder"
+                              >
+                                <AnimatedIcon icon="Trash" size={16} />
+                              </Button>
+                            </div>
+                            <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
+                              <span>Last active</span>
+                              <span className="font-medium tabular-nums">
+                                {new Date(shelf.lastUpdated).toLocaleDateString(undefined, {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit"
+                                })}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Shelf Detail View Panel */}
+                  {selectedShelf && (
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50/40 p-5 mt-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-slate-200/80 pb-4">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="p-1.5 bg-blue-100 text-blue-600 rounded-lg">
+                              <AnimatedIcon icon="Folder" size={16} />
+                            </span>
+                            <h2 className="text-xl font-bold text-slate-900">{selectedShelf} Category Shelf</h2>
+                          </div>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Browse, search, and manage unique questions automatically archived in this library.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Input
+                            placeholder="Search shelf..."
+                            className="w-full sm:w-64 bg-white h-9 text-xs"
+                            value={shelfSearch}
+                            onChange={(e) => setShelfSearch(e.target.value)}
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-9 text-xs text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700"
+                            onClick={() => handleDeleteShelf(selectedShelf)}
+                          >
+                            Delete Shelf
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-9 text-xs"
+                            onClick={() => { setSelectedShelf(null); setShelfQuestions([]); }}
+                          >
+                            Close
+                          </Button>
+                        </div>
+                      </div>
+
+                      {loadingShelfDetail ? (
+                        <div className="flex h-32 items-center justify-center">
+                          <AnimatedIcon icon={IconMap.Loader2} size={24} className="animate-spin text-blue-500" />
+                        </div>
+                      ) : (
+                        <div className="space-y-4 mt-6">
+                          {(() => {
+                            const filtered = shelfQuestions.filter(q =>
+                              (q.question || "").toLowerCase().includes(shelfSearch.toLowerCase())
+                            );
+
+                            if (filtered.length === 0) {
+                              return (
+                                <div className="py-8 text-center text-xs text-slate-400 italic">
+                                  No questions found matching your search.
+                                </div>
+                              );
+                            }
+
+                            return filtered.map((q, idx) => (
+                              <div
+                                key={q.id || idx}
+                                className="group relative bg-white border border-slate-200 rounded-xl p-5 hover:border-blue-300 hover:shadow-md transition-all duration-300"
+                              >
+                                <div className="flex items-start justify-between gap-4">
+                                  <div className="flex items-start gap-3 flex-1">
+                                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-bold text-slate-500">
+                                      {idx + 1}
+                                    </span>
+                                    <div className="space-y-3 flex-1">
+                                      <p className="text-sm font-semibold text-slate-800 leading-relaxed">
+                                        {q.question}
+                                      </p>
+
+                                      <div className="grid gap-2.5 sm:grid-cols-2">
+                                        {Array.isArray(q.options) &&
+                                          q.options.map((opt: any) => {
+                                            const isCorrect = String(opt.key).toUpperCase() === String(q.correctAnswer).toUpperCase();
+                                            return (
+                                              <div
+                                                key={opt.key}
+                                                className={`rounded-lg border px-3 py-2 text-xs transition-all flex items-center justify-between ${
+                                                  isCorrect
+                                                    ? "border-emerald-200 bg-emerald-50/50 text-emerald-950 font-semibold"
+                                                    : "border-slate-100 bg-slate-50/50 text-slate-600"
+                                                }`}
+                                              >
+                                                <span className="truncate">
+                                                  <span className="mr-2 font-bold opacity-60">{opt.key}.</span>
+                                                  {opt.text}
+                                                </span>
+                                                {isCorrect && (
+                                                  <span className="text-emerald-600 font-bold shrink-0 ml-2">✓</span>
+                                                )}
+                                              </div>
+                                            );
+                                          })}
+                                      </div>
+
+                                      <div className="flex flex-wrap gap-2 pt-1.5 items-center">
+                                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                                          q.difficulty === "basic" ? "bg-emerald-50 text-emerald-700 border-emerald-100" :
+                                          q.difficulty === "medium" ? "bg-blue-50 text-blue-700 border-blue-100" :
+                                          q.difficulty === "advanced" ? "bg-orange-50 text-orange-700 border-orange-100" :
+                                          "bg-red-50 text-red-700 border-red-100"
+                                        }`}>
+                                          {q.difficulty}
+                                        </span>
+                                        {Array.isArray(q.tags) && q.tags.map((tag: string) => (
+                                          <span key={tag} className="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded-full font-medium">
+                                            #{tag}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-8 w-8 p-0 text-slate-400 hover:bg-red-50 hover:text-red-600 shrink-0 self-start"
+                                    onClick={() => handleDeleteShelfQuestion(selectedShelf, q.hash)}
+                                    title="Delete from Shelf"
+                                  >
+                                    <AnimatedIcon icon={IconMap.Trash2} size={14} />
+                                  </Button>
+                                </div>
+                              </div>
+                            ));
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="library" className="mt-5 space-y-4">
+                  <QuestionPaperLibrary onAssessmentCreated={fetchAssessments} />
+                </TabsContent>
+
               </Tabs>
             </CardContent>
           </Card>
@@ -702,35 +1114,95 @@ export default function Assessments() {
                   </div>
 
                   {!manualMode ? (
-                    <div className="relative">
-                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                        <AnimatedIcon icon={IconMap.Search} size={16} />
+                    <div className="relative space-y-2">
+                      <div className="relative">
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                          <AnimatedIcon icon={IconMap.Search} size={16} />
+                        </div>
+                        <Input
+                          placeholder="Search candidates by name..."
+                          className="pl-10"
+                          value={candidateSearch}
+                          onChange={(e) => searchCandidates(e.target.value)}
+                        />
                       </div>
-                      <Input
-                        placeholder="Search by name..."
-                        className="pl-10"
-                        value={selectedCandidate ? selectedCandidate.full_name : candidateSearch}
-                        onChange={(e) => { setSelectedCandidate(null); searchCandidates(e.target.value); }}
-                        readOnly={!!selectedCandidate}
-                      />
-                      {selectedCandidate && (
-                        <Button type="button" variant="ghost" size="sm" className="absolute right-2 top-1/2 -translate-y-1/2 h-7" onClick={() => { setSelectedCandidate(null); setCandidateSearch(""); }}>Clear</Button>
-                      )}
-                      {!selectedCandidate && candidateResults.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 z-10 mt-2 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-xl">
-                          {candidateResults.map(c => (
-                            <div key={c.candidate_id} className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0" onClick={() => setSelectedCandidate(c)}>
-                              <p className="text-sm font-medium">{c.full_name}</p>
-                              <p className="text-xs text-slate-400">{c.email}</p>
-                            </div>
-                          ))}
+                      {candidateSearch.length > 0 && candidateResults.length > 0 && (
+                        <div className="absolute left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-xl divide-y">
+                          {candidateResults.map(c => {
+                            const isSelected = selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === (c.email || "").trim().toLowerCase());
+                            return (
+                              <div key={c.candidate_id} className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between" onClick={() => handleToggleCandidate(c)}>
+                                <div className="flex items-center gap-2.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {}}
+                                    className="h-3.5 w-3.5 text-blue-600 border-slate-300 rounded"
+                                  />
+                                  <div>
+                                    <p className="text-xs font-medium text-slate-900">{c.full_name}</p>
+                                    <p className="text-[10px] text-slate-400">{c.email}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <Input placeholder="Full Name" value={manualForm.name} onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })} />
-                      <Input placeholder="Email Address" type="email" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })} />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input placeholder="Full Name" value={manualForm.name} onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })} />
+                        <Input placeholder="Email Address" type="email" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })} />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-8 text-xs text-blue-600 border border-blue-100 w-full font-semibold"
+                        onClick={() => {
+                          if (!manualForm.name || !manualForm.email) {
+                            alert("Please enter both name and email");
+                            return;
+                          }
+                          const email = manualForm.email.trim().toLowerCase();
+                          if (selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === email)) {
+                            alert("Candidate already added");
+                            return;
+                          }
+                          setSelectedCandidates(prev => [...prev, {
+                            full_name: manualForm.name.trim(),
+                            email: email,
+                            phone: manualForm.phone
+                          }]);
+                          setManualForm({ name: "", email: "", phone: "" });
+                        }}
+                      >
+                        + Add to Recipients
+                      </Button>
+                    </div>
+                  )}
+
+                  {selectedCandidates.length > 0 && (
+                    <div className="space-y-2 pt-2">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase">
+                        <span>Selected Recipients ({selectedCandidates.length})</span>
+                        <Button variant="link" size="sm" className="h-auto p-0 text-[10px] text-red-500" onClick={() => setSelectedCandidates([])}>Clear</Button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-2 bg-slate-50 rounded-lg border border-slate-200">
+                        {selectedCandidates.map((c, index) => (
+                          <Badge key={c.email || index} variant="secondary" className="bg-blue-50 text-blue-700 border-blue-100 py-0.5 pl-1.5 pr-1 text-[11px] flex items-center gap-1">
+                            <span className="max-w-[100px] truncate">{c.full_name}</span>
+                            <button
+                              type="button"
+                              className="text-blue-400 hover:text-blue-600 font-bold"
+                              onClick={() => setSelectedCandidates(prev => prev.filter((_, idx) => idx !== index))}
+                            >
+                              &times;
+                            </button>
+                          </Badge>
+                        ))}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -738,14 +1210,14 @@ export default function Assessments() {
                 <Button
                   type="submit"
                   className="w-full bg-blue-600 hover:bg-blue-700 h-11 font-bold"
-                  disabled={(manualMode ? (!manualForm.name || !manualForm.email) : !selectedCandidate) || inviting}
+                  disabled={(selectedCandidates.length === 0 && (!manualForm.name || !manualForm.email)) || inviting}
                 >
                   {inviting ? (
                     <AnimatedIcon icon={IconMap.Loader2} size={18} className="mr-2 animate-spin" />
                   ) : (
                     <AnimatedIcon icon={IconMap.Send} size={18} className="mr-2" />
                   )}
-                  Confirm and Dispatch Link
+                  Confirm and Dispatch Links
                 </Button>
               </form>
             </CardContent>
