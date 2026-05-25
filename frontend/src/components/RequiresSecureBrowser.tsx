@@ -11,17 +11,11 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
 
   const isElectron = useMemo(() => {
     const userAgent = navigator.userAgent.toLowerCase();
-    return (
-      userAgent.indexOf('electron') > -1 || 
-      userAgent.indexOf('amanzi-secure-browser') > -1 ||
-      typeof (window as any).amanziSecureBrowser !== 'undefined'
-    );
+    return userAgent.indexOf('electron') > -1 || userAgent.indexOf('amanzi-secure-browser') > -1;
   }, []);
 
   const secureProtocolUrl = useMemo(() => {
-    const path = window.location.pathname.replace(/^\/+/, '');
-    const search = window.location.search;
-    return `amanzi-secure-browser://${path}${search}`;
+    return `amanzi-secure-browser://launch?url=${encodeURIComponent(window.location.href)}`;
   }, []);
 
   useEffect(() => {
@@ -92,7 +86,7 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
               </div>
             </CardContent>
             <CardFooter>
-              <Button 
+              <Button
                 onClick={() => {
                   searchParams.delete('securityHold');
                   window.location.search = searchParams.toString();
@@ -165,7 +159,7 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
           <CardContent className="px-8 py-6 space-y-6">
             {/* Step-by-step Setup Guide */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              
+
               {/* Step 1 */}
               <div className="flex flex-col items-center text-center p-5 bg-white/5 border border-white/5 rounded-2xl transition-all duration-300 hover:bg-white/10 hover:border-white/10">
                 <div className="w-10 h-10 bg-blue-500/20 rounded-full flex items-center justify-center text-blue-400 font-bold mb-3 border border-blue-500/20">
@@ -175,7 +169,7 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
                 <p className="text-xs text-slate-400 mb-4 flex-grow">
                   Download the secure browser setup client for your computer.
                 </p>
-                <Button 
+                <Button
                   asChild
                   className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold py-2 px-3 rounded-lg shadow-lg active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
                 >
@@ -209,7 +203,7 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
                 <p className="text-xs text-slate-400 mb-4 flex-grow">
                   Launch the app using the button below or direct link.
                 </p>
-                <Button 
+                <Button
                   onClick={handleLaunch}
                   variant="outline"
                   className="w-full border-slate-700 hover:border-slate-600 bg-slate-800/40 text-slate-300 hover:text-white text-xs font-semibold py-2 px-3 rounded-lg active:scale-[0.98] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
@@ -241,7 +235,7 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
                 Skip downloading and start the exam directly
               </span>
             </div>
-            <Button 
+            <Button
               onClick={handleLaunch}
               disabled={isLaunching}
               className="w-full md:w-auto h-12 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold px-6 rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.25)] transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2"

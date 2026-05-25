@@ -1,0 +1,27 @@
+import { Router } from "express";
+import { verifyToken } from "../middleware/auth.middleware";
+import {
+  listQuestionPapers,
+  getQuestionPaper,
+  createQuestionPaper,
+  updateQuestionPaper,
+  duplicateQuestionPaper,
+  createAssessmentFromQuestionPaper,
+  archiveQuestionPaper,
+  exportQuestionPaperPdf,
+} from "../controllers/questionPaper.controller";
+
+const router = Router();
+
+router.use(verifyToken);
+
+router.get("/", listQuestionPapers);
+router.post("/", createQuestionPaper);
+router.get("/:id", getQuestionPaper);
+router.patch("/:id", updateQuestionPaper);
+router.delete("/:id", archiveQuestionPaper);
+router.post("/:id/duplicate", duplicateQuestionPaper);
+router.post("/:id/reuse", createAssessmentFromQuestionPaper);
+router.get("/:id/export", exportQuestionPaperPdf);
+
+export default router;

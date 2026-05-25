@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import * as Iconsax from 'iconsax-react';
 
 interface AnimatedIconProps {
-  icon: keyof typeof Iconsax;
+  icon: any;
   size?: number | string;
   color?: string;
   variant?: 'Linear' | 'Outline' | 'Broken' | 'Bold' | 'Bulk' | 'TwoTone';
@@ -31,7 +31,7 @@ export const AnimatedIcon: React.FC<AnimatedIconProps> = ({
     animate: { scale: 1, opacity: 1 },
     whileHover: { scale: 1.1, rotate: 5 },
     whileTap: { scale: 0.9 },
-    transition: { type: 'spring', stiffness: 300, damping: 20 }
+    transition: { type: 'spring' as const, stiffness: 300, damping: 20 }
   } : {};
 
   return (
@@ -65,6 +65,7 @@ export const IconMap = {
   XCircle: 'CloseCircle',
   Clock: 'Clock',
   Upload: 'Export',
+  Folder: 'Folder',
   FileText: 'DocumentText',
   MapPin: 'Location',
   Building: 'Buildings',

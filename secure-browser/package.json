@@ -7,7 +7,28 @@
   "main": "dist/main/index.js",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev": "electron ."
+    "dev": "electron .",
+    "dist": "electron-builder"
+  },
+  "build": {
+    "appId": "com.amanzi.securebrowser",
+    "productName": "Amanzi Secure Browser",
+    "directories": {
+      "output": "dist-installer"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "shortcutName": "Amanzi Secure Browser"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ]
   },
   "build": {
     "appId": "com.amanzi.securebrowser",
@@ -31,6 +52,8 @@
     "@types/semver": "^7.7.1",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
+    "electron": "^37.10.3",
+    "electron-builder": "^26.8.1",
     "typescript": "^5.9.3",
     "vite": "^8.0.13",
     "wait-on": "^9.0.10"

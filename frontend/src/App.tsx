@@ -86,37 +86,75 @@ const App: React.FC = () => {
       (window as any).addStartupLog("App mounted");
     }
 
-    // Resolve feature flags from Electron main process
-    const sb = (window as any).amanziSecureBrowser;
-    if (sb && typeof sb.getEnvFlags === 'function') {
-      sb.getEnvFlags().then((flags: any) => {
-        const resolved = {
-          enableTf: flags.ENABLE_TF !== false,
-          enableFaceMesh: flags.ENABLE_FACEMESH !== false,
-          enableProctoring: flags.ENABLE_PROCTORING !== false,
-          forceCpu: flags.FORCE_CPU === true
-        };
-        (window as any).FEATURE_FLAGS = resolved;
-        if ((window as any).addStartupLog) {
-          (window as any).addStartupLog(`Feature flags resolved: ${JSON.stringify(resolved)}`);
-        }
-      }).catch((e: any) => {
-        console.error("Failed to load environment flags via Electron IPC:", e);
-      });
-    }
-
-    // Start renderer heartbeat to main process (Task 10)
+    // Resolve feature flags and start heartbeat to main process
     let heartbeatInterval: NodeJS.Timeout | null = null;
-    if (sb && typeof sb.sendHeartbeat === 'function') {
-      sb.sendHeartbeat();
-      heartbeatInterval = setInterval(() => {
-        sb.sendHeartbeat();
-      }, 3000);
+    let findSbInterval: NodeJS.Timeout | null = null;
+    let checkCount = 0;
+
+    const initializeSecureBrowserFeatures = () => {
+      const activeSb = (window as any).amanziSecureBrowser;
+      if (!activeSb) return false;
+
+      // 1. Resolve environment flags
+      if (typeof activeSb.getEnvFlags === 'function') {
+        activeSb.getEnvFlags().then((flags: any) => {
+          const resolved = {
+            enableTf: flags.ENABLE_TF !== false,
+            enableFaceMesh: flags.ENABLE_FACEMESH !== false,
+            enableProctoring: flags.ENABLE_PROCTORING !== false,
+            forceCpu: flags.FORCE_CPU === true
+          };
+          (window as any).FEATURE_FLAGS = resolved;
+          if ((window as any).addStartupLog) {
+            (window as any).addStartupLog(`Feature flags resolved: ${JSON.stringify(resolved)}`);
+          }
+        }).catch((e: any) => {
+          console.error("Failed to load environment flags via Electron IPC:", e);
+        });
+      }
+
+      // 2. Start renderer heartbeat
+      if (typeof activeSb.sendHeartbeat === 'function') {
+        try {
+          activeSb.sendHeartbeat();
+        } catch (e) {
+          console.error("Failed to send initial heartbeat:", e);
+        }
+        heartbeatInterval = setInterval(() => {
+          try {
+            const loopSb = (window as any).amanziSecureBrowser;
+            if (loopSb && typeof loopSb.sendHeartbeat === 'function') {
+              loopSb.sendHeartbeat();
+            }
+          } catch (e) {
+            console.error("Failed to send heartbeat in interval:", e);
+          }
+        }, 3000);
+      }
+
+      return true;
+    };
+
+    // Attempt to start immediately
+    if (!initializeSecureBrowserFeatures()) {
+      // If not available immediately, poll for it every 200ms for up to 10 seconds
+      findSbInterval = setInterval(() => {
+        checkCount++;
+        if (initializeSecureBrowserFeatures() || checkCount >= 50) {
+          if (findSbInterval) {
+            clearInterval(findSbInterval);
+            findSbInterval = null;
+          }
+        }
+      }, 200);
     }
 
     return () => {
       if (heartbeatInterval) {
         clearInterval(heartbeatInterval);
+      }
+      if (findSbInterval) {
+        clearInterval(findSbInterval);
       }
     };
   }, []);

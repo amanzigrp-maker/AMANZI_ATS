@@ -576,6 +576,126 @@ export async function testConnection(): Promise<boolean> {
       )
     `);
 
+    // Ensure question_bank table exists for Auto Question Shelf System
+    console.log('📦 Verifying question_bank table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS question_bank (
+        id SERIAL PRIMARY KEY,
+        category VARCHAR(100) NOT NULL,
+        question_text TEXT NOT NULL,
+        normalized_hash VARCHAR(64) UNIQUE NOT NULL,
+        options JSONB NOT NULL,
+        correct_answer VARCHAR(10) NOT NULL,
+        difficulty VARCHAR(20) DEFAULT 'medium',
+        tags TEXT[] DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_bank_category ON question_bank (category)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_bank_hash ON question_bank (normalized_hash)`);
+
+    // --- SAVED QUESTION PAPER LIBRARY ---
+    console.log('📦 Verifying question_papers tables...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS question_papers (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT,
+        created_by INTEGER REFERENCES users(userid) ON DELETE SET NULL,
+        organization_id INTEGER,
+        assessment_id INTEGER REFERENCES assessments(assessment_id) ON DELETE SET NULL,
+        total_questions INTEGER DEFAULT 0,
+        difficulty_distribution JSONB DEFAULT '{}'::jsonb,
+        tags TEXT[] DEFAULT '{}',
+        subject TEXT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        is_template BOOLEAN DEFAULT FALSE,
+        status TEXT DEFAULT 'active',
+        visibility TEXT DEFAULT 'private',
+        usage_count INTEGER DEFAULT 0
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS question_paper_questions (
+        id SERIAL PRIMARY KEY,
+        question_paper_id INTEGER NOT NULL REFERENCES question_papers(id) ON DELETE CASCADE,
+        question_text TEXT NOT NULL,
+        difficulty TEXT DEFAULT 'medium',
+        topic TEXT,
+        explanation TEXT,
+        correct_option TEXT NOT NULL,
+        options JSONB NOT NULL,
+        difficulty_score NUMERIC(6,4) DEFAULT 0.5,
+        order_index INTEGER DEFAULT 0,
+        metadata JSONB DEFAULT '{}'::jsonb
+      )
+    `);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_papers_created_by ON question_papers (created_by)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_papers_subject ON question_papers (subject)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_question_paper_questions_paper_id ON question_paper_questions (question_paper_id)`);
+
+    // --- BULK INVITATION SYSTEM ---
+    console.log('📦 Verifying bulk invitation tables...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS bulk_invite_jobs (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        assessment_id INTEGER REFERENCES assessments(assessment_id) ON DELETE SET NULL,
+        job_id INTEGER REFERENCES jobs(job_id) ON DELETE SET NULL,
+        created_by INTEGER REFERENCES users(userid) ON DELETE SET NULL,
+        status TEXT DEFAULT 'pending',
+        total_count INTEGER DEFAULT 0,
+        success_count INTEGER DEFAULT 0,
+        failed_count INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS bulk_invite_candidates (
+        id SERIAL PRIMARY KEY,
+        bulk_invite_job_id INTEGER NOT NULL REFERENCES bulk_invite_jobs(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        phone TEXT,
+        job_role TEXT,
+        custom_tags TEXT[] DEFAULT '{}',
+        status TEXT DEFAULT 'pending',
+        error_message TEXT,
+        retry_count INTEGER DEFAULT 0,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS invite_logs (
+        id SERIAL PRIMARY KEY,
+        candidate_email TEXT NOT NULL,
+        candidate_name TEXT,
+        assessment_id INTEGER,
+        token TEXT,
+        status TEXT,
+        error_message TEXT,
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_bulk_invite_candidates_job_id ON bulk_invite_candidates (bulk_invite_job_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_bulk_invite_candidates_email ON bulk_invite_candidates (email)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_invite_logs_email ON invite_logs (candidate_email)`);
+
+    // Add status column and bulk_invite_job_id column to interview_tokens if they don't exist
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'sent'`);
+    await pool.query(`ALTER TABLE interview_tokens ADD COLUMN IF NOT EXISTS bulk_invite_job_id INTEGER REFERENCES bulk_invite_jobs(id) ON DELETE SET NULL`);
+
     return true;
   } catch (error: any) {
     console.error("\n❌ DATABASE CONNECTION FAILED\n");
