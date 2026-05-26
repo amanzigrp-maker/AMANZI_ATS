@@ -21,12 +21,12 @@ const PROTOCOL = "amanzi-secure-browser";
 const API_BASE_URL = process.env.AMANZI_API_BASE_URL ?? (
   isDev
     ? "http://localhost:3003"
-    : "http://35.154.121.208:3003"
+    : "http://13.201.116.154:3003"
 );
 const FRONTEND_BASE_URL = process.env.AMANZI_FRONTEND_URL ?? (
   isDev
     ? "http://localhost:8080"
-    : "http://35.154.121.208"
+    : "http://13.201.116.154"
 );
 const DEFAULT_URL = process.env.AMANZI_EXAM_URL ?? `${FRONTEND_BASE_URL}/interview`;
 
@@ -62,7 +62,7 @@ const handleDeepLink = (rawUrl: string) => {
     if (parsed.protocol === `${PROTOCOL}:`) {
       const dynamicUrl = parsed.searchParams.get('url');
       let finalUrl = "";
-      
+
       if (dynamicUrl) {
         finalUrl = dynamicUrl;
       } else if (parsed.host && (parsed.host.includes("localhost") || parsed.host.includes("127.0.0.1") || parsed.host.includes(":"))) {
@@ -74,7 +74,7 @@ const handleDeepLink = (rawUrl: string) => {
         targetPath = targetPath.replace(/^\/+/, ''); // Remove leading slashes
         finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
       }
-      
+
       if (mainWindow) {
         void mainWindow.loadURL(finalUrl);
         if (mainWindow.isMinimized()) mainWindow.restore();
@@ -107,7 +107,7 @@ app.on("second-instance", (event, commandLine) => {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
-  
+
   // Parse URL from commandLine for Windows/Linux
   const url = commandLine.find((arg) => arg.startsWith(`${PROTOCOL}://`));
   if (url) {
@@ -125,7 +125,7 @@ import { dialog } from "electron";
 const handleCrash = (title: string, message: string) => {
   if (!mainWindow) return;
   console.error(`[CRASH] ${title}: ${message}`);
-  
+
   dialog.showErrorBox(title, message + "\n\nPlease restart the secure browser.");
   app.quit();
 };

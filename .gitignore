@@ -52,11 +52,11 @@ python-worker/storage/
 pgvector/a m a n z i _ b a c k u p . d u m p 
 
 # Build outputs & installers (do NOT commit)
-dist/
-dist-installer/
+
 *.exe
 *.dmg
 *.zip
 *.tar.gz
 
 secure-browser/dist/
+deploy.ps1

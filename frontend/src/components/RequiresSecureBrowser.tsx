@@ -173,7 +173,7 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
                   asChild
                   className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold py-2 px-3 rounded-lg shadow-lg active:scale-[0.98] transition-all flex items-center gap-1.5 cursor-pointer"
                 >
-                  <a href="/api/interview/download-app" download>
+                  <a href="https://amanzi-downloads.s3.ap-south-1.amazonaws.com/Amanzi%20Secure%20Browser%20Setup%200.2.0.exe" download>
                     <Download className="w-3.5 h-3.5 text-white" />
                     Download App
                   </a>

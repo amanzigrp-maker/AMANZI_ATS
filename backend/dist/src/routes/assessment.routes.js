@@ -1,0 +1,22 @@
+import { Router } from "express";
+import { verifyToken } from "../middleware/auth.middleware";
+import { requireSecureBrowser } from "../middleware/secure-browser.middleware";
+import { createAssessmentFromAi, createAssessmentFromCsv, createAssessmentFromUpload, getCandidateAssessment, getAssessment, listAssessments, submitAssessmentAttempt, deleteAssessment, } from "../controllers/assessment.controller";
+import { QuestionShelfController } from "../controllers/questionShelf.controller";
+const router = Router();
+router.use(verifyToken);
+// Question Shelf Endpoints
+router.get("/shelves", QuestionShelfController.listShelves);
+router.get("/shelves/:category", QuestionShelfController.getShelfDetail);
+router.post("/shelves/:category", QuestionShelfController.addQuestionToShelf);
+router.delete("/shelves/:category/questions", QuestionShelfController.deleteQuestionFromShelf);
+router.delete("/shelves/:category", QuestionShelfController.deleteShelf);
+router.post("/ai", createAssessmentFromAi);
+router.post("/csv", createAssessmentFromCsv);
+router.post("/upload", createAssessmentFromUpload);
+router.get("/", listAssessments);
+router.get("/:id/candidate", getCandidateAssessment);
+router.post("/:id/attempts", requireSecureBrowser, submitAssessmentAttempt);
+router.get("/:id", getAssessment);
+router.delete("/:id", deleteAssessment);
+export default router;
