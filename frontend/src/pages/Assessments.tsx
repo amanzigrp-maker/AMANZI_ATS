@@ -69,8 +69,6 @@ export default function Assessments() {
   const [inviting, setInviting] = useState(false);
   const [recentInvites, setRecentInvites] = useState<any[]>([]);
   const [loadingInvites, setLoadingInvites] = useState(false);
-  const [manualMode, setManualMode] = useState(false);
-  const [manualForm, setManualForm] = useState({ name: "", email: "", phone: "" });
 
   const handleToggleCandidate = (candidate: any) => {
     setSelectedCandidates((prev) => {
@@ -306,18 +304,6 @@ export default function Assessments() {
 
     let candidatesToInvite = [...selectedCandidates];
 
-    // Auto-append manual form inputs if filled but not explicitly added to the list
-    if (manualMode && manualForm.name && manualForm.email) {
-      const email = manualForm.email.trim().toLowerCase();
-      if (!candidatesToInvite.some(x => (x.email || "").trim().toLowerCase() === email)) {
-        candidatesToInvite.push({
-          full_name: manualForm.name.trim(),
-          email: email,
-          phone: manualForm.phone ? manualForm.phone.trim() : undefined
-        });
-      }
-    }
-
     if (candidatesToInvite.length === 0) {
       alert("Please select or add at least one candidate recipient.");
       return;
@@ -370,8 +356,6 @@ export default function Assessments() {
       setSelectedCandidates([]);
       setCandidateSearch("");
       setCandidateResults([]);
-      setManualMode(false);
-      setManualForm({ name: "", email: "", phone: "" });
       fetchRecentInvites();
     } catch (error: any) {
       alert(error.message || "Failed to process invitation dispatch.");
@@ -546,75 +530,26 @@ export default function Assessments() {
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs font-bold text-slate-500 uppercase">Recipient Details</Label>
-                      <Button variant="ghost" size="sm" className="text-[11px] h-7 text-blue-600" onClick={() => { setManualMode(!manualMode); }}>
-                        {manualMode ? "Switch to Search" : "Enter Manually"}
-                      </Button>
                     </div>
 
-                    {!manualMode ? (
-                      <div className="space-y-4">
-                        <div className="relative">
-                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                            <AnimatedIcon icon={IconMap.Search} size={16} />
-                          </div>
-                          <Input
-                            placeholder="Find candidates by name..."
-                            className="pl-10 h-10"
-                            value={candidateSearch}
-                            onChange={(e) => searchCandidates(e.target.value)}
-                          />
-                          {candidateSearch.length > 0 && (
-                            <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl divide-y z-50 absolute w-full mt-1 left-0 right-0">
-                              {candidateResults.length > 0 ? (
-                                candidateResults.map(c => {
-                                  const isSelected = selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === (c.email || "").trim().toLowerCase());
-                                  return (
-                                    <div key={c.candidate_id} className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group" onClick={() => handleToggleCandidate(c)}>
-                                      <div className="flex items-center gap-3">
-                                        <input
-                                          type="checkbox"
-                                          checked={isSelected}
-                                          onChange={() => {}}
-                                          className="h-4 w-4 text-blue-600 border-slate-350 rounded focus:ring-blue-500"
-                                        />
-                                        <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
-                                          {(c.full_name || "").charAt(0)}
-                                        </div>
-                                        <div>
-                                          <p className="text-sm font-medium">{c.full_name}</p>
-                                          <p className="text-[10px] text-slate-400">{c.email}</p>
-                                        </div>
-                                      </div>
-                                      <AnimatedIcon icon={IconMap.CheckCircle2} size={16} className={`text-emerald-500 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'} transition-opacity`} />
-                                    </div>
-                                  );
-                                })
-                              ) : !searchingCandidates ? (
-                                <div className="p-4 text-center text-xs text-slate-400 italic">No candidates found.</div>
-                              ) : null}
-                              {searchingCandidates && (
-                                <div className="p-4 flex items-center justify-center gap-2 text-xs text-slate-400">
-                                  <AnimatedIcon icon={IconMap.Loader2} size={14} className="animate-spin" /> Searching...
-                                </div>
-                              )}
-                            </div>
-                          )}
+                    <div className="space-y-4">
+                      <div className="relative">
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                          <AnimatedIcon icon={IconMap.Search} size={16} />
                         </div>
-
-                        {candidateSearch.length === 0 && recentInvites.length > 0 && (
-                          <div className="rounded-xl border border-slate-150 bg-slate-50/30 overflow-hidden">
-                            <div className="px-3 py-2 bg-slate-100/60 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
-                              Recent Recipients
-                            </div>
-                            <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 bg-white">
-                              {recentInvites.slice(0, 5).map((invite, idx) => {
-                                const isSelected = selectedCandidates.some(x => (x.candidate_email || x.email || "").trim().toLowerCase() === (invite.candidate_email || "").trim().toLowerCase());
+                        <Input
+                          placeholder="Find candidates by name..."
+                          className="pl-10 h-10"
+                          value={candidateSearch}
+                          onChange={(e) => searchCandidates(e.target.value)}
+                        />
+                        {candidateSearch.length > 0 && (
+                          <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white shadow-xl divide-y z-50 absolute w-full mt-1 left-0 right-0">
+                            {candidateResults.length > 0 ? (
+                              candidateResults.map(c => {
+                                const isSelected = selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === (c.email || "").trim().toLowerCase());
                                 return (
-                                  <div
-                                    key={invite.token || idx}
-                                    className="p-2.5 hover:bg-blue-50/40 cursor-pointer flex items-center justify-between group transition-colors"
-                                    onClick={() => handleToggleCandidate(invite)}
-                                  >
+                                  <div key={c.candidate_id} className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between group" onClick={() => handleToggleCandidate(c)}>
                                     <div className="flex items-center gap-3">
                                       <input
                                         type="checkbox"
@@ -622,54 +557,67 @@ export default function Assessments() {
                                         onChange={() => {}}
                                         className="h-4 w-4 text-blue-600 border-slate-350 rounded focus:ring-blue-500"
                                       />
-                                      <div className="h-7 w-7 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-[10px] font-bold">
-                                        {(invite.candidate_name || "").charAt(0)}
+                                      <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-[10px] font-bold text-slate-500">
+                                        {(c.full_name || "").charAt(0)}
                                       </div>
                                       <div>
-                                        <p className="text-xs font-bold text-slate-800">{invite.candidate_name}</p>
-                                        <p className="text-[10px] text-slate-400 font-mono">{invite.candidate_email}</p>
+                                        <p className="text-sm font-medium">{c.full_name}</p>
+                                        <p className="text-[10px] text-slate-400">{c.email}</p>
                                       </div>
                                     </div>
-                                    <AnimatedIcon icon={IconMap.Send} size={12} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
+                                    <AnimatedIcon icon={IconMap.CheckCircle2} size={16} className={`text-emerald-500 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-50'} transition-opacity`} />
                                   </div>
                                 );
-                              })}
-                            </div>
+                              })
+                            ) : !searchingCandidates ? (
+                              <div className="p-4 text-center text-xs text-slate-400 italic">No candidates found.</div>
+                            ) : null}
+                            {searchingCandidates && (
+                              <div className="p-4 flex items-center justify-center gap-2 text-xs text-slate-400">
+                                <AnimatedIcon icon={IconMap.Loader2} size={14} className="animate-spin" /> Searching...
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    ) : (
-                      <div className="grid gap-3">
-                        <div className="grid grid-cols-2 gap-2">
-                          <Input placeholder="Full Name" className="h-10" value={manualForm.name} onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })} />
-                          <Input placeholder="Email Address" type="email" className="h-10" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })} />
+
+                      {candidateSearch.length === 0 && recentInvites.length > 0 && (
+                        <div className="rounded-xl border border-slate-150 bg-slate-50/30 overflow-hidden">
+                          <div className="px-3 py-2 bg-slate-100/60 text-[10px] font-bold text-slate-500 uppercase tracking-wider border-b border-slate-200">
+                            Recent Recipients
+                          </div>
+                          <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 bg-white">
+                            {recentInvites.slice(0, 5).map((invite, idx) => {
+                              const isSelected = selectedCandidates.some(x => (x.candidate_email || x.email || "").trim().toLowerCase() === (invite.candidate_email || "").trim().toLowerCase());
+                              return (
+                                <div
+                                  key={invite.token || idx}
+                                  className="p-2.5 hover:bg-blue-50/40 cursor-pointer flex items-center justify-between group transition-colors"
+                                  onClick={() => handleToggleCandidate(invite)}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => {}}
+                                      className="h-4 w-4 text-blue-600 border-slate-350 rounded focus:ring-blue-500"
+                                    />
+                                    <div className="h-7 w-7 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center text-[10px] font-bold">
+                                      {(invite.candidate_name || "").charAt(0)}
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-bold text-slate-800">{invite.candidate_name}</p>
+                                      <p className="text-[10px] text-slate-400 font-mono">{invite.candidate_email}</p>
+                                    </div>
+                                  </div>
+                                  <AnimatedIcon icon={IconMap.Send} size={12} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <Button
-                          type="button"
-                          variant="secondary"
-                          className="h-9 text-xs text-blue-600 border border-blue-100 font-semibold"
-                          onClick={() => {
-                            if (!manualForm.name || !manualForm.email) {
-                              alert("Please enter both name and email");
-                              return;
-                            }
-                            const email = manualForm.email.trim().toLowerCase();
-                            if (selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === email)) {
-                              alert("Candidate already added");
-                              return;
-                            }
-                            setSelectedCandidates(prev => [...prev, {
-                              full_name: manualForm.name.trim(),
-                              email: email,
-                              phone: manualForm.phone
-                            }]);
-                            setManualForm({ name: "", email: "", phone: "" });
-                          }}
-                        >
-                          + Add to Recipients List
-                        </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
 
                     {selectedCandidates.length > 0 && (
                       <div className="space-y-2">
@@ -708,7 +656,7 @@ export default function Assessments() {
 
                     <Button
                       className="w-full h-11 bg-blue-600 hover:bg-blue-700 shadow-sm font-semibold"
-                      disabled={(selectedCandidates.length === 0 && (!manualForm.name || !manualForm.email)) || !invitingAssessment || inviting}
+                      disabled={selectedCandidates.length === 0 || !invitingAssessment || inviting}
                       onClick={handleSendInvite}
                     >
                       {inviting ? (
@@ -1108,80 +1056,44 @@ export default function Assessments() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <Label className="text-xs font-bold uppercase text-slate-400">Recipient</Label>
-                    <Button type="button" variant="link" className="h-auto p-0 text-[11px] text-blue-600" onClick={() => setManualMode(!manualMode)}>
-                      {manualMode ? "Find in Database" : "Enter Details Manually"}
-                    </Button>
                   </div>
 
-                  {!manualMode ? (
-                    <div className="relative space-y-2">
-                      <div className="relative">
-                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                          <AnimatedIcon icon={IconMap.Search} size={16} />
-                        </div>
-                        <Input
-                          placeholder="Search candidates by name..."
-                          className="pl-10"
-                          value={candidateSearch}
-                          onChange={(e) => searchCandidates(e.target.value)}
-                        />
+                  <div className="relative space-y-2">
+                    <div className="relative">
+                      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                        <AnimatedIcon icon={IconMap.Search} size={16} />
                       </div>
-                      {candidateSearch.length > 0 && candidateResults.length > 0 && (
-                        <div className="absolute left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-xl divide-y">
-                          {candidateResults.map(c => {
-                            const isSelected = selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === (c.email || "").trim().toLowerCase());
-                            return (
-                              <div key={c.candidate_id} className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between" onClick={() => handleToggleCandidate(c)}>
-                                <div className="flex items-center gap-2.5">
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => {}}
-                                    className="h-3.5 w-3.5 text-blue-600 border-slate-300 rounded"
-                                  />
-                                  <div>
-                                    <p className="text-xs font-medium text-slate-900">{c.full_name}</p>
-                                    <p className="text-[10px] text-slate-400">{c.email}</p>
-                                  </div>
+                      <Input
+                        placeholder="Search candidates by name..."
+                        className="pl-10"
+                        value={candidateSearch}
+                        onChange={(e) => searchCandidates(e.target.value)}
+                      />
+                    </div>
+                    {candidateSearch.length > 0 && candidateResults.length > 0 && (
+                      <div className="absolute left-0 right-0 z-50 mt-1 max-h-40 overflow-y-auto rounded-lg border bg-white shadow-xl divide-y">
+                        {candidateResults.map(c => {
+                          const isSelected = selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === (c.email || "").trim().toLowerCase());
+                          return (
+                            <div key={c.candidate_id} className="p-3 hover:bg-blue-50 cursor-pointer flex items-center justify-between" onClick={() => handleToggleCandidate(c)}>
+                              <div className="flex items-center gap-2.5">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => {}}
+                                  className="h-3.5 w-3.5 text-blue-600 border-slate-300 rounded"
+                                />
+                                <div>
+                                  <p className="text-xs font-medium text-slate-900">{c.full_name}</p>
+                                  <p className="text-[10px] text-slate-400">{c.email}</p>
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-2">
-                        <Input placeholder="Full Name" value={manualForm.name} onChange={(e) => setManualForm({ ...manualForm, name: e.target.value })} />
-                        <Input placeholder="Email Address" type="email" value={manualForm.email} onChange={(e) => setManualForm({ ...manualForm, email: e.target.value })} />
+                            </div>
+                          );
+                        })}
                       </div>
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="h-8 text-xs text-blue-600 border border-blue-100 w-full font-semibold"
-                        onClick={() => {
-                          if (!manualForm.name || !manualForm.email) {
-                            alert("Please enter both name and email");
-                            return;
-                          }
-                          const email = manualForm.email.trim().toLowerCase();
-                          if (selectedCandidates.some(x => (x.email || "").trim().toLowerCase() === email)) {
-                            alert("Candidate already added");
-                            return;
-                          }
-                          setSelectedCandidates(prev => [...prev, {
-                            full_name: manualForm.name.trim(),
-                            email: email,
-                            phone: manualForm.phone
-                          }]);
-                          setManualForm({ name: "", email: "", phone: "" });
-                        }}
-                      >
-                        + Add to Recipients
-                      </Button>
-                    </div>
-                  )}
+                    )}
+                  </div>
 
                   {selectedCandidates.length > 0 && (
                     <div className="space-y-2 pt-2">
@@ -1210,7 +1122,7 @@ export default function Assessments() {
                 <Button
                   type="submit"
                   className="w-full bg-blue-600 hover:bg-blue-700 h-11 font-bold"
-                  disabled={(selectedCandidates.length === 0 && (!manualForm.name || !manualForm.email)) || inviting}
+                  disabled={selectedCandidates.length === 0 || inviting}
                 >
                   {inviting ? (
                     <AnimatedIcon icon={IconMap.Loader2} size={18} className="mr-2 animate-spin" />

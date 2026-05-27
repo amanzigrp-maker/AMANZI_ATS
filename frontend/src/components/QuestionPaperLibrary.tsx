@@ -203,7 +203,7 @@ export default function QuestionPaperLibrary({ onAssessmentCreated }: { onAssess
     <div className="space-y-6">
       {/* Search & Filters */}
       <div className="flex flex-col gap-4 md:flex-row md:items-end justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-        <div className="flex-1 grid gap-4 sm:grid-cols-3">
+        <div className="flex-1 grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="library-search" className="text-xs font-bold text-slate-500 uppercase">Search</Label>
             <div className="relative">
@@ -229,21 +229,6 @@ export default function QuestionPaperLibrary({ onAssessmentCreated }: { onAssess
               value={subject}
               onChange={(e) => { setSubject(e.target.value); setPage(1); }}
             />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="library-difficulty" className="text-xs font-bold text-slate-500 uppercase">Difficulty</Label>
-            <select
-              id="library-difficulty"
-              className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
-              value={difficulty}
-              onChange={(e) => { setDifficulty(e.target.value); setPage(1); }}
-            >
-              <option value="">All Levels</option>
-              <option value="basic">Basic</option>
-              <option value="medium">Medium</option>
-              <option value="advanced">Advanced</option>
-            </select>
           </div>
         </div>
         

@@ -28,9 +28,10 @@ import { toast } from "sonner";
 export default function InterviewLogin() {
   const [searchParams] = useSearchParams();
   const presetEmail = useMemo(() => searchParams.get("email") || "", [searchParams]);
+  const presetPassword = useMemo(() => searchParams.get("token") || searchParams.get("password") || searchParams.get("pass") || "", [searchParams]);
   const candidateId = searchParams.get("candidateId") || "";
   const [email, setEmail] = useState(presetEmail);
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState(presetPassword);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
@@ -56,8 +57,18 @@ export default function InterviewLogin() {
     }
   }, [isElectron, secureProtocolUrl]);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Auto-login inside Electron if both email and password are provided in the URL
+  useEffect(() => {
+    if (isElectron && presetEmail && presetPassword && !loading) {
+      const timer = setTimeout(() => {
+        void handleLogin();
+      }, 800); // 800ms delay for visual feedback, allowing the candidate to see the auto-filling first
+      return () => clearTimeout(timer);
+    }
+  }, [isElectron, presetEmail, presetPassword]);
+
+  const handleLogin = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setLoading(true);
     setError(null);
 

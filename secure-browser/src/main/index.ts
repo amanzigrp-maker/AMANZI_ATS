@@ -32,7 +32,6 @@ const DEFAULT_URL = process.env.AMANZI_EXAM_URL ?? `${FRONTEND_BASE_URL}/intervi
 
 let mainWindow: BrowserWindow | null = null;
 let startupUrl = DEFAULT_URL;
-let lastHeartbeatTime = Date.now();
 
 const postSecurityEvent = async (payload: Record<string, unknown>) => {
   const token = process.env.SECURE_BROWSER_INGEST_TOKEN ?? process.env.AMANZI_SECURE_BROWSER_TOKEN;
@@ -60,9 +59,27 @@ const handleDeepLink = (rawUrl: string) => {
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol === `${PROTOCOL}:`) {
-      let targetPath = parsed.host + parsed.pathname;
-      targetPath = targetPath.replace(/^\/+/, ''); // Remove leading slashes
-      const finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
+      const dynamicUrl = parsed.searchParams.get('url');
+      let finalUrl = "";
+
+      if (dynamicUrl) {
+        // Build target URL and forward all outer query parameters (like email, token, password, etc.)
+        const targetUrlObj = new URL(dynamicUrl);
+        for (const [key, val] of parsed.searchParams.entries()) {
+          if (key !== 'url') {
+            targetUrlObj.searchParams.set(key, val);
+          }
+        }
+        finalUrl = targetUrlObj.toString();
+      } else if (parsed.host && (parsed.host.includes("localhost") || parsed.host.includes("127.0.0.1") || parsed.host.includes(":"))) {
+        // If it includes a dynamic dev port/host, load directly
+        finalUrl = `http://${parsed.host}${parsed.pathname}${parsed.search}`;
+      } else {
+        // Fallback to configured FRONTEND_BASE_URL
+        let targetPath = parsed.host + parsed.pathname;
+        targetPath = targetPath.replace(/^\/+/, ''); // Remove leading slashes
+        finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
+      }
       
       if (mainWindow) {
         void mainWindow.loadURL(finalUrl);
@@ -232,24 +249,9 @@ const createWindow = () => {
   });
   monitor.start();
 
-  // Start Heartbeat Checker
-  lastHeartbeatTime = Date.now();
-  const heartbeatChecker = setInterval(() => {
-    if (!mainWindow) return;
-    const timeSinceLastHeartbeat = Date.now() - lastHeartbeatTime;
-    if (timeSinceLastHeartbeat > 90000) {
-      handleCrash(
-        "Renderer Heartbeat Timeout",
-        "The renderer process has stopped responding. The main loop might be blocked or executing an infinite loop."
-      );
-      clearInterval(heartbeatChecker);
-    }
-  }, 10000);
-
   mainWindow.on("closed", () => {
     shortcuts.unlock();
     monitor.stop();
-    clearInterval(heartbeatChecker);
     mainWindow = null;
   });
 };
@@ -271,7 +273,3 @@ ipcMain.handle("secure-browser:get-env-flags", () => ({
   ENABLE_PROCTORING: process.env.ENABLE_PROCTORING !== 'false',
   FORCE_CPU: process.env.FORCE_CPU === 'true' || process.env.DISABLE_WEBGL === 'true' || process.env.AMANZI_FORCE_CPU === 'true'
 }));
-
-ipcMain.on("secure-browser:heartbeat", () => {
-  lastHeartbeatTime = Date.now();
-});

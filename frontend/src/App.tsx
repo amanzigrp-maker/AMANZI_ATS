@@ -86,8 +86,7 @@ const App: React.FC = () => {
       (window as any).addStartupLog("App mounted");
     }
 
-    // Resolve feature flags and start heartbeat to main process
-    let heartbeatInterval: NodeJS.Timeout | null = null;
+    // Resolve feature flags
     let findSbInterval: NodeJS.Timeout | null = null;
     let checkCount = 0;
 
@@ -95,7 +94,7 @@ const App: React.FC = () => {
       const activeSb = (window as any).amanziSecureBrowser;
       if (!activeSb) return false;
 
-      // 1. Resolve environment flags
+      // Resolve environment flags
       if (typeof activeSb.getEnvFlags === 'function') {
         activeSb.getEnvFlags().then((flags: any) => {
           const resolved = {
@@ -111,25 +110,6 @@ const App: React.FC = () => {
         }).catch((e: any) => {
           console.error("Failed to load environment flags via Electron IPC:", e);
         });
-      }
-
-      // 2. Start renderer heartbeat
-      if (typeof activeSb.sendHeartbeat === 'function') {
-        try {
-          activeSb.sendHeartbeat();
-        } catch (e) {
-          console.error("Failed to send initial heartbeat:", e);
-        }
-        heartbeatInterval = setInterval(() => {
-          try {
-            const loopSb = (window as any).amanziSecureBrowser;
-            if (loopSb && typeof loopSb.sendHeartbeat === 'function') {
-              loopSb.sendHeartbeat();
-            }
-          } catch (e) {
-            console.error("Failed to send heartbeat in interval:", e);
-          }
-        }, 3000);
       }
 
       return true;
@@ -150,9 +130,6 @@ const App: React.FC = () => {
     }
 
     return () => {
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-      }
       if (findSbInterval) {
         clearInterval(findSbInterval);
       }
