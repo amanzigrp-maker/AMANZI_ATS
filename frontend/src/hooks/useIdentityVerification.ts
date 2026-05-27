@@ -102,6 +102,14 @@ export const useIdentityVerification = () => {
       return null;
     }
 
+    if (!flags.enableFaceMesh) {
+      setModelState('failed');
+      setActiveDetectorType('none');
+      setLastError("FaceMesh detection is disabled via feature flags.");
+      (window as any).addStartupLog?.("FaceMesh disabled via feature flags");
+      return null;
+    }
+
     if (detector) return detector;
     if (loadingPromiseRef.current) return loadingPromiseRef.current;
 
@@ -247,12 +255,13 @@ export const useIdentityVerification = () => {
     const flags = getFeatureFlags();
     
     // Task 7 & 12: Bypassing inference if TF is disabled
-    if (!flags.enableTf) {
+    if (!flags.enableTf || !flags.enableFaceMesh) {
+      const { brightness, variance } = analyzePixels(video);
       return {
         isValid: true,
         embedding: [],
-        brightness: 100,
-        variance: 100,
+        brightness,
+        variance,
         box: null,
         keypoints: [],
         score: 1.0,

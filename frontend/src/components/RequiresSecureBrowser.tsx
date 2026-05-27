@@ -1,13 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Card, CardHeader, CardContent, CardTitle, CardDescription, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, ShieldAlert, Download, ArrowRight, ShieldCheck } from 'lucide-react';
+import { AlertCircle, ShieldAlert, Download, ArrowRight } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+
+// Read bypass flags from root .env (VITE_ prefix exposes them to the browser via Vite)
+// Set VITE_BYPASS_SECURE_BROWSER=true OR VITE_SECURE_BROWSER_REQUIRED=false in .env to allow
+// normal browsers during development / testing.
+const bypassSecureBrowser =
+  import.meta.env.VITE_BYPASS_SECURE_BROWSER === 'true' ||
+  import.meta.env.VITE_SECURE_BROWSER_REQUIRED === 'false';
 
 export default function RequiresSecureBrowser({ children }: { children: React.ReactNode }) {
+  // ── All hooks must be called unconditionally (React rules of hooks) ──────────
   const [isLaunching, setIsLaunching] = useState(false);
   const [launchFailed, setLaunchFailed] = useState(false);
+  const [searchParams] = useSearchParams();
 
   const isElectron = useMemo(() => {
     const userAgent = navigator.userAgent.toLowerCase();
@@ -18,51 +26,33 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
     );
   }, []);
 
-  const secureProtocolUrl = useMemo(() => {
-    return `amanzi-secure-browser://launch?url=${encodeURIComponent(window.location.href)}`;
-  }, []);
+  const secureProtocolUrl = useMemo(
+    () => `amanzi-secure-browser://launch?url=${encodeURIComponent(window.location.href)}`,
+    [],
+  );
 
+  // Auto-attempt to launch the secure browser when running in a normal browser
   useEffect(() => {
-    if (!isElectron) {
-      // Auto-attempt launch on mount
-      const timer = setTimeout(() => {
-        window.location.href = secureProtocolUrl;
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
+    // Skip auto-launch when bypass is active or already inside Electron
+    if (bypassSecureBrowser || isElectron) return;
+
+    const timer = setTimeout(() => {
+      window.location.href = secureProtocolUrl;
+    }, 1000);
+
+    return () => clearTimeout(timer);
   }, [isElectron, secureProtocolUrl]);
 
-  const handleLaunch = () => {
-    setIsLaunching(true);
-    setLaunchFailed(false);
+  // ── Early return after all hooks ─────────────────────────────────────────────
+  // Bypass mode: skip every check and render children in a normal browser
+  if (bypassSecureBrowser) {
+    return <>{children}</>;
+  }
 
-    // Attempt to open the custom protocol
-    window.location.href = secureProtocolUrl;
-
-    let hasBlurred = false;
-    const onBlur = () => {
-      hasBlurred = true;
-      setIsLaunching(false);
-    };
-
-    window.addEventListener('blur', onBlur);
-    window.addEventListener('pagehide', onBlur);
-
-    // After 3 seconds, check if window lost focus
-    setTimeout(() => {
-      window.removeEventListener('blur', onBlur);
-      window.removeEventListener('pagehide', onBlur);
-      if (!hasBlurred) {
-        setIsLaunching(false);
-        setLaunchFailed(true);
-      }
-    }, 3000);
-  };
-
-  const [searchParams] = useSearchParams();
-  const securityHold = searchParams.get('securityHold');
-
+  // ── Electron / secure browser is running ────────────────────────────────────
   if (isElectron) {
+    const securityHold = searchParams.get('securityHold');
+
     if (securityHold === 'process') {
       return (
         <div className="min-h-screen w-full flex items-center justify-center bg-[#020617] p-6">
@@ -92,8 +82,9 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
             <CardFooter>
               <Button
                 onClick={() => {
-                  searchParams.delete('securityHold');
-                  window.location.search = searchParams.toString();
+                  const params = new URLSearchParams(searchParams.toString());
+                  params.delete('securityHold');
+                  window.location.search = params.toString();
                 }}
                 className="w-full h-12 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl"
               >
@@ -104,8 +95,34 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
         </div>
       );
     }
+
     return <>{children}</>;
   }
+
+  // ── Normal browser — show "install secure browser" gate ──────────────────────
+  const handleLaunch = () => {
+    setIsLaunching(true);
+    setLaunchFailed(false);
+    window.location.href = secureProtocolUrl;
+
+    let hasBlurred = false;
+    const onBlur = () => {
+      hasBlurred = true;
+      setIsLaunching(false);
+    };
+
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('pagehide', onBlur);
+
+    setTimeout(() => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pagehide', onBlur);
+      if (!hasBlurred) {
+        setIsLaunching(false);
+        setLaunchFailed(true);
+      }
+    }, 3000);
+  };
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#020617] p-6 relative overflow-hidden">
@@ -126,16 +143,37 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
         </CardHeader>
         <CardContent>
           <p className="text-sm text-slate-300">
-            We've attempted to automatically open the Secure Browser. If you do not see a prompt, click the button below.
+            We&apos;ve attempted to automatically open the Secure Browser. If you do not see a prompt, click the button below.
           </p>
+          {launchFailed && (
+            <p className="mt-3 text-xs text-red-400">
+              Could not launch automatically. Please install the Amanzi Secure Browser first.
+            </p>
+          )}
         </CardContent>
-        <CardFooter>
-          <Button 
-            asChild
-            className="w-full h-12 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl"
+        <CardFooter className="flex flex-col gap-3">
+          <Button
+            onClick={handleLaunch}
+            disabled={isLaunching}
+            className="w-full h-12 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white font-bold rounded-xl flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(37,99,235,0.2)]"
           >
-            <a href={secureProtocolUrl}>
-              Launch Amanzi Secure Browser
+            <ArrowRight className="w-4 h-4" />
+            {isLaunching ? 'Launching…' : 'Launch Amanzi Secure Browser'}
+          </Button>
+
+          <div className="w-full flex items-center justify-center my-1">
+            <div className="h-px bg-white/10 w-full" />
+            <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold px-3 shrink-0">or</span>
+            <div className="h-px bg-white/10 w-full" />
+          </div>
+
+          <Button
+            asChild
+            variant="outline"
+            className="w-full h-12 border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white bg-slate-950/40 hover:bg-slate-900/40 font-medium rounded-xl flex items-center justify-center gap-2 transition-all"
+          >
+            <a href="/api/interview/download-app" download>
+              Download Amanzi Secure Browser
             </a>
           </Button>
         </CardFooter>
@@ -143,4 +181,3 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
     </div>
   );
 }
-

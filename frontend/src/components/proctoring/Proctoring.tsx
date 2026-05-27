@@ -138,9 +138,11 @@ const Proctoring: React.FC<ProctoringProps> = ({
       
       socket.emitWarning(type, detail);
 
-      if (newCount >= maxWarnings) {
-        socket.emitViolation('Test Terminated', 'Maximum warnings exceeded');
-        onTerminate();
+      // Log the warning threshold reach/exceed to the server, but do not terminate the session.
+      if (newCount === maxWarnings) {
+        socket.emitViolation('Warning Limit Reached', 'Candidate has reached the warning threshold limit');
+      } else if (newCount > maxWarnings) {
+        socket.emitViolation('Warning Limit Exceeded', `Candidate has exceeded warning limit. Current warnings: ${newCount}`);
       }
       return newCount;
     });
@@ -179,6 +181,7 @@ const Proctoring: React.FC<ProctoringProps> = ({
     }));
   }, []);
 
+  const flags = getFeatureFlags();
   const { startMonitoring, stopMonitoring } = useFaceDetection(videoRef, handleViolation, handleFaceDebugUpdate);
   useAudioMonitor(stream, handleViolation, handleAudioDebugUpdate);
   const { startRecording, stopRecording } = useRecording(stream);
@@ -197,14 +200,20 @@ const Proctoring: React.FC<ProctoringProps> = ({
     startWebcam().then((s) => {
       if (s) {
         startRecording();
-        startMonitoring();
+        if (flags.enableProctoring) {
+          startMonitoring();
+        } else {
+          console.warn('Proctoring is disabled by feature flag; face/audio monitoring will not start.');
+        }
       }
     });
 
-    if (!document.fullscreenElement && !fullscreenStartWarningSentRef.current) {
-      fullscreenStartWarningSentRef.current = true;
-      handleViolation('Fullscreen Required', 'Interview started without fullscreen mode enabled');
-    }
+    const fullscreenTimeout = setTimeout(() => {
+      if (!document.fullscreenElement && !fullscreenStartWarningSentRef.current) {
+        fullscreenStartWarningSentRef.current = true;
+        handleViolation('Fullscreen Required', 'Interview started without fullscreen mode enabled');
+      }
+    }, 1500);
 
     // Enforcement: Fullscreen
     const handleFullscreenChange = () => {
@@ -301,14 +310,6 @@ const Proctoring: React.FC<ProctoringProps> = ({
       handleViolation('Print Attempted', 'Printing is strictly prohibited.');
     };
 
-    // Enforcement: DevTools console inspection detection
-    const consoleDetector = {
-      get isOpened() {
-        handleViolation('DevTools Detected', 'Developer Tools are active.');
-        return '';
-      }
-    };
-
     // Periodic DevTools checks (Dimension check + Debugger delay)
     const checkDevTools = () => {
       // 1. Dimension Check: Panel docked check (threshold: 160px difference)
@@ -326,12 +327,6 @@ const Proctoring: React.FC<ProctoringProps> = ({
       if (end - start > 100) {
         handleViolation('DevTools Detected', 'Debugger execution delay detected.');
       }
-
-      // 3. Try to log console detector
-      try {
-        console.log('%c', consoleDetector);
-        console.clear();
-      } catch (err) {}
     };
 
     // Apply text selection prevention style to body
@@ -394,9 +389,7 @@ const Proctoring: React.FC<ProctoringProps> = ({
         '__fxdriver_unwrapped',
         '_Selenium_IDE_Recorder',
         '_phantom',
-        'callPhantom',
-        'Buffer',
-        'emit'
+        'callPhantom'
       ];
       automationProps.forEach(prop => {
         if (prop in window) {
@@ -428,6 +421,7 @@ const Proctoring: React.FC<ProctoringProps> = ({
     }
 
     return () => {
+      clearTimeout(fullscreenTimeout);
       stopWebcam();
       stopMonitoring();
       stopRecording();
@@ -617,7 +611,11 @@ const Proctoring: React.FC<ProctoringProps> = ({
       {warnings > 0 && (
         <Alert variant="destructive" className="bg-red-950/90 border-red-500 text-white animate-in slide-in-from-right pointer-events-auto">
           <ShieldAlert className="h-4 w-4" />
-          <AlertTitle>Warning {warnings}/{maxWarnings}</AlertTitle>
+          <AlertTitle>
+            {warnings >= maxWarnings 
+              ? `Warnings Exceeded: ${warnings}` 
+              : `Warning ${warnings}/${maxWarnings}`}
+          </AlertTitle>
           <AlertDescription className="text-xs">
             {lastWarning}
           </AlertDescription>
@@ -765,4 +763,58 @@ const Proctoring: React.FC<ProctoringProps> = ({
   );
 };
 
-export default Proctoring;
+class ProctoringErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("[ProctoringErrorBoundary] Caught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-6 bg-red-950/20 border border-red-500/30 rounded-2xl text-center max-w-md mx-auto space-y-4">
+          <div className="mx-auto w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center border border-red-500/30">
+            <ShieldAlert className="w-6 h-6 text-red-500" />
+          </div>
+          <h3 className="text-red-400 font-bold text-lg">Proctoring Core Failure</h3>
+          <p className="text-sm text-slate-300">
+            A background proctoring thread failed. This may happen if the machine runs out of memory or if WebGL context was lost.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <Button
+              onClick={() => this.setState({ hasError: false, error: null })}
+              className="bg-red-600 hover:bg-red-500 text-white font-bold px-4 py-2 rounded-xl text-xs"
+            >
+              Restart Proctoring
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+const MemoizedProctoring = React.memo(Proctoring);
+
+const ProctoringWithBoundary = (props: ProctoringProps) => {
+  return (
+    <ProctoringErrorBoundary>
+      <MemoizedProctoring {...props} />
+    </ProctoringErrorBoundary>
+  );
+};
+
+export default ProctoringWithBoundary;

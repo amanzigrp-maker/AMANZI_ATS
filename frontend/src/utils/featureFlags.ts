@@ -21,7 +21,7 @@ export const getFeatureFlags = (): FeatureFlags => {
     enableFaceMesh: true,
     enableProctoring: true,
     forceCpu: true,
-    enableIdentityMatching: false,
+    enableIdentityMatching: true,
     enableDiagnosticsRendering: false,
     enableLandmarkDrawing: false
   };
@@ -30,7 +30,7 @@ export const getFeatureFlags = (): FeatureFlags => {
   let enableFaceMesh = globalFlags.enableFaceMesh;
   let enableProctoring = globalFlags.enableProctoring;
   let forceCpu = globalFlags.forceCpu;
-  let enableIdentityMatching = globalFlags.enableIdentityMatching ?? false;
+  let enableIdentityMatching = globalFlags.enableIdentityMatching ?? true;
   let enableDiagnosticsRendering = globalFlags.enableDiagnosticsRendering ?? false;
   let enableLandmarkDrawing = globalFlags.enableLandmarkDrawing ?? false;
 

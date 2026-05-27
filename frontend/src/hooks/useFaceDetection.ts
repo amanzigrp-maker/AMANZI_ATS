@@ -18,6 +18,7 @@ export const useFaceDetection = (
   }) => void
 ) => {
   const [detector, setDetector] = useState<faceDetection.FaceDetector | null>(null);
+  const [cocoModel, setCocoModel] = useState<any | null>(null);
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [loopStatus, setLoopStatus] = useState<'Initializing' | 'Active' | 'Stopped'>('Initializing');
 
@@ -32,6 +33,7 @@ export const useFaceDetection = (
   const gazeStart = useRef<number | null>(null);
   const obstructionStart = useRef<number | null>(null);
   const frozenStart = useRef<number | null>(null);
+  const phoneStart = useRef<number | null>(null);
 
   // Buffer for smoothing confidence scores
   const confidenceBuffer = useRef<number[]>([]);
@@ -56,8 +58,8 @@ export const useFaceDetection = (
 
   useEffect(() => {
     const flags = getFeatureFlags();
-    if (!flags.enableTf) {
-      console.warn("useFaceDetection: TensorFlow is disabled. Skipping model load.");
+    if (!flags.enableTf || !flags.enableFaceMesh) {
+      console.warn("useFaceDetection: Heavy TensorFlow face detection is disabled for this environment.");
       setLoopStatus('Stopped');
       return;
     }
@@ -76,10 +78,21 @@ export const useFaceDetection = (
         const model = faceDetection.SupportedModels.MediaPipeFaceDetector;
         const detectorConfig: faceDetection.MediaPipeFaceDetectorTfjsConfig = {
           runtime: 'tfjs',
-          maxFaces: 5,
+          maxFaces: 3,
         };
         const newDetector = await faceDetection.createDetector(model, detectorConfig);
         setDetector(newDetector);
+
+        console.debug("useFaceDetection: Loading COCO-SSD object detection model...");
+        try {
+          const { load } = await import('@tensorflow-models/coco-ssd');
+          const loadedCoco = await load();
+          setCocoModel(loadedCoco);
+          console.debug("useFaceDetection: COCO-SSD model loaded successfully.");
+        } catch (cocoErr) {
+          console.error("useFaceDetection: Failed to load COCO-SSD model:", cocoErr);
+        }
+
         setLoopStatus('Stopped');
         console.debug("useFaceDetection: Model loaded successfully.");
       } catch (err) {
@@ -92,9 +105,10 @@ export const useFaceDetection = (
   const detect = async () => {
     const video = videoRef.current;
     const flags = getFeatureFlags();
-    
-    // Task 7 & 12: Bypassing inference if TF is disabled
-    if (!flags.enableTf) {
+    const safeIntervalMs = flags.forceCpu || !flags.enableFaceMesh ? 10000 : 5000;
+
+    // Task 7 & 12: Bypassing inference if TF is disabled or FaceMesh is disabled
+    if (!flags.enableTf || !flags.enableFaceMesh) {
       const now = performance.now();
       const timeDiff = now - lastDetectTime.current;
       lastDetectTime.current = now;
@@ -105,12 +119,12 @@ export const useFaceDetection = (
 
       if (onDebugUpdateRef.current) {
         onDebugUpdateRef.current({
-          faceCount: 1,
-          detectionConfidence: 1.0,
+          faceCount: 0,
+          detectionConfidence: 0,
           fps: fpsRef.current,
-          gazeStatus: 'Center',
-          obstructionStatus: 'Clear',
-          loopStatus: 'Active',
+          gazeStatus: 'Unknown',
+          obstructionStatus: 'Unknown',
+          loopStatus: 'Stopped',
           tfMemory: null
         });
       }
@@ -155,6 +169,43 @@ export const useFaceDetection = (
     }
 
     const inferenceDuration = performance.now() - inferenceStartTime;
+    if (inferenceDuration > 2500) {
+      console.warn(`useFaceDetection: Inference took ${inferenceDuration.toFixed(0)}ms. Slowing detection frequency.`);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      return;
+    }
+
+    // 2.1 Perform Prohibited Device (Cell Phone) and Person body detection using COCO-SSD
+    let cocoPersonCount = 0;
+    let isPhoneDetected = false;
+
+    if (cocoModel) {
+      tf.engine().startScope();
+      try {
+        const predictions = await cocoModel.detect(video);
+        
+        // Count persons detected in frame by COCO-SSD body/pose analysis
+        const personPredictions = predictions.filter(
+          (p: any) => p.class === 'person' && p.score >= 0.45
+        );
+        cocoPersonCount = personPredictions.length;
+
+        // Detect prohibited phones in frame
+        const phonePrediction = predictions.find(
+          (p: any) => (p.class === 'cell phone' || p.class === 'phone') && p.score >= 0.5
+        );
+        if (phonePrediction) {
+          isPhoneDetected = true;
+        }
+      } catch (err) {
+        console.error("useFaceDetection: Error running object detection:", err);
+      } finally {
+        tf.engine().endScope();
+      }
+    }
     console.debug(`[FaceDetector Timing] FaceDetector inference took ${inferenceDuration.toFixed(1)}ms`);
 
     const rawFacesCount = faces.length;
@@ -165,6 +216,9 @@ export const useFaceDetection = (
     // Filter faces based on relaxed confidence >= 0.35
     const validFaces = faces.filter(f => f.score >= 0.35);
     const faceCount = validFaces.length;
+
+    // Combine face detection counts with COCO-SSD body/person detections for ultra-accurate candidate counts
+    const totalPersons = Math.max(faceCount, cocoPersonCount);
 
     // Track rolling confidence
     const currentMaxConfidence = faceCount > 0 ? Math.max(...validFaces.map(f => f.score)) : 0;
@@ -272,28 +326,40 @@ export const useFaceDetection = (
     // 5. Stabilization and Warn/Violation Logic
     const currentTime = Date.now();
 
-    // -- Check: Multiple Faces (2+ seconds threshold)
-    if (faceCount > 1) {
+    // -- Check: Multiple Persons (2+ seconds threshold)
+    if (totalPersons > 1) {
       if (multipleFacesStart.current === null) {
         multipleFacesStart.current = currentTime;
       } else if (currentTime - multipleFacesStart.current >= 2000) {
-        onViolationRef.current('Multiple Faces Detected', `${faceCount} faces detected in frame`);
+        onViolationRef.current('Multiple Faces Detected', `Multiple people (${totalPersons}) detected in the camera frame.`);
         multipleFacesStart.current = currentTime + 5000; // Cooldown
       }
     } else {
       multipleFacesStart.current = null;
     }
 
-    // -- Check: No Face (5+ seconds threshold)
-    if (faceCount === 0) {
+    // -- Check: No Person / Candidate (5+ seconds threshold)
+    if (totalPersons === 0) {
       if (noFaceStart.current === null) {
         noFaceStart.current = currentTime;
       } else if (currentTime - noFaceStart.current >= 5000) {
-        onViolationRef.current('No Face Detected', 'Candidate face not visible for > 5 seconds');
+        onViolationRef.current('No Face Detected', 'No candidate visible in the camera frame.');
         noFaceStart.current = currentTime + 5000; // Cooldown
       }
     } else {
       noFaceStart.current = null;
+    }
+
+    // -- Check: Prohibited Device (Cell Phone) Detection
+    if (isPhoneDetected) {
+      if (phoneStart.current === null) {
+        phoneStart.current = currentTime;
+      } else if (currentTime - phoneStart.current >= 1500) {
+        onViolationRef.current('Prohibited Object Detected', 'A mobile/cell phone was detected in the camera view.');
+        phoneStart.current = currentTime + 8000; // Cooldown
+      }
+    } else {
+      phoneStart.current = null;
     }
 
     // -- Check: Gaze direction (3+ seconds threshold)
@@ -349,7 +415,7 @@ export const useFaceDetection = (
       else if (isStatic) obsStatus = 'Static';
 
       onDebugUpdateRef.current({
-        faceCount,
+        faceCount: totalPersons,
         detectionConfidence: avgConfidence,
         fps: fpsRef.current,
         gazeStatus: gazeDirection,
@@ -382,7 +448,21 @@ export const useFaceDetection = (
       }
       
       if (isMonitoring && active && currentLoopId === activeLoopIdRef.current) {
-        timeoutRef.current = setTimeout(detectLoop, 5000); // Throttled from 200ms
+        const flags = getFeatureFlags();
+        const nextDelay = flags.forceCpu || !flags.enableFaceMesh ? 10000 : 5000;
+        if ('requestIdleCallback' in window) {
+          (window as any).requestIdleCallback(() => {
+            if (isMonitoring && active && currentLoopId === activeLoopIdRef.current) {
+              detectLoop();
+            }
+          }, { timeout: nextDelay });
+        } else {
+          timeoutRef.current = setTimeout(() => {
+            if (isMonitoring && active && currentLoopId === activeLoopIdRef.current) {
+              detectLoop();
+            }
+          }, nextDelay);
+        }
       }
     };
 
@@ -409,7 +489,7 @@ export const useFaceDetection = (
         timeoutRef.current = null;
       }
     };
-  }, [isMonitoring, detector]);
+  }, [isMonitoring, detector, cocoModel]);
 
   return {
     startMonitoring: () => {

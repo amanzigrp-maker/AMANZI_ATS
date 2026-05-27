@@ -59,7 +59,7 @@ export class SessionJobsService {
         this.isRunningInactiveCleaner = true;
 
         try {
-            const heartbeatGrace = 90; // 90 seconds
+            const heartbeatGrace = 600; // 600 seconds (10 minutes)
             const result = await pool.query(`
                 SELECT id, last_activity_at FROM interview_sessions
                 WHERE state = $1

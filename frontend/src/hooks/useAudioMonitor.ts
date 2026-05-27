@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { getFeatureFlags } from '../utils/featureFlags';
 
 export const useAudioMonitor = (
   stream: MediaStream | null,
@@ -8,10 +9,11 @@ export const useAudioMonitor = (
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const checkInterval = useRef<NodeJS.Timeout | null>(null);
+  const lastViolationTimeRef = useRef<number>(0);
 
-  // Rolling history of speech band energy (checked every 200ms, ~3 seconds history)
+  // Rolling history of speech band energy (checked every 200ms, ~10 seconds history)
   const speechHistory = useRef<number[]>([]);
-  const historyLimit = 15;
+  const historyLimit = 50;
 
   const onViolationRef = useRef(onViolation);
   const onDebugUpdateRef = useRef(onDebugUpdate);
@@ -22,6 +24,12 @@ export const useAudioMonitor = (
   }, [onViolation, onDebugUpdate]);
 
   useEffect(() => {
+    const flags = getFeatureFlags();
+    if (!flags.enableProctoring) {
+      console.warn('useAudioMonitor: Proctoring disabled by feature flag; skipping audio monitoring.');
+      return;
+    }
+
     if (!stream) return;
 
     const setupAudio = async () => {
@@ -54,6 +62,7 @@ export const useAudioMonitor = (
 
         let consecutiveSpeechIntervals = 0;
 
+        const pollingInterval = flags.forceCpu ? 800 : 500;
         checkInterval.current = setInterval(() => {
           if (analyserRef.current) {
             analyserRef.current.getByteFrequencyData(dataArray);
@@ -77,12 +86,13 @@ export const useAudioMonitor = (
               speechHistory.current.shift();
             }
 
-            // Estimate the noise floor as the minimum speech band energy over the last 3s
-            const noiseFloor = Math.min(...speechHistory.current, 10);
+            // Estimate the noise floor as the minimum speech band energy over the last 3s.
+            // Capping at 70 (instead of 25) prevents extreme spikes while allowing full adaptation to microphones with high static/baseline hum.
+            const noiseFloor = speechHistory.current.length > 0 ? Math.min(...speechHistory.current, 70) : 25;
             
-            // Speech detected if current speech band energy is significantly higher than noise floor
-            const speechThreshold = 18; // Calibrated sensitivity threshold
-            const isSpeechDetected = avgSpeech > noiseFloor + speechThreshold && avgSpeech > 20;
+            // Speech detected if current speech band energy is significantly higher than noise floor (medium, moderate sensitivity)
+            const speechThreshold = 22; // Calibrated moderate sensitivity threshold
+            const isSpeechDetected = avgSpeech > noiseFloor + speechThreshold && avgSpeech > 38;
 
             console.debug(`[Audio VAD Monitor] speechLevel=${avgSpeech.toFixed(1)} noiseFloor=${noiseFloor.toFixed(1)} speechDetected=${isSpeechDetected}`);
 
@@ -92,12 +102,17 @@ export const useAudioMonitor = (
 
             if (isSpeechDetected) {
               consecutiveSpeechIntervals++;
-              // Trigger violation if speaking persists for 3 consecutive checks (~600ms of sustained speech)
-              if (consecutiveSpeechIntervals >= 3) {
-                if (onViolationRef.current) {
-                  onViolationRef.current('Abnormal Audio Detected', `Voice activity/speech detected in the background (level: ${avgSpeech.toFixed(1)})`);
+              // Trigger violation if speaking persists for 10 consecutive checks (~2.0 seconds of sustained speech)
+              if (consecutiveSpeechIntervals >= 10) {
+                const now = Date.now();
+                // Cooldown of 15 seconds between consecutive audio warnings to prevent rapid accumulation of warnings
+                if (now - lastViolationTimeRef.current > 15000) {
+                  if (onViolationRef.current) {
+                    onViolationRef.current('Abnormal Audio Detected', `Voice activity/speech detected in the background (level: ${avgSpeech.toFixed(1)})`);
+                  }
+                  lastViolationTimeRef.current = now;
                 }
-                consecutiveSpeechIntervals = 0; // Reset or throttle
+                consecutiveSpeechIntervals = 0; // Reset
               }
             } else {
               if (consecutiveSpeechIntervals > 0) {

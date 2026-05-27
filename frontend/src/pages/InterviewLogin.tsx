@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import { 
@@ -27,7 +27,19 @@ import { toast } from "sonner";
 
 export default function InterviewLogin() {
   const [searchParams] = useSearchParams();
-  const presetEmail = useMemo(() => searchParams.get("email") || "", [searchParams]);
+  const presetEmail = useMemo(() => {
+    if (searchParams.get("email")) return searchParams.get("email") || "";
+    const storedUserStr = localStorage.getItem("interviewUser");
+    if (storedUserStr) {
+      try {
+        const storedUser = JSON.parse(storedUserStr);
+        if (storedUser.email) return storedUser.email;
+        if (storedUser.candidate?.email) return storedUser.candidate.email;
+      } catch (e) {}
+    }
+    return localStorage.getItem("interviewCandidateEmail") || "";
+  }, [searchParams]);
+
   const presetPassword = useMemo(() => searchParams.get("token") || searchParams.get("password") || searchParams.get("pass") || "", [searchParams]);
   const candidateId = searchParams.get("candidateId") || "";
   const [email, setEmail] = useState(presetEmail);
@@ -35,6 +47,23 @@ export default function InterviewLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const hasAttemptedAutoLoginRef = useRef(false);
+
+  // Focus directly on the password input if email is automatically pre-filled/detected
+  useEffect(() => {
+    if (email && passwordRef.current) {
+      passwordRef.current.focus();
+    }
+  }, [email]);
+
+  // Sync email state if presetEmail resolves after mount
+  useEffect(() => {
+    if (presetEmail) {
+      setEmail(presetEmail);
+    }
+  }, [presetEmail]);
 
   // Detect if we are inside the Electron Secure Browser
   const isElectron = useMemo(() => {
@@ -50,16 +79,11 @@ export default function InterviewLogin() {
     return `amanzi-secure-browser://launch?url=${encodeURIComponent(window.location.href)}`;
   }, []);
 
-  useEffect(() => {
-    // Attempt automatic redirect if not in Electron (many browsers will prompt the user)
-    if (!isElectron) {
-      window.location.href = secureProtocolUrl;
-    }
-  }, [isElectron, secureProtocolUrl]);
 
   // Auto-login inside Electron if both email and password are provided in the URL
   useEffect(() => {
-    if (isElectron && presetEmail && presetPassword && !loading) {
+    if (isElectron && presetEmail && presetPassword && !loading && !hasAttemptedAutoLoginRef.current) {
+      hasAttemptedAutoLoginRef.current = true;
       const timer = setTimeout(() => {
         void handleLogin();
       }, 800); // 800ms delay for visual feedback, allowing the candidate to see the auto-filling first
@@ -85,6 +109,7 @@ export default function InterviewLogin() {
         // Store JWT and User info from the nested 'data' property
         localStorage.setItem("interviewToken", data.data.jwt);
         localStorage.setItem("interviewUser", JSON.stringify(data.data));
+        localStorage.setItem("interviewCandidateEmail", email);
         
         toast.success("Login successful! Welcome to your interview.");
         if ((window as any).addStartupLog) {
@@ -229,6 +254,8 @@ export default function InterviewLogin() {
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                   <Input 
                     id="email"
+                    name="email"
+                    autoComplete="email"
                     type="email"
                     placeholder="name@example.com"
                     required
@@ -244,7 +271,10 @@ export default function InterviewLogin() {
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                   <Input 
+                    ref={passwordRef}
                     id="password"
+                    name="password"
+                    autoComplete="current-password"
                     type="password"
                     placeholder="••••••••"
                     required

@@ -25,7 +25,6 @@ const loadEnvFile = (filePath: string, override = false) => {
 
 loadEnvFile(path.join(repoRoot, ".env"));
 loadEnvFile(path.join(repoRoot, "env", `backend.${resolvedAppEnv}.env`), true);
-loadEnvFile(path.join(backendRoot, ".env"), true);
 
 const booleanFromString = z.preprocess((value) => {
   if (typeof value === "boolean") return value;

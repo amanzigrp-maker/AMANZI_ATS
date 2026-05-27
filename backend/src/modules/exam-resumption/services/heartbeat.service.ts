@@ -49,7 +49,7 @@ export class HeartbeatService {
             const result = await pool.query(`
                 SELECT s.session_id FROM exam_snapshots s
                 WHERE s.is_active = true 
-                AND s.last_heartbeat_at < NOW() - INTERVAL '45 seconds'
+                AND s.last_heartbeat_at < NOW() - INTERVAL '10 minutes'
                 AND EXISTS (
                     SELECT 1 FROM interview_sessions i 
                     WHERE i.id = s.session_id AND i.state = 'ACTIVE'

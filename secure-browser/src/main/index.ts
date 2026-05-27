@@ -128,9 +128,28 @@ app.on("open-url", (event, url) => {
 });
 
 import { dialog } from "electron";
-const handleCrash = (title: string, message: string) => {
+const handleCrash = async (title: string, message: string, options?: { reloadable?: boolean }) => {
   if (!mainWindow) return;
   console.error(`[CRASH] ${title}: ${message}`);
+
+  if (options?.reloadable && !mainWindow.isDestroyed()) {
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: "warning",
+      buttons: ["Reload", "Quit"],
+      defaultId: 0,
+      cancelId: 1,
+      title,
+      message,
+      detail: "The secure browser can attempt to recover by reloading the page.",
+    });
+
+    if (result.response === 0) {
+      if (!mainWindow.isDestroyed()) {
+        void mainWindow.reload();
+      }
+      return;
+    }
+  }
 
   dialog.showErrorBox(title, message + "\n\nPlease restart the secure browser.");
   app.quit();
@@ -175,19 +194,26 @@ const createWindow = () => {
   app.on("gpu-process-crashed" as any, () => {
     handleCrash(
       "GPU Process Crashed",
-      "Chromium GPU process crashed. Try launching with environment flag DISABLE_GPU=true to disable GPU acceleration."
+      "Chromium GPU process crashed. Try launching with environment flag DISABLE_GPU=true to disable GPU acceleration.",
+      { reloadable: true }
     );
   });
 
   mainWindow.on("unresponsive", () => {
     handleCrash(
       "Renderer Unresponsive",
-      "Renderer process stopped responding. The main threat loop might be blocked or executing an infinite loop."
+      "Renderer process stopped responding. The main thread may be blocked or executing an infinite loop.",
+      { reloadable: true }
     );
   });
 
   mainWindow.webContents.on("did-fail-load", async (event, errorCode, errorDescription, validatedURL) => {
     console.error(`did-fail-load: ${validatedURL} (${errorCode}: ${errorDescription})`);
+
+    // Ignore ERR_ABORTED (-3) as it represents a benign navigation cancellation (e.g. when replaced by a deep-link URL load)
+    if (errorCode === -3) {
+      return;
+    }
 
     // Treat connection refused as a recoverable error and offer retry
     if (errorCode === -102) { // ERR_CONNECTION_REFUSED
@@ -255,6 +281,12 @@ const createWindow = () => {
     mainWindow = null;
   });
 };
+
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
+    app.quit();
+  }
+});
 
 app.whenReady().then(async () => {
   new SecureUpdateService().configure();

@@ -8,6 +8,8 @@ import { Card } from "@/components/ui/card";
 import { AnimatedIcon, IconMap } from "@/components/AnimatedIconsax";
 import { useToast } from "@/hooks/use-toast";
 import { AILogicScreen } from "@/components/AILogicScreen";
+import { enhancedLogin, saveAuthState, getAuthMetrics } from "@/lib/auth-enhanced";
+import { useDebounceLogin } from "@/hooks/useDebounceLogin";
 
 function HeartbeatPulse() {
   return (
@@ -162,42 +164,21 @@ function SpiderWebBackground() {
 export default function Login() {
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   });
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
-
-      const text = await response.text();
-      let result;
-      try {
-        result = JSON.parse(text);
-      } catch (e) {
-        console.error('Failed to parse JSON response. Status:', response.status, 'Raw text:', text);
-        throw new Error(`Server error (${response.status}): Unexpected response format.`);
-      }
-
-      if (!response.ok) {
-        throw new Error(result.message || result.error || 'Failed to log in');
-      }
-
-      localStorage.setItem('accessToken', result.accessToken);
-      localStorage.setItem('refreshToken', result.refreshToken);
-
+  // Use debounced login hook for safe, rate-limited requests
+  const { debouncedLogin, isLoading, error, canSubmit } = useDebounceLogin({
+    debounceMs: 500,
+    maxConcurrent: 1,
+    onSuccess: (data) => {
+      // Save tokens using enhanced auth service
+      saveAuthState(data.accessToken, data.refreshToken);
+      
       toast({
         title: "✅ Welcome back!",
         description: "You've successfully logged in.",
@@ -208,19 +189,31 @@ export default function Login() {
         (window as any).addStartupLog("Login success");
       }
 
+      // Navigate after brief delay for user feedback
       setTimeout(() => navigate("/dashboard"), 500);
+    },
+    onError: (error) => {
+      const errorMessage = error.message || 'An unexpected error occurred.';
+      setFormError(errorMessage);
+      console.error('[Login] Error:', errorMessage);
+    },
+  });
 
-    } catch (error) {
-      console.error('Login error full details:', error);
-      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred.';
-      toast({
-        variant: "destructive",
-        title: "❌ Login failed",
-        description: errorMessage,
-      });
-    } finally {
-      setIsLoading(false);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validate form
+    if (!formData.email || !formData.password) {
+      setFormError('Please enter both email and password.');
+      return;
     }
+
+    setFormError(null);
+
+    // Use enhanced login with deduplication and retry protection
+    await debouncedLogin(async () => {
+      return enhancedLogin(formData.email, formData.password, 30000);
+    });
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -228,7 +221,21 @@ export default function Login() {
       ...prev,
       [e.target.name]: e.target.value,
     }));
+    // Clear error when user starts typing
+    if (formError) {
+      setFormError(null);
+    }
   };
+
+  // Debug: Log auth metrics in development
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      const metrics = getAuthMetrics();
+      if (metrics.currentAuthCallCount > 0) {
+        console.debug('[Login] Auth metrics:', metrics);
+      }
+    }
+  }, [isLoading]);
 
   return (
     <div className="h-screen w-screen bg-[#020617] flex relative overflow-hidden font-sans">
@@ -276,6 +283,19 @@ export default function Login() {
                 <div className="absolute inset-0 bg-gradient-to-br from-white/[0.03] via-transparent to-white/[0.01] pointer-events-none" />
 
                 <form onSubmit={handleSubmit} className="space-y-6 relative z-10">
+                  {(formError || error) && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2 text-red-400 text-sm"
+                    >
+                      <svg className="w-5 h-5 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                      </svg>
+                      <span>{formError || error}</span>
+                    </motion.div>
+                  )}
+
                   <div className="space-y-2.5">
                     <Label htmlFor="email" className="text-[11px] font-bold text-blue-300/60 ml-1 tracking-widest uppercase">Work Email</Label>
                     <div className="relative group/input">
@@ -331,8 +351,8 @@ export default function Login() {
 
                   <Button
                     type="submit"
-                    className="w-full h-15 bg-blue-500/10 backdrop-blur-3xl hover:bg-blue-500/20 text-blue-400 hover:text-white font-bold text-sm rounded-2xl shadow-[0_10px_25px_rgba(37,99,235,0.1)] transition-all transform active:scale-[0.98] disabled:opacity-50 border border-blue-500/30"
-                    disabled={isLoading}
+                    className="w-full h-15 bg-blue-500/10 backdrop-blur-3xl hover:bg-blue-500/20 text-blue-400 hover:text-white font-bold text-sm rounded-2xl shadow-[0_10px_25px_rgba(37,99,235,0.1)] transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed border border-blue-500/30"
+                    disabled={!canSubmit || isLoading}
                   >
                     {isLoading ? (
                       <div className="flex items-center gap-2">

@@ -29,6 +29,7 @@
     "@radix-ui/react-tooltip": "^1.2.7",
     "@sentry/react": "^10.53.1",
     "@tanstack/react-query": "^5.83.0",
+    "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow-models/face-detection": "^1.0.3",
     "@tensorflow/tfjs": "^4.22.0",
     "@types/recordrtc": "^5.6.15",

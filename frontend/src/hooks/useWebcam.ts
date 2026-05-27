@@ -4,6 +4,7 @@ export const useWebcam = () => {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
   const startWebcam = useCallback(async () => {
     try {
@@ -29,6 +30,7 @@ export const useWebcam = () => {
         });
       }
       setStream(mediaStream);
+      streamRef.current = mediaStream;
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
       }
@@ -41,11 +43,12 @@ export const useWebcam = () => {
   }, []);
 
   const stopWebcam = useCallback(() => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
     }
-  }, [stream]);
+    setStream(null);
+  }, []);
 
   return { stream, startWebcam, stopWebcam, videoRef, error };
 };

@@ -8,6 +8,7 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import AppLayout from "./components/AppLayout";
 import { ThemeProvider } from "./components/theme-provider";
 import { GlobalErrorBoundary, GlobalErrorOverlay } from "./components/ErrorTelemetry";
+import AuthErrorBoundary from "./components/AuthErrorBoundary";
 
 // General Pages
 import Landing from "./pages/Landing";
@@ -138,15 +139,16 @@ const App: React.FC = () => {
 
   return (
     <GlobalErrorBoundary>
-      <ThemeProvider forcedTheme="light" defaultTheme="light" storageKey="amanzi-theme" attribute="class">
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <GlobalErrorOverlay />
+      <AuthErrorBoundary>
+        <ThemeProvider forcedTheme="light" defaultTheme="light" storageKey="amanzi-theme" attribute="class">
+          <QueryClientProvider client={queryClient}>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <GlobalErrorOverlay />
 
-            <SmoothScroll>
-              <BrowserRouter>
+              <SmoothScroll>
+                <BrowserRouter>
                 <RouteTransitionTracker />
                 <Routes>
                   {/* Public Routes */}
@@ -230,11 +232,12 @@ const App: React.FC = () => {
               </BrowserRouter>
             </SmoothScroll>
 
-          </TooltipProvider>
-        </QueryClientProvider>
-      </ThemeProvider>
-    </GlobalErrorBoundary>
-  );
-};
+              </TooltipProvider>
+            </QueryClientProvider>
+          </ThemeProvider>
+        </AuthErrorBoundary>
+      </GlobalErrorBoundary>
+    );
+  };
 
-export default App;
+  export default App;

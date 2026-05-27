@@ -1,9 +1,22 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import RecordRTC from 'recordrtc';
 
 export const useRecording = (stream: MediaStream | null) => {
   const [isRecording, setIsRecording] = useState(false);
   const recorderRef = useRef<RecordRTC | null>(null);
+
+  // Auto-cleanup on unmount to prevent buffer memory leaks
+  useEffect(() => {
+    return () => {
+      if (recorderRef.current) {
+        try {
+          recorderRef.current.destroy();
+        } catch (e) {
+          // RecordRTC might be already destroyed
+        }
+      }
+    };
+  }, []);
 
   const startRecording = useCallback(() => {
     if (!stream) return;

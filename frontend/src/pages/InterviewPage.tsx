@@ -524,9 +524,12 @@ export default function InterviewPage() {
           }
           if (typeof data.remainingSeconds === "number") {
             // Sync frontend time with server authoritative time if drift is significant (> 10s)
-            if (Math.abs(data.remainingSeconds - timeLeft) > 10) {
-              setTimeLeft(data.remainingSeconds);
-            }
+            setTimeLeft((prevTime) => {
+              if (Math.abs(data.remainingSeconds - prevTime) > 10) {
+                return data.remainingSeconds;
+              }
+              return prevTime;
+            });
           }
         }
       } catch (err) {
@@ -535,7 +538,7 @@ export default function InterviewPage() {
     }, 30000); // Every 30 seconds
 
     return () => clearInterval(interval);
-  }, [status, sessionId, jwtToken, timeLeft]);
+  }, [status, sessionId, jwtToken]);
 
   // Handle Session Pausing on Leave
   useEffect(() => {

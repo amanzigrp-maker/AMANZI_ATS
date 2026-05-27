@@ -58,14 +58,18 @@ export class ProcessMonitorService {
 
   async scan() {
     const { command, args } = processListCommand();
-    const { stdout } = await execFileAsync(command, args, { windowsHide: true });
-    const processes = stdout.split(/\r?\n/).map((line) => line.replace(/^"|"$/g, "").split('","')[0]).filter(Boolean);
+    try {
+      const { stdout } = await execFileAsync(command, args, { windowsHide: true });
+      const processes = stdout.split(/\r?\n/).map((line) => line.replace(/^"|"$/g, "").split('","')[0]).filter(Boolean);
 
-    for (const processName of processes) {
-      const threat = threats.find((item) => item.match.test(processName));
-      if (threat) {
-        this.onThreat({ ...threat, processName, detectedAt: new Date().toISOString() });
+      for (const processName of processes) {
+        const threat = threats.find((item) => item.match.test(processName));
+        if (threat) {
+          this.onThreat({ ...threat, processName, detectedAt: new Date().toISOString() });
+        }
       }
+    } catch (error) {
+      console.warn("Process monitor scan failed", error);
     }
   }
 }

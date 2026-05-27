@@ -6,11 +6,12 @@ import dotenv from "dotenv";
 export default defineConfig(({ mode }) => {
   const appEnv = process.env.VITE_APP_ENV || process.env.APP_ENV || mode || "local";
   dotenv.config({ path: path.resolve(__dirname, "..", "env", `frontend.${appEnv}.env`), override: true });
-  const env = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
+  const env = { ...loadEnv(mode, path.resolve(__dirname, ".."), ""), ...process.env };
   const backendTarget = env.VITE_DEV_PROXY_BACKEND_URL || env.VITE_API_BASE_URL || "http://127.0.0.1:3003";
   const workerTarget = env.VITE_DEV_PROXY_PYTHON_WORKER_URL || env.VITE_PYTHON_WORKER_BASE_URL || "http://localhost:8001";
 
   return {
+    envDir: path.resolve(__dirname, ".."),
     server: {
       host: env.VITE_DEV_HOST || "::",
       port: Number(env.VITE_DEV_PORT || 8080),

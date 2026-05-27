@@ -1,82 +1,63 @@
+import { CertificateService } from '../src/services/certificate.service';
 import puppeteer from 'puppeteer';
 import QRCode from 'qrcode';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
-import pool from '../lib/database.js';
-import { config } from '../config/env.config';
+import { config } from '../src/config/env.config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export interface CertificateData {
-  name: string;
-  test: string;
-  date: string;
-  certificateId: string;
-  photoPath: string;
-  score?: number;
-  analytics?: any;
-}
+async function generateScreenshot() {
+  console.log("Generating Certificate Screenshot...");
+  const artifactDir = "C:\\Users\\ABHINAV VATS\\.gemini\\antigravity-ide\\brain\\17932ce5-c872-437f-a60f-13c50af7dc79";
+  const outputPath = path.join(artifactDir, "certificate_preview.png");
 
-export class CertificateService {
-  /**
-   * Generates a professional A4 landscape certificate using Puppeteer (HTML to PDF)
-   */
-  static async generatePDF(data: CertificateData): Promise<Buffer> {
-    console.log(`[CertificateService] Generating PDF for ${data.name} (ID: ${data.certificateId})...`);
+  const data = {
+    name: 'Rahul Kumar',
+    test: 'Software Engineer',
+    score: 85.50,
+    certificateId: 'CERT-RAHUL-12345',
+    photoPath: null
+  };
 
-    const browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1123, height: 794 });
+
+    const qrDataUrl = await QRCode.toDataURL(`https://amanzi.com/verify-certificate/${data.certificateId}`, {
+      margin: 1,
+      width: 256
     });
 
-    try {
-      const page = await browser.newPage();
+    // Load company logo as base64 with multiple fallback paths
+    let companyLogoBase64 = null;
+    const logoPaths = [
+      path.join(process.cwd(), "..", "frontend", "public", "assets", "logo.png"),
+      path.join(process.cwd(), "frontend", "public", "assets", "logo.png"),
+      path.join(__dirname, "..", "..", "..", "frontend", "public", "assets", "logo.png")
+    ];
 
-      // 1. Prepare dynamic data
-      const qrDataUrl = await QRCode.toDataURL(`${config.FRONTEND_URL}/verify-certificate/${data.certificateId}`, {
-        margin: 1,
-        width: 256
-      });
-
-      let candidatePhotoBase64 = null;
-      if (data.photoPath) {
-        try {
-          if (data.photoPath.startsWith('data:image')) {
-            candidatePhotoBase64 = data.photoPath;
-          } else {
-            const photoData = await fs.readFile(data.photoPath);
-            candidatePhotoBase64 = `data:image/jpeg;base64,${photoData.toString('base64')}`;
-          }
-        } catch (err) {
-          console.warn(`[CertificateService] Could not load candidate photo: ${data.photoPath}`);
-        }
+    for (const logoPath of logoPaths) {
+      try {
+        const logoData = await fs.readFile(logoPath);
+        companyLogoBase64 = `data:image/png;base64,${logoData.toString('base64')}`;
+        console.log(`Successfully loaded logo from: ${logoPath}`);
+        break; 
+      } catch (err) {
+        // Try next candidate path
       }
+    }
 
-      // Load company logo as base64 with multiple fallback paths
-      let companyLogoBase64 = null;
-      const logoPaths = [
-        path.join(process.cwd(), "..", "frontend", "public", "assets", "logo.png"),
-        path.join(process.cwd(), "frontend", "public", "assets", "logo.png"),
-        path.join(__dirname, "..", "..", "..", "frontend", "public", "assets", "logo.png")
-      ];
+    const issueDate = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
-      for (const logoPath of logoPaths) {
-        try {
-          const logoData = await fs.readFile(logoPath);
-          companyLogoBase64 = `data:image/png;base64,${logoData.toString('base64')}`;
-          console.log(`[CertificateService] Successfully loaded logo from: ${logoPath}`);
-          break; 
-        } catch (err) {
-          // Try next candidate path
-        }
-      }
-
-      const issueDate = data.date || new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
-
-      // 2. Build the Finalized High-Fidelity HTML Template (Pure CSS/SVG, no external assets needed)
-      const htmlContent = `
+    const htmlContent = `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -96,7 +77,7 @@ export class CertificateService {
         body, html {
             margin: 0;
             padding: 0;
-            width: 1123px; /* A4 Landscape at 96 DPI */
+            width: 1123px;
             height: 794px;
             overflow: hidden;
             background: white;
@@ -179,7 +160,7 @@ export class CertificateService {
 
         .certify-line { font-size: 17px; font-style: italic; color: #555; margin-bottom: 12px; }
         .candidate-name { 
-            font-family: 'Montserrat', sans-serif; font-size: ${data.name.length > 25 ? '30px' : '44px'}; 
+            font-family: 'Montserrat', sans-serif; font-size: 44px; 
             font-weight: 900; color: var(--navy); text-transform: uppercase; 
             border-bottom: 2px double var(--gold); padding-bottom: 4px; margin-bottom: 18px; width: 100%; max-width: 550px; 
         }
@@ -230,7 +211,7 @@ export class CertificateService {
             <div class="main-body">
                 <div class="side-element">
                     <div class="photo-frame">
-                        ${candidatePhotoBase64 ? `<img src="${candidatePhotoBase64}" class="photo-img" />` : '<div style="color:#ccc; font-size:10px; height:100%; display:flex; align-items:center; justify-content:center; text-align:center;">PHOTO</div>'}
+                        <div style="color:#ccc; font-size:10px; height:100%; display:flex; align-items:center; justify-content:center; text-align:center;">PHOTO</div>
                     </div>
                 </div>
 
@@ -276,105 +257,17 @@ export class CertificateService {
     </div>
 </body>
 </html>
-      `;
-
-      await page.setContent(htmlContent, { waitUntil: 'networkidle0' as any, timeout: 60000 });
-      console.log(`[CertificateService] HTML content set. Generating PDF...`);
-
-      const pdfBuffer = await page.pdf({
-        format: 'A4',
-        landscape: true,
-        printBackground: true,
-        margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' }
-      });
-
-      console.log(`[CertificateService] PDF generated successfully. Buffer size: ${pdfBuffer.length} bytes`);
-      return Buffer.from(pdfBuffer);
-
-    } finally {
-      await browser.close();
-    }
-  }
-
-  static generateCertificateId(): string {
-    const now = new Date();
-    return `AMZ-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}-${Math.floor(1000 + Math.random() * 9000)}`;
-  }
-
-  static async saveCertificate(sessionId: string, data: any) {
-    try {
-      const query = `
-        INSERT INTO certificates (
-          interview_session_id,
-          certificate_id,
-          candidate_name,
-          candidate_email,
-          job_role,
-          score,
-          metadata,
-          issued_at,
-          candidate_photo,
-          test_name
-        )
-        VALUES (
-          $1, $2, $3, $4, $5,
-          $6, $7, NOW(), $8, $9
-        )
-        ON CONFLICT (interview_session_id)
-        DO UPDATE SET
-          certificate_id = EXCLUDED.certificate_id,
-          candidate_name = EXCLUDED.candidate_name,
-          candidate_email = EXCLUDED.candidate_email,
-          job_role = EXCLUDED.job_role,
-          score = EXCLUDED.score,
-          metadata = EXCLUDED.metadata,
-          issued_at = EXCLUDED.issued_at,
-          candidate_photo = EXCLUDED.candidate_photo,
-          test_name = EXCLUDED.test_name
-        RETURNING *;
-      `;
-
-      const values = [
-        Number(sessionId),
-        data.certificateId || data.id,
-        data.name || data.candidate_name,
-        data.email || data.candidate_email,
-        data.test || data.test_name || data.job_role,
-        data.score || 0,
-        JSON.stringify(data.analytics || data.metadata || {}),
-        data.photoUrl || data.candidate_photo || '',
-        data.test || data.test_name || data.job_role
-      ];
-
-      console.log('[CertificateService] Saving certificate:', values);
-
-      const result = await pool.query(query, values);
-
-      console.log('[CertificateService] Certificate saved successfully');
-
-      return result.rows[0];
-
-    } catch (error) {
-      console.error('[CertificateService] Save certificate failed:', error);
-      throw error;
-    }
-  }
-
-  static async getCertificate(certificateId: string) {
-    const query = `
-      SELECT
-        c.*,
-        c.candidate_photo as selfie_path,
-        c.job_role as assessment_name,
-        c.issued_at as issue_date,
-        c.metadata as analytics
-      FROM certificates c
-      WHERE c.id::text = $1
-      OR c.certificate_id = $1;
     `;
 
-    const result = await pool.query(query, [certificateId]);
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' as any });
+    await page.screenshot({ path: outputPath });
+    console.log(`Screenshot generated successfully at: ${outputPath}`);
 
-    return result.rows[0];
+  } catch (err) {
+    console.error("Error creating screenshot:", err);
+  } finally {
+    await browser.close();
   }
 }
+
+generateScreenshot();
