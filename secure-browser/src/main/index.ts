@@ -21,12 +21,12 @@ const PROTOCOL = "amanzi-secure-browser";
 const API_BASE_URL = process.env.AMANZI_API_BASE_URL ?? (
   isDev
     ? "http://localhost:3003"
-    : "http://35.154.121.208:3003"
+    : "http://13.232.152.176:3003"
 );
 const FRONTEND_BASE_URL = process.env.AMANZI_FRONTEND_URL ?? (
   isDev
     ? "http://localhost:8080"
-    : "http://35.154.121.208"
+    : "http://13.232.152.176"
 );
 const DEFAULT_URL = process.env.AMANZI_EXAM_URL ?? `${FRONTEND_BASE_URL}/interview`;
 
@@ -60,20 +60,9 @@ const handleDeepLink = (rawUrl: string) => {
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol === `${PROTOCOL}:`) {
-      const dynamicUrl = parsed.searchParams.get('url');
-      let finalUrl = "";
-      
-      if (dynamicUrl) {
-        finalUrl = dynamicUrl;
-      } else if (parsed.host && (parsed.host.includes("localhost") || parsed.host.includes("127.0.0.1") || parsed.host.includes(":"))) {
-        // If it includes a dynamic dev port/host, load directly
-        finalUrl = `http://${parsed.host}${parsed.pathname}${parsed.search}`;
-      } else {
-        // Fallback to configured FRONTEND_BASE_URL
-        let targetPath = parsed.host + parsed.pathname;
-        targetPath = targetPath.replace(/^\/+/, ''); // Remove leading slashes
-        finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
-      }
+      let targetPath = parsed.host + parsed.pathname;
+      targetPath = targetPath.replace(/^\/+/, ''); // Remove leading slashes
+      const finalUrl = `${FRONTEND_BASE_URL}/${targetPath}${parsed.search}`;
       
       if (mainWindow) {
         void mainWindow.loadURL(finalUrl);
@@ -107,7 +96,7 @@ app.on("second-instance", (event, commandLine) => {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
-  
+
   // Parse URL from commandLine for Windows/Linux
   const url = commandLine.find((arg) => arg.startsWith(`${PROTOCOL}://`));
   if (url) {
@@ -125,7 +114,7 @@ import { dialog } from "electron";
 const handleCrash = (title: string, message: string) => {
   if (!mainWindow) return;
   console.error(`[CRASH] ${title}: ${message}`);
-  
+
   dialog.showErrorBox(title, message + "\n\nPlease restart the secure browser.");
   app.quit();
 };
@@ -180,8 +169,33 @@ const createWindow = () => {
     );
   });
 
-  mainWindow.webContents.on("did-fail-load", (event, errorCode, errorDescription, validatedURL) => {
+  mainWindow.webContents.on("did-fail-load", async (event, errorCode, errorDescription, validatedURL) => {
     console.error(`did-fail-load: ${validatedURL} (${errorCode}: ${errorDescription})`);
+
+    // Treat connection refused as a recoverable error and offer retry
+    if (errorCode === -102) { // ERR_CONNECTION_REFUSED
+      const result = await dialog.showMessageBox(mainWindow!, {
+        type: "error",
+        buttons: ["Retry", "Quit"],
+        defaultId: 0,
+        cancelId: 1,
+        title: "Page Load Failure",
+        message: `Failed to load URL: ${validatedURL}`,
+        detail: `${errorDescription} (${errorCode})`,
+      });
+
+      if (result.response === 0) {
+        setTimeout(() => {
+          if (mainWindow) void mainWindow.loadURL(startupUrl);
+        }, 1000);
+        return;
+      }
+
+      app.quit();
+      return;
+    }
+
+    // Fallback: treat other failures as fatal
     handleCrash(
       "Page Load Failure",
       `Failed to load URL: ${validatedURL}\n\nError: ${errorDescription} (${errorCode})`

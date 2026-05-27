@@ -1,9 +1,10 @@
 # =====================================================
-# AI Resume Processing Worker - Dependencies (Optimized)
+# AI Resume Processing Worker - Complete Dependencies
 # -----------------------------------------------------
 # LLM: Gemini API (Parsing & Embeddings)
 # Text Extraction: PyMuPDF & python-docx
 # Database: PostgreSQL with pgvector
+# Machine Learning: NumPy for embeddings and calculations
 # =====================================================
 
 # -------------------------
@@ -20,7 +21,6 @@ python-multipart==0.0.6
 # -------------------------
 PyMuPDF==1.26.7
 python-docx==0.8.11
-# Removed: pytesseract, opencv-python (Using LLM for images if needed)
 rapidfuzz==3.14.3
 Pillow==10.4.0
 
@@ -38,7 +38,7 @@ celery==5.3.4
 redis==5.0.1
 
 # -------------------------
-# Object Storage
+# Object Storage (Optional)
 # -------------------------
 minio==7.2.0
 boto3==1.29.7
@@ -57,11 +57,12 @@ loguru==0.7.2
 google-generativeai==0.8.3
 
 # -------------------------
-# Data Processing
+# Data Processing & Analysis
 # -------------------------
 pandas==2.1.3
 openpyxl==3.1.2
 xlrd==2.0.1
+numpy==1.24.3
 
 # -------------------------
 # Logging & Monitoring
@@ -74,3 +75,11 @@ prometheus-client==0.19.0
 pytest==7.4.3
 pytest-asyncio==0.21.1
 httpx==0.25.2
+
+# -------------------------
+# Notes
+# -------------------------
+# - OCR dependencies (pytesseract, opencv-python) removed - using Gemini LLM instead
+# - Sentence transformers and torch removed - using Gemini embeddings API
+# - All core functionality maintained with lighter dependencies
+# - Install with: pip install -r requirements.txt
