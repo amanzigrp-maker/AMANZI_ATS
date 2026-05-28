@@ -24,7 +24,7 @@ const threats: ProcessThreat[] = [
   { name: "TeamViewer", match: /teamviewer/i, category: "remote_desktop", action: "close_exam" },
   { name: "Discord", match: /discord/i, category: "communication", action: "flag" },
   { name: "Zoom", match: /\bzoom\b/i, category: "communication", action: "flag" },
-  { name: "ChatGPT Desktop", match: /chatgpt/i, category: "ai_assistant", action: "close_exam" },
+  { name: "ChatGPT Desktop", match: /chatgpt|chatgpt\.exe/i, category: "ai_assistant", action: "close_exam" },
   { name: "Screen Capture", match: /(snippingtool|screenrec|camtasia|loom|sharex|bandicam)/i, category: "screen_capture", action: "close_exam" },
   { name: "Remote Desktop", match: /(mstsc|vnc|parsecd|chrome remote desktop|rustdesk)/i, category: "remote_desktop", action: "close_exam" },
 ];
@@ -42,7 +42,7 @@ export class ProcessMonitorService {
   constructor(
     private readonly onThreat: (threat: DetectedProcessThreat) => void,
     private readonly intervalMs = 5000
-  ) {}
+  ) { }
 
   start() {
     if (this.timer) return;
@@ -58,18 +58,30 @@ export class ProcessMonitorService {
 
   async scan() {
     const { command, args } = processListCommand();
-    try {
-      const { stdout } = await execFileAsync(command, args, { windowsHide: true });
-      const processes = stdout.split(/\r?\n/).map((line) => line.replace(/^"|"$/g, "").split('","')[0]).filter(Boolean);
-
-      for (const processName of processes) {
-        const threat = threats.find((item) => item.match.test(processName));
-        if (threat) {
-          this.onThreat({ ...threat, processName, detectedAt: new Date().toISOString() });
-        }
+    const { stdout } = await execFileAsync(command, args, {
+      windowsHide: true,
+    });
+    const processes = stdout
+      .split(/\r?\n/)
+      .map((line) => {
+        const firstColumn = line.split('","')[0];
+        return firstColumn.replace(/"/g, "").trim().toLowerCase();
+      })
+      .filter(Boolean);
+    console.log("Running processes:", processes);
+    for (const processName of processes) {
+      const threat = threats.find((item) =>
+        item.match.test(processName)
+      );
+      if (threat) {
+        console.log("Threat matched:", processName);
+        this.onThreat({
+          ...threat,
+          processName,
+          detectedAt: new Date().toISOString(),
+        });
+        break;
       }
-    } catch (error) {
-      console.warn("Process monitor scan failed", error);
     }
   }
 }
