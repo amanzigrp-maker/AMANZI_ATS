@@ -114,7 +114,7 @@ const createWindow = () => {
     },
   });
 
-  if (isDev) {
+  if (isDev && (process.env.OPEN_DEVTOOLS === "true" || process.env.DEBUG === "true")) {
     mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 
@@ -174,6 +174,12 @@ const createWindow = () => {
 
 app.whenReady().then(() => {
   new SecureUpdateService().configure();
+
+  const url = process.argv.find((arg) =>
+    arg.startsWith(`${PROTOCOL}://`)
+  );
+  if (url) handleDeepLink(url);
+
   createWindow();
 });
 
