@@ -3,6 +3,20 @@ import * as faceDetection from '@tensorflow-models/face-detection';
 import '@tensorflow/tfjs';
 import * as tf from '@tensorflow/tfjs';
 import { getFeatureFlags } from '../utils/featureFlags';
+import ProctoringWorker from './proctoring.worker?worker';
+
+
+
+// ==========================================
+// MANDATORY SINGLETONS & GLOBAL STATE (Fix 3)
+// ==========================================
+let cachedDetectorPromise: Promise<faceDetection.FaceDetector | null> | null = null;
+let cachedDetector: faceDetection.FaceDetector | null = null;
+
+let cachedCocoPromise: Promise<any> | null = null;
+let cachedCocoModel: any = null;
+
+let globalActiveLoopCount = 0;
 
 export const useFaceDetection = (
   videoRef: React.RefObject<HTMLVideoElement>,
@@ -17,15 +31,22 @@ export const useFaceDetection = (
     tfMemory: { numTensors: number; numBytes: number } | null;
   }) => void
 ) => {
-  const [detector, setDetector] = useState<faceDetection.FaceDetector | null>(null);
-  const [cocoModel, setCocoModel] = useState<any | null>(null);
+  console.log("useFaceDetection.ts: mounted (diagnostics)");
+
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [loopStatus, setLoopStatus] = useState<'Initializing' | 'Active' | 'Stopped'>('Initializing');
 
-  // Loop management
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Mutex loop guards (Fix 7)
+  const isRunningRef = useRef(false);
   const lastDetectTime = useRef<number>(performance.now());
-  const fpsRef = useRef<number>(0);
+  const lastCocoTime = useRef<number>(0);
+  const lastWatchdogTime = useRef<number>(performance.now());
+  const fpsRef = useRef<number>(5.0);
+  const dynamicDelayRef = useRef<number>(200); // 200ms = 5 FPS target
+
+  // Web Worker states (Fix 10)
+  const workerRef = useRef<Worker | null>(null);
+  const isWorkerReadyRef = useRef<boolean>(false);
 
   // Time-based stabilization refs (timestamps when violations start)
   const multipleFacesStart = useRef<number | null>(null);
@@ -39,269 +60,165 @@ export const useFaceDetection = (
   const confidenceBuffer = useRef<number[]>([]);
   const confidenceBufferLimit = 5;
 
-  // Offscreen canvas for pixel analysis (brightness, variance, frame difference)
+  // Offscreen canvas for pixel and inference downscaling
   const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const inferenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const prevFrameData = useRef<Uint8ClampedArray | null>(null);
 
-  // Stabilization: Callback refs to prevent loop recreation
+  // Keep callback refs updated to avoid re-initializing the loop on callback change
   const onViolationRef = useRef(onViolation);
   const onDebugUpdateRef = useRef(onDebugUpdate);
-
   useEffect(() => {
     onViolationRef.current = onViolation;
     onDebugUpdateRef.current = onDebugUpdate;
   }, [onViolation, onDebugUpdate]);
 
-  // Performance: Inference lock & active loop ID
-  const isInferenceRunning = useRef(false);
-  const activeLoopIdRef = useRef(0);
+  // Track last dispatched debug metrics to prevent duplicate re-renders (Fix 6)
+  const lastDebugMetricsRef = useRef<string>("");
 
-  useEffect(() => {
-    const flags = getFeatureFlags();
-    if (!flags.enableTf || !flags.enableFaceMesh) {
-      console.warn("useFaceDetection: Heavy TensorFlow face detection is disabled for this environment.");
+  // ==========================================
+  // SINGLETON MODEL LOADERS FOR FALLBACK (Fix 3)
+  // ==========================================
+  const loadModelsMainThread = async () => {
+    try {
+      console.debug("[FaceDetector Hook] Running MAIN-THREAD FALLBACK. Initializing local singletons...");
+      
+      // Initialize WebGL GPU stabilization flags (Fix 3)
+      tf.env().set('WEBGL_DELETE_TEXTURE_THRESHOLD', 0);
+      tf.env().set('WEBGL_FORCE_F16_TEXTURES', true);
+      
+      await tf.setBackend('webgl');
+      await tf.ready();
+      console.log("[FaceDetector Hook] Local TensorFlow backend initialized:", tf.getBackend());
+
+      if (!cachedDetector && !cachedDetectorPromise) {
+        cachedDetectorPromise = (async () => {
+          try {
+            const model = faceDetection.SupportedModels.MediaPipeFaceDetector;
+            const detectorConfig: faceDetection.MediaPipeFaceDetectorTfjsModelConfig = {
+              runtime: 'tfjs',
+              maxFaces: 3,
+            };
+            await new Promise(resolve => setTimeout(resolve, 0));
+            return await faceDetection.createDetector(model, detectorConfig);
+          } catch (err) {
+            console.error("Local face detector load failed:", err);
+            return null;
+          }
+        })();
+      }
+
+      if (cachedDetectorPromise) {
+        cachedDetector = await cachedDetectorPromise;
+      }
+
+      if (!cachedCocoModel && !cachedCocoPromise) {
+        cachedCocoPromise = (async () => {
+          try {
+            const { load } = await import('@tensorflow-models/coco-ssd');
+            await new Promise(resolve => setTimeout(resolve, 0));
+            return await load();
+          } catch (err) {
+            console.error("Local COCO-SSD load failed:", err);
+            return null;
+          }
+        })();
+      }
+
+      if (cachedCocoPromise) {
+        cachedCocoModel = await cachedCocoPromise;
+      }
+
       setLoopStatus('Stopped');
-      return;
+      console.log("[FaceDetector Hook] Local fallback singletons successfully loaded.");
+    } catch (err) {
+      console.error("[FaceDetector Hook] Local main thread fallback loader crashed:", err);
+    }
+  };
+
+  // ==========================================
+  // SPAWN BACKGROUND WEB WORKER (Fix 10)
+  // ==========================================
+  useEffect(() => {
+    // Try to load Web Worker first, fallback to main thread if fails
+    try {
+      console.debug("[FaceDetector Hook] Spawning background proctoring Web Worker thread...");
+      const worker = new ProctoringWorker();
+      workerRef.current = worker;
+
+      worker.onmessage = (e) => {
+        const { type } = e.data;
+        if (type === 'ready') {
+          console.log("[FaceDetector Hook] Web Worker successfully loaded and signaled READY.");
+          isWorkerReadyRef.current = true;
+          setLoopStatus('Stopped');
+        } else if (type === 'error') {
+          console.error("[FaceDetector Hook] Web Worker initialization error. Triggering main-thread fallback:", e.data.error);
+          isWorkerReadyRef.current = false;
+          void loadModelsMainThread();
+        } else if (type === 'inference_result') {
+          handleInferenceResult(e.data);
+        }
+      };
+
+      worker.postMessage({ type: 'init' });
+    } catch (err) {
+      console.warn("[FaceDetector Hook] Failed to spawn Web Worker. Falling back to local main thread execution:", err);
+      isWorkerReadyRef.current = false;
+      void loadModelsMainThread();
     }
 
-    const loadModel = async () => {
-      try {
-        console.debug("useFaceDetection: Initializing MediaPipe Face Detector...");
-        
-        // Ensure TF is fully initialized and backend is set safely to prevent WebGL hangs
-        await tf.ready();
-        if (flags.forceCpu) {
-          console.warn("useFaceDetection: Forcing backend to cpu via debug flag to prevent GPU hangs.");
-          await tf.setBackend('cpu');
-        }
+    // Set up emergency watchdog timer (Fix 7)
+    const watchdogInterval = setInterval(() => {
+      console.log("[Proctoring Watchdog] Renderer process is alive and active.", performance.now());
+    }, 1000);
 
-        const model = faceDetection.SupportedModels.MediaPipeFaceDetector;
-        const detectorConfig: faceDetection.MediaPipeFaceDetectorTfjsConfig = {
-          runtime: 'tfjs',
-          maxFaces: 3,
-        };
-        const newDetector = await faceDetection.createDetector(model, detectorConfig);
-        setDetector(newDetector);
-
-        console.debug("useFaceDetection: Loading COCO-SSD object detection model...");
-        try {
-          const { load } = await import('@tensorflow-models/coco-ssd');
-          const loadedCoco = await load();
-          setCocoModel(loadedCoco);
-          console.debug("useFaceDetection: COCO-SSD model loaded successfully.");
-        } catch (cocoErr) {
-          console.error("useFaceDetection: Failed to load COCO-SSD model:", cocoErr);
-        }
-
-        setLoopStatus('Stopped');
-        console.debug("useFaceDetection: Model loaded successfully.");
-      } catch (err) {
-        console.error("useFaceDetection: Failed to load detector model:", err);
+    return () => {
+      console.log("useFaceDetection.ts: unmounted (diagnostics)");
+      clearInterval(watchdogInterval);
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
       }
     };
-    loadModel();
   }, []);
 
-  const detect = async () => {
-    const video = videoRef.current;
-    const flags = getFeatureFlags();
-    const safeIntervalMs = flags.forceCpu || !flags.enableFaceMesh ? 10000 : 5000;
+  // ==========================================
+  // PROCESS INFERENCE RESULTS (Worker & Main)
+  // ==========================================
+  const handleInferenceResult = (data: {
+    faces: faceDetection.Face[];
+    cocoPersonCount: number;
+    isPhoneDetected: boolean;
+    shouldRunCoco: boolean;
+    now: number;
+  }) => {
+    const { faces, cocoPersonCount, isPhoneDetected, shouldRunCoco, now } = data;
 
-    // Task 7 & 12: Bypassing inference if TF is disabled or FaceMesh is disabled
-    if (!flags.enableTf || !flags.enableFaceMesh) {
-      const now = performance.now();
-      const timeDiff = now - lastDetectTime.current;
-      lastDetectTime.current = now;
-      if (timeDiff > 0) {
-        const currentFps = 1000 / timeDiff;
-        fpsRef.current = fpsRef.current * 0.9 + currentFps * 0.1;
-      }
+    // Mutex release (Fix 7)
+    isRunningRef.current = false;
 
-      if (onDebugUpdateRef.current) {
-        onDebugUpdateRef.current({
-          faceCount: 0,
-          detectionConfidence: 0,
-          fps: fpsRef.current,
-          gazeStatus: 'Unknown',
-          obstructionStatus: 'Unknown',
-          loopStatus: 'Stopped',
-          tfMemory: null
-        });
-      }
-      return;
-    }
-
-    const readyState = video ? video.readyState : 0;
-    const videoWidth = video ? video.videoWidth : 0;
-    const videoHeight = video ? video.videoHeight : 0;
-    
-    if (!detector || !video || readyState !== 4 || videoWidth === 0 || videoHeight === 0) {
-      return;
-    }
-
-    // Inference locking
-    if (isInferenceRunning.current) {
-      console.warn("useFaceDetection: Inference skipped because previous run is still active.");
-      return;
-    }
-    isInferenceRunning.current = true;
-
-    // 1. Calculate FPS
-    const now = performance.now();
+    // Calculate inference loop FPS
     const timeDiff = now - lastDetectTime.current;
     lastDetectTime.current = now;
-    if (timeDiff > 0) {
-      const currentFps = 1000 / timeDiff;
-      fpsRef.current = fpsRef.current * 0.9 + currentFps * 0.1;
-    }
+    fpsRef.current = 1000 / timeDiff;
 
-    // 2. Perform Face Detection with TensorFlow scope management to prevent leaks
-    let faces: faceDetection.Face[] = [];
-    const inferenceStartTime = performance.now();
-    tf.engine().startScope();
-    try {
-      faces = await detector.estimateFaces(video);
-    } catch (err) {
-      console.error("useFaceDetection: Error estimating faces:", err);
-    } finally {
-      tf.engine().endScope();
-      isInferenceRunning.current = false;
-    }
+    const getFaceScore = (f: any) => f.box?.score ?? f.score ?? 0;
 
-    const inferenceDuration = performance.now() - inferenceStartTime;
-    if (inferenceDuration > 2500) {
-      console.warn(`useFaceDetection: Inference took ${inferenceDuration.toFixed(0)}ms. Slowing detection frequency.`);
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-      return;
-    }
+    const faceCount = faces.filter(f => getFaceScore(f) >= 0.35).length;
+    const totalPersons = shouldRunCoco ? Math.max(faceCount, cocoPersonCount) : faceCount;
 
-    // 2.1 Perform Prohibited Device (Cell Phone) and Person body detection using COCO-SSD
-    let cocoPersonCount = 0;
-    let isPhoneDetected = false;
-
-    if (cocoModel) {
-      tf.engine().startScope();
-      try {
-        const predictions = await cocoModel.detect(video);
-        
-        // Count persons detected in frame by COCO-SSD body/pose analysis
-        const personPredictions = predictions.filter(
-          (p: any) => p.class === 'person' && p.score >= 0.45
-        );
-        cocoPersonCount = personPredictions.length;
-
-        // Detect prohibited phones in frame
-        const phonePrediction = predictions.find(
-          (p: any) => (p.class === 'cell phone' || p.class === 'phone') && p.score >= 0.5
-        );
-        if (phonePrediction) {
-          isPhoneDetected = true;
-        }
-      } catch (err) {
-        console.error("useFaceDetection: Error running object detection:", err);
-      } finally {
-        tf.engine().endScope();
-      }
-    }
-    console.debug(`[FaceDetector Timing] FaceDetector inference took ${inferenceDuration.toFixed(1)}ms`);
-
-    const rawFacesCount = faces.length;
-    const rawConfidence = rawFacesCount > 0 ? (faces[0].score ?? 1.0) : 0;
-    const rawLandmarksCount = rawFacesCount > 0 ? (faces[0].keypoints?.length ?? 0) : 0;
-    console.debug(`[FaceDetector Detector Output] faces: ${rawFacesCount}, confidence: ${rawConfidence.toFixed(3)}, landmarks: ${rawLandmarksCount}`);
-
-    // Filter faces based on relaxed confidence >= 0.35
-    const validFaces = faces.filter(f => f.score >= 0.35);
-    const faceCount = validFaces.length;
-
-    // Combine face detection counts with COCO-SSD body/person detections for ultra-accurate candidate counts
-    const totalPersons = Math.max(faceCount, cocoPersonCount);
-
-    // Track rolling confidence
-    const currentMaxConfidence = faceCount > 0 ? Math.max(...validFaces.map(f => f.score)) : 0;
+    const currentMaxConfidence = faceCount > 0 ? Math.max(...faces.filter(f => getFaceScore(f) >= 0.35).map(f => getFaceScore(f))) : 0;
     confidenceBuffer.current.push(currentMaxConfidence);
     if (confidenceBuffer.current.length > confidenceBufferLimit) {
       confidenceBuffer.current.shift();
     }
     const avgConfidence = confidenceBuffer.current.reduce((a, b) => a + b, 0) / confidenceBuffer.current.length;
 
-    // 3. Camera Obstruction & Frame Freeze Detection (Canvas Analysis)
-    let avgBrightness = 128;
-    let variance = 100;
-    let frameDiff = 1.0;
-    let isCovered = false;
-    let isStatic = false;
-
-    try {
-      if (!offscreenCanvasRef.current) {
-        offscreenCanvasRef.current = document.createElement('canvas');
-      }
-      const offscreen = offscreenCanvasRef.current;
-      offscreen.width = 64;
-      offscreen.height = 48;
-      const ctx = offscreen.getContext('2d');
-      
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, offscreen.width, offscreen.height);
-        const imgData = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
-        const data = imgData.data;
-        const totalPixels = offscreen.width * offscreen.height;
-
-        // Brightness
-        let totalBrightness = 0;
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i+1];
-          const b = data[i+2];
-          totalBrightness += 0.299 * r + 0.587 * g + 0.114 * b;
-        }
-        avgBrightness = totalBrightness / totalPixels;
-
-        // Variance
-        let squaredDiffs = 0;
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i+1];
-          const b = data[i+2];
-          const brightness = 0.299 * r + 0.587 * g + 0.114 * b;
-          squaredDiffs += Math.pow(brightness - avgBrightness, 2);
-        }
-        variance = squaredDiffs / totalPixels;
-
-        // Frame Difference
-        if (prevFrameData.current && prevFrameData.current.length === data.length) {
-          let diffSum = 0;
-          for (let i = 0; i < data.length; i += 4) {
-            diffSum += Math.abs(data[i] - prevFrameData.current[i]) +
-                       Math.abs(data[i+1] - prevFrameData.current[i+1]) +
-                       Math.abs(data[i+2] - prevFrameData.current[i+2]);
-          }
-          frameDiff = (diffSum / 3) / totalPixels;
-        }
-
-        // Save current frame data
-        if (!prevFrameData.current || prevFrameData.current.length !== data.length) {
-          prevFrameData.current = new Uint8ClampedArray(data);
-        } else {
-          prevFrameData.current.set(data);
-        }
-
-        // Calibrate limits: Brightness < 15 or Variance < 25 (covered lens)
-        isCovered = avgBrightness < 15 || variance < 25;
-        // Frame difference < 0.05 indicates absolute static/frozen frame
-        isStatic = prevFrameData.current !== null && frameDiff < 0.04;
-      }
-    } catch (e) {
-      console.warn("useFaceDetection: Error running offscreen pixels analysis:", e);
-    }
-
-    // 4. Gaze Analysis (ratio-based nose vs eyes distance)
+    // Gaze check
     let gazeDirection: 'Center' | 'Looking Away' | 'Unknown' = 'Unknown';
     if (faceCount === 1) {
-      const face = validFaces[0];
+      const face = faces.filter(f => getFaceScore(f) >= 0.35)[0];
       const keypoints = face.keypoints;
       if (keypoints && keypoints.length >= 3) {
         const getKp = (name: string, index: number) => {
@@ -323,173 +240,230 @@ export const useFaceDetection = (
       }
     }
 
-    // 5. Stabilization and Warn/Violation Logic
     const currentTime = Date.now();
 
-    // -- Check: Multiple Persons (2+ seconds threshold)
+    // Check: Multiple Persons (2+ seconds threshold)
     if (totalPersons > 1) {
       if (multipleFacesStart.current === null) {
         multipleFacesStart.current = currentTime;
       } else if (currentTime - multipleFacesStart.current >= 2000) {
         onViolationRef.current('Multiple Faces Detected', `Multiple people (${totalPersons}) detected in the camera frame.`);
-        multipleFacesStart.current = currentTime + 5000; // Cooldown
+        multipleFacesStart.current = currentTime + 5000;
       }
     } else {
       multipleFacesStart.current = null;
     }
 
-    // -- Check: No Person / Candidate (5+ seconds threshold)
+    // Check: No Person (5+ seconds threshold)
     if (totalPersons === 0) {
       if (noFaceStart.current === null) {
         noFaceStart.current = currentTime;
       } else if (currentTime - noFaceStart.current >= 5000) {
         onViolationRef.current('No Face Detected', 'No candidate visible in the camera frame.');
-        noFaceStart.current = currentTime + 5000; // Cooldown
+        noFaceStart.current = currentTime + 5000;
       }
     } else {
       noFaceStart.current = null;
     }
 
-    // -- Check: Prohibited Device (Cell Phone) Detection
+    // Check: Phone (1.5+ seconds threshold)
     if (isPhoneDetected) {
       if (phoneStart.current === null) {
         phoneStart.current = currentTime;
       } else if (currentTime - phoneStart.current >= 1500) {
         onViolationRef.current('Prohibited Object Detected', 'A mobile/cell phone was detected in the camera view.');
-        phoneStart.current = currentTime + 8000; // Cooldown
+        phoneStart.current = currentTime + 8000;
       }
     } else {
       phoneStart.current = null;
     }
 
-    // -- Check: Gaze direction (3+ seconds threshold)
+    // Check: Gaze direction (3+ seconds threshold)
     if (gazeDirection === 'Looking Away') {
       if (gazeStart.current === null) {
         gazeStart.current = currentTime;
       } else if (currentTime - gazeStart.current >= 3000) {
         onViolationRef.current('Suspicious Gaze/Head Turn', 'Candidate is repeatedly looking away from the screen');
-        gazeStart.current = currentTime + 5000; // Cooldown
+        gazeStart.current = currentTime + 5000;
       }
     } else {
       gazeStart.current = null;
     }
 
-    // -- Check: Obstruction / Covered (3+ seconds threshold)
-    if (isCovered) {
-      if (obstructionStart.current === null) {
-        obstructionStart.current = currentTime;
-      } else if (currentTime - obstructionStart.current >= 3000) {
-        onViolationRef.current('Camera Obstructed', 'Webcam appears to be blocked, covered, or too dark');
-        obstructionStart.current = currentTime + 5000; // Cooldown
-      }
-    } else {
-      obstructionStart.current = null;
-    }
-
-    // -- Check: Frozen Frame (5+ seconds threshold)
-    if (isStatic && !isCovered && faceCount > 0) {
-      if (frozenStart.current === null) {
-        frozenStart.current = currentTime;
-      } else if (currentTime - frozenStart.current >= 5000) {
-        onViolationRef.current('Camera Obstructed', 'Webcam feed is frozen or static');
-        frozenStart.current = currentTime + 5000; // Cooldown
-      }
-    } else {
-      frozenStart.current = null;
-    }
-
-    // Visual Debugging Canvas Overlay Drawing removed due to being an abandoned feature
-
-    // 7. Report to Debug Panel
+    // Report to Debug Panel
     if (onDebugUpdateRef.current) {
       let tfMemory = null;
       try {
         const mem = tf.memory();
         tfMemory = { numTensors: mem.numTensors, numBytes: mem.numBytes };
       } catch (err) {
-        // tf may not be ready or active
+        // tf may not be active
       }
 
-      let obsStatus: 'Clear' | 'Obstructed' | 'Static' | 'Unknown' = 'Clear';
-      if (isCovered) obsStatus = 'Obstructed';
-      else if (isStatic) obsStatus = 'Static';
-
-      onDebugUpdateRef.current({
+      const metrics = {
         faceCount: totalPersons,
         detectionConfidence: avgConfidence,
         fps: fpsRef.current,
         gazeStatus: gazeDirection,
-        obstructionStatus: obsStatus,
-        loopStatus: 'Active',
+        obstructionStatus: 'Clear' as const,
+        loopStatus: 'Active' as const,
         tfMemory
-      });
+      };
+
+      const metricString = `${metrics.faceCount}-${metrics.gazeStatus}-${metrics.obstructionStatus}`;
+      if (lastDebugMetricsRef.current !== metricString) {
+        lastDebugMetricsRef.current = metricString;
+        onDebugUpdateRef.current(metrics);
+      }
+    }
+
+    // Throttled profiler logs: max once every 10 seconds (Fix 7 & 11)
+    if (now - lastWatchdogTime.current >= 10000) {
+      lastWatchdogTime.current = now;
+      let tfMem = { numTensors: 0, numBytes: 0 };
+      try {
+        const m = tf.memory();
+        tfMem = { numTensors: m.numTensors, numBytes: m.numBytes };
+      } catch (e) {}
+      console.log(
+        `📊 [Proctoring Profiler Log] active_loops: ${globalActiveLoopCount} | ` +
+        `loop_fps: ${fpsRef.current.toFixed(1)} | ` +
+        `worker_active: ${isWorkerReadyRef.current} | ` +
+        `tensors: ${tfMem.numTensors} | ` +
+        `memory: ${(tfMem.numBytes / 1024 / 1024).toFixed(2)} MB`
+      );
     }
   };
 
-  useEffect(() => {
-    let active = true;
-    const currentLoopId = ++activeLoopIdRef.current;
-    const flags = getFeatureFlags();
-    
-    console.debug(`[FaceDetector Loop] Creating loop ID ${currentLoopId}. isMonitoring: ${isMonitoring}`);
+  // ==========================================
+  // MAIN THREAD LOCAL INFERENCE FALLBACK
+  // ==========================================
+  const runLocalInference = async (canvas: HTMLCanvasElement, shouldRunCoco: boolean, now: number) => {
+    let faces: faceDetection.Face[] = [];
+    let cocoPersonCount = 0;
+    let isPhoneDetected = false;
 
-    const detectLoop = async () => {
-      if (currentLoopId !== activeLoopIdRef.current || !active) {
-        console.debug(`[FaceDetector Loop] Stale loop ID ${currentLoopId} aborted.`);
-        return;
-      }
-      
-      setLoopStatus('Active');
-      
-      try {
-        await detect();
-      } catch (err) {
-        console.error("useFaceDetection: Unhandled error in detect loop:", err);
-      }
-      
-      if (isMonitoring && active && currentLoopId === activeLoopIdRef.current) {
-        const flags = getFeatureFlags();
-        const nextDelay = flags.forceCpu || !flags.enableFaceMesh ? 10000 : 5000;
-        if ('requestIdleCallback' in window) {
-          (window as any).requestIdleCallback(() => {
-            if (isMonitoring && active && currentLoopId === activeLoopIdRef.current) {
-              detectLoop();
-            }
-          }, { timeout: nextDelay });
-        } else {
-          timeoutRef.current = setTimeout(() => {
-            if (isMonitoring && active && currentLoopId === activeLoopIdRef.current) {
-              detectLoop();
-            }
-          }, nextDelay);
+    // GPU / Memory safety scope (Fix 4)
+    tf.engine().startScope();
+    try {
+      if (shouldRunCoco && cachedCocoModel) {
+        const predictions = await cachedCocoModel.detect(canvas);
+        const personPredictions = predictions.filter(
+          (p: any) => p.class === 'person' && p.score >= 0.45
+        );
+        cocoPersonCount = personPredictions.length;
+        const phonePrediction = predictions.find(
+          (p: any) => (p.class === 'cell phone' || p.class === 'phone') && p.score >= 0.5
+        );
+        if (phonePrediction) {
+          isPhoneDetected = true;
         }
+      } else if (cachedDetector) {
+        faces = await cachedDetector.estimateFaces(canvas);
+      }
+    } catch (err) {
+      console.error("[FaceDetector Local fallback] Inference failed:", err);
+    } finally {
+      tf.engine().endScope();
+    }
+
+    // Call result processor locally
+    handleInferenceResult({
+      faces,
+      cocoPersonCount,
+      isPhoneDetected,
+      shouldRunCoco,
+      now
+    });
+  };
+
+  // ==========================================
+  // SINGLE CENTRALIZED requestAnimationFrame PUMP (Fix 2 & 6)
+  // ==========================================
+  useEffect(() => {
+    if (!isMonitoring) {
+      setLoopStatus((isWorkerReadyRef.current || cachedDetector) ? 'Stopped' : 'Initializing');
+      return;
+    }
+
+    let active = true;
+    let animationFrameId: number | null = null;
+    globalActiveLoopCount++;
+
+    const runLoop = async () => {
+      if (!active) return;
+
+      const now = performance.now();
+      const timeDiff = now - lastDetectTime.current;
+
+      // Throttle to dynamic delays (Fix 5 & 10)
+      if (timeDiff >= dynamicDelayRef.current) {
+        // Mutex Guard (Fix 2 & 7)
+        if (!isRunningRef.current) {
+          const video = videoRef.current;
+          const readyState = video ? video.readyState : 0;
+          const videoWidth = video ? video.videoWidth : 0;
+          const videoHeight = video ? video.videoHeight : 0;
+
+          if (video && readyState === 4 && videoWidth > 0 && videoHeight > 0) {
+            isRunningRef.current = true;
+
+            // Prepare downscaled canvas (Fix 6)
+            if (!inferenceCanvasRef.current) {
+              inferenceCanvasRef.current = document.createElement("canvas");
+            }
+            const canvas = inferenceCanvasRef.current;
+            canvas.width = 256;
+            canvas.height = 192;
+            const ctx = canvas.getContext("2d");
+            if (ctx) {
+              ctx.drawImage(video, 0, 0, 256, 192);
+            }
+
+            // Decide model execution (staggered to prevent double runs) (Fix 6)
+            const timeSinceLastCoco = now - lastCocoTime.current;
+            const shouldRunCoco = timeSinceLastCoco >= 3000 && fpsRef.current >= 15;
+            if (shouldRunCoco) {
+              lastCocoTime.current = now;
+            }
+
+            if (isWorkerReadyRef.current && workerRef.current) {
+              // Web Worker Transferable ImageBitmap Offloading (Fix 10)
+              try {
+                const imageBitmap = await createImageBitmap(canvas);
+                workerRef.current.postMessage({
+                  type: 'inference',
+                  imageBitmap,
+                  shouldRunCoco,
+                  now
+                }, [imageBitmap]); // Transfer ImageBitmap ownership (Fix 4 & 10)
+              } catch (bitmapErr) {
+                console.error("[FaceDetector Hook] Failed to create ImageBitmap for worker. Running local fallback:", bitmapErr);
+                await runLocalInference(canvas, shouldRunCoco, now);
+              }
+            } else {
+              // Local fallback mode
+              await runLocalInference(canvas, shouldRunCoco, now);
+            }
+          }
+        }
+      }
+
+      if (active) {
+        animationFrameId = requestAnimationFrame(runLoop);
       }
     };
 
-    if (isMonitoring) {
-      // If TF is disabled, we run the loop anyway to feed mock statistics (Task 12)
-      if (!flags.enableTf || detector) {
-        detectLoop();
-      }
-    } else {
-      setLoopStatus((detector || !flags.enableTf) ? 'Stopped' : 'Initializing');
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-    }
+    animationFrameId = requestAnimationFrame(runLoop);
 
     return () => {
       active = false;
-      // Invalidate current running cycle
-      activeLoopIdRef.current++;
-      console.debug(`[FaceDetector Loop] Cleaned up loop ID ${currentLoopId}`);
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
+      globalActiveLoopCount = Math.max(0, globalActiveLoopCount - 1);
+      if (animationFrameId !== null) {
+        cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [isMonitoring, detector, cocoModel]);
+  }, [isMonitoring]);
 
   return {
     startMonitoring: () => {

@@ -11,6 +11,93 @@ const saveProctorEvent = async (data) => {
         trackFailure("WebSocket.ProctorEventSave", err, { eventData: data });
     }
 };
+const printProctoringReport = async (candidateId, interviewId) => {
+    try {
+        const result = await pool.query("SELECT type, detail, timestamp FROM proctoring_logs WHERE interview_id = $1 AND candidate_id = $2 ORDER BY timestamp ASC", [interviewId, candidateId]);
+        const logs = result.rows;
+        const totalWarnings = logs.filter(log => log.type === 'warning').length;
+        const totalViolations = logs.filter(log => log.type === 'violation').length;
+        // Compile breakdowns
+        const warningBreakdown = {};
+        const violationBreakdown = {};
+        logs.forEach(log => {
+            const detailStr = String(log.detail || '');
+            const detailClean = detailStr.split(':')[0] || detailStr;
+            if (log.type === 'warning') {
+                warningBreakdown[detailClean] = (warningBreakdown[detailClean] || 0) + 1;
+            }
+            else if (log.type === 'violation') {
+                violationBreakdown[detailClean] = (violationBreakdown[detailClean] || 0) + 1;
+            }
+        });
+        // Format visual report in backend node terminal
+        console.log("\n\x1b[1;36m===================================================================\x1b[0m");
+        console.log(`\x1b[1;33m🛡️  CANDIDATE PROCTORING AUDIT REPORT  \x1b[0m`);
+        console.log(`\x1b[1;36m===================================================================\x1b[0m`);
+        console.log(`\x1b[1mCandidate ID:\x1b[0m  \x1b[32m${candidateId}\x1b[0m`);
+        console.log(`\x1b[1mInterview ID:\x1b[0m  \x1b[32m${interviewId}\x1b[0m`);
+        console.log(`\x1b[1mTimestamp:\x1b[0m     ${new Date().toLocaleString()}`);
+        console.log("\x1b[1;36m-------------------------------------------------------------------\x1b[0m");
+        console.log(`\x1b[1mTOTAL WARNINGS   :\x1b[0m  \x1b[1;33m${totalWarnings}\x1b[0m`);
+        console.log(`\x1b[1mTOTAL VIOLATIONS :\x1b[0m  \x1b[1;31m${totalViolations}\x1b[0m`);
+        console.log("\x1b[1;36m-------------------------------------------------------------------\x1b[0m");
+        if (Object.keys(warningBreakdown).length > 0) {
+            console.log(`\x1b[1;33m⚠️  Warning Details (Breakdown):\x1b[0m`);
+            Object.entries(warningBreakdown).forEach(([name, count]) => {
+                console.log(`   • \x1b[1m${name}\x1b[0m: \x1b[33m${count} time(s)\x1b[0m`);
+            });
+        }
+        else {
+            console.log(`\x1b[1;32m✅ No warning events recorded.\x1b[0m`);
+        }
+        console.log("");
+        if (Object.keys(violationBreakdown).length > 0) {
+            console.log(`\x1b[1;31m🚨 Violation Details (Breakdown):\x1b[0m`);
+            Object.entries(violationBreakdown).forEach(([name, count]) => {
+                console.log(`   • \x1b[1m${name}\x1b[0m: \x1b[31m${count} time(s)\x1b[0m`);
+            });
+        }
+        else {
+            console.log(`\x1b[1;32m✅ No critical warning limit violations or session blocks recorded.\x1b[0m`);
+        }
+        console.log("\x1b[1;36m-------------------------------------------------------------------\x1b[0m");
+        console.log(`\x1b[1;35m📊 SUSPICION SCORE SUMMARY:\x1b[0m`);
+        // Quick estimation of score matching backend score calculator
+        let suspicionScore = 0;
+        logs.forEach(log => {
+            const detail = String(log.detail || '').toLowerCase();
+            if (detail.includes('fullscreen exited'))
+                suspicionScore += 25;
+            else if (detail.includes('tab switch') || detail.includes('switched tabs'))
+                suspicionScore += 30;
+            else if (detail.includes('devtools') || detail.includes('developer tools') || detail.includes('debugger'))
+                suspicionScore += 40;
+            else if (detail.includes('keyboard violation') || detail.includes('shortcut'))
+                suspicionScore += 15;
+            else if (detail.includes('right-click') || detail.includes('context menu'))
+                suspicionScore += 5;
+            else if (detail.includes('audio') || detail.includes('noise'))
+                suspicionScore += 10;
+            else if (detail.includes('multiple faces'))
+                suspicionScore += 25;
+            else if (detail.includes('no face'))
+                suspicionScore += 15;
+            else if (detail.includes('gaze') || detail.includes('looking away'))
+                suspicionScore += 15;
+        });
+        suspicionScore = Math.min(100, suspicionScore);
+        let scoreColor = "\x1b[32m"; // Green
+        if (suspicionScore > 60)
+            scoreColor = "\x1b[31m"; // Red
+        else if (suspicionScore > 30)
+            scoreColor = "\x1b[33m"; // Yellow
+        console.log(`   Estimated Suspicion Score: ${scoreColor}${suspicionScore}/100\x1b[0m`);
+        console.log("\x1b[1;36m===================================================================\x1b[0m\n");
+    }
+    catch (err) {
+        console.error("Error generating terminal audit report:", err);
+    }
+};
 export const setupSocketHandlers = (io) => {
     logInfo("Setting up Socket.io handlers...");
     io.on("connection", (socket) => {
@@ -80,6 +167,7 @@ export const setupSocketHandlers = (io) => {
             logInfo(`[PROCTOR MOVEMENT] Type: ${data.type} | Candidate: ${data.candidateId} | Interview: ${data.interviewId} | Detail: ${data.detail}`);
             socket.to(room).emit("proctor-event-admin", data);
             await saveProctorEvent(data);
+            await printProctoringReport(data.candidateId, data.interviewId);
         });
         socket.on("toggle-live-monitoring", (data) => {
             const room = `interview-${data.interviewId}`;

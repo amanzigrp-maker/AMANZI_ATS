@@ -107,6 +107,23 @@ export default function InterviewPage() {
   const [certId, setCertId] = useState<string | null>(null);
   const [isGeneratingCert, setIsGeneratingCert] = useState(false);
 
+  // Proctoring warm-up gate: delays TF.js model loading until AFTER the
+  // main UI has rendered. Prevents the simultaneous JS-thread lockup that
+  // triggers the "Renderer Heartbeat Timeout" / "infinite loop" warning.
+  const [proctoringReady, setProctoringReady] = useState(false);
+
+
+  // Reset proctoring gate whenever we leave the interviewing screen
+  useEffect(() => {
+    if (status === "interviewing") {
+      // Give the browser one full render cycle + 800ms before TF.js models load.
+      // This keeps the UI responsive during the transition.
+      const t = setTimeout(() => setProctoringReady(true), 800);
+      return () => clearTimeout(t);
+    } else {
+      setProctoringReady(false);
+    }
+  }, [status]);
 
   // Revalidate existing session from localStorage if token matches or is not present
   useEffect(() => {
@@ -922,12 +939,39 @@ export default function InterviewPage() {
 
     return (
         <div className="min-h-screen w-full bg-[#020617] flex flex-col items-center p-4 md:p-8 text-left">
-            <Proctoring 
-              interviewId={sessionId?.toString() || ""} 
-              candidateId={candidateIdFromLink || candidateInfo?.email || token || ""} 
-              onTerminate={() => setStatus("error")} 
-              referenceEmbedding={selfieEmbedding}
-            />
+
+            {/* Proctoring warm-up gate: only mount <Proctoring> after the UI has
+                had time to render. This prevents the TF.js model loading from
+                blocking the thread at the exact moment the assessment starts. */}
+            {proctoringReady ? (
+              <Proctoring 
+                interviewId={sessionId?.toString() || ""} 
+                candidateId={candidateIdFromLink || candidateInfo?.email || token || ""} 
+                onTerminate={() => setStatus("error")} 
+                referenceEmbedding={selfieEmbedding}
+              />
+            ) : (
+              /* Proctoring warm-up overlay — shown for ~800ms while TF.js initializes */
+              <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#020617]/95 backdrop-blur-sm pointer-events-none">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="relative">
+                    <div className="w-14 h-14 rounded-full border-2 border-blue-500/20 flex items-center justify-center">
+                      <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                    </div>
+                    <div className="absolute inset-0 rounded-full border-2 border-blue-500/10 animate-ping" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-white font-semibold text-sm">Initializing Proctoring System</p>
+                    <p className="text-slate-500 text-xs mt-1">Loading AI models — this takes a few seconds</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {[0,1,2].map(i => (
+                      <div key={i} className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="w-full max-w-4xl flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">
                    <div className="p-2 bg-blue-500/10 rounded-lg">

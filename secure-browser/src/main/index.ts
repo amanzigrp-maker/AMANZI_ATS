@@ -1,4 +1,10 @@
 import { app, BrowserWindow, ipcMain } from "electron";
+
+// Electron runtime stability flags
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+app.commandLine.appendSwitch('enable-gpu-rasterization');
+app.commandLine.appendSwitch('ignore-gpu-blocklist');
+
 import path from "node:path";
 import { ProcessMonitorService, DetectedProcessThreat } from "./security/process-monitor.service.js";
 import { GlobalShortcutLockService } from "./security/global-shortcut-lock.service.js";
@@ -110,7 +116,8 @@ const createWindow = () => {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
-      devTools: isDev,
+      backgroundThrottling: false,
+      devTools: false,
     },
   });
 
@@ -188,3 +195,15 @@ app.whenReady().then(() => {
 ipcMain.on("secure-browser:heartbeat", () => {
   lastHeartbeatTime = Date.now();
 });
+
+ipcMain.handle("secure-browser:get-env-flags", () => ({
+  ENABLE_TF: process.env.AMANZI_ENABLE_TF !== "false",
+  ENABLE_FACEMESH: process.env.AMANZI_ENABLE_FACEMESH !== "false",
+  ENABLE_PROCTORING: process.env.AMANZI_ENABLE_PROCTORING !== "false",
+  FORCE_CPU: process.env.AMANZI_FORCE_CPU === "true",
+}));
+
+ipcMain.handle("secure-browser:platform-limitations", () => ({
+  platform: process.platform,
+  arch: process.arch,
+}));

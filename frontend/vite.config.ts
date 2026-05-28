@@ -44,6 +44,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [react()],
+    worker: {
+      format: "es",
+    },
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),

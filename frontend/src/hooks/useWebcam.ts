@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 export const useWebcam = () => {
   const [stream, setStream] = useState<MediaStream | null>(null);
@@ -7,6 +7,12 @@ export const useWebcam = () => {
   const streamRef = useRef<MediaStream | null>(null);
 
   const startWebcam = useCallback(async () => {
+    // Prevent duplicate webcam allocations (Fix 5)
+    if (streamRef.current) {
+      console.debug("useWebcam: Webcam stream already active. Returning existing stream.");
+      return streamRef.current;
+    }
+
     try {
       let mediaStream: MediaStream;
       try {
@@ -43,11 +49,33 @@ export const useWebcam = () => {
   }, []);
 
   const stopWebcam = useCallback(() => {
+    console.debug("useWebcam: Releasing and cleaning up active webcam streams (Fix 5)...");
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+        console.debug(`[useWebcam] Track ${track.kind} stopped.`);
+      });
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setStream(null);
+  }, []);
+
+  // Guarantee total MediaStream resource cleanup on hook unmount (Fix 5)
+  useEffect(() => {
+    console.log("useWebcam: Mounted diagnostics active.");
+    return () => {
+      console.log("useWebcam: Unmounting. Cleaning up active media resources...");
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+    };
   }, []);
 
   return { stream, startWebcam, stopWebcam, videoRef, error };

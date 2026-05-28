@@ -5,6 +5,7 @@ import { useAudioMonitor } from '../../hooks/useAudioMonitor';
 import { useRecording } from '../../hooks/useRecording';
 import { useProctoringSocket } from '../../hooks/useProctoringSocket';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
+import { Button } from '../ui/button';
 import { ShieldAlert, Video, Maximize } from 'lucide-react';
 import { toast } from 'sonner';
 import { useIdentityVerification } from '../../hooks/useIdentityVerification';
@@ -17,6 +18,8 @@ interface ProctoringProps {
   referenceEmbedding?: number[] | null;
   referenceSelfie?: string | null;
 }
+
+const IDENTITY_CHECK_INTERVAL_MS = 6000; // was 3000
 
 const Proctoring: React.FC<ProctoringProps> = ({ 
   interviewId, 
@@ -142,6 +145,7 @@ const Proctoring: React.FC<ProctoringProps> = ({
   }, [socket.duplicateSessionNotice]);
 
   useEffect(() => {
+    console.log("Proctoring.tsx: mounted");
     (window as any).addStartupLog?.("Proctoring started");
     (window as any).addStartupLog?.("Webcam initialization started");
     startWebcam().then((s) => {
@@ -368,6 +372,7 @@ const Proctoring: React.FC<ProctoringProps> = ({
     }
 
     return () => {
+      console.log("Proctoring.tsx: unmounted");
       clearTimeout(fullscreenTimeout);
       stopWebcam();
       stopMonitoring();
@@ -448,7 +453,7 @@ const Proctoring: React.FC<ProctoringProps> = ({
       }
     };
 
-    const interval = setInterval(checkIdentity, 3000); // check every 3 seconds
+    const interval = setInterval(checkIdentity, IDENTITY_CHECK_INTERVAL_MS);
     return () => {
       active = false;
       clearInterval(interval);

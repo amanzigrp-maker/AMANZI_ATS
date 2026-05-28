@@ -18,6 +18,10 @@ export interface VerificationValidation {
   advancedVerificationUnavailable?: boolean;
 }
 
+// Global singletons for useIdentityVerification (Fix 3)
+let globalIdentityDetector: any = null;
+let globalIdentityDetectorPromise: Promise<any> | null = null;
+
 export const useIdentityVerification = () => {
   const [detector, setDetector] = useState<any>(null);
   const [modelState, setModelState] = useState<'idle' | 'loading' | 'ready' | 'failed' | 'timeout'>('idle');
@@ -29,8 +33,10 @@ export const useIdentityVerification = () => {
   const [activeBackend, setActiveBackend] = useState<string>('unknown');
   const [isWebGLSupported, setIsWebGLSupported] = useState(false);
 
-  const loadingPromiseRef = useRef<Promise<any> | null>(null);
   const isInferenceRunningRef = useRef(false);
+
+  // Persistent small canvas used as the downscaled input to TF model inference.
+  const inferenceCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const isLoading = modelState === 'loading';
 
@@ -110,8 +116,24 @@ export const useIdentityVerification = () => {
       return null;
     }
 
-    if (detector) return detector;
-    if (loadingPromiseRef.current) return loadingPromiseRef.current;
+    // Skip load if we already have the global singleton (Fix 3)
+    if (globalIdentityDetector) {
+      setDetector(globalIdentityDetector);
+      setModelState('ready');
+      setActiveDetectorType('facedetector');
+      return globalIdentityDetector;
+    }
+
+    if (globalIdentityDetectorPromise) {
+      setModelState('loading');
+      const det = await globalIdentityDetectorPromise;
+      if (det) {
+        setDetector(det);
+        setModelState('ready');
+        setActiveDetectorType('facedetector');
+      }
+      return det;
+    }
 
     setModelState('loading');
     setLastError(null);
@@ -136,11 +158,13 @@ export const useIdentityVerification = () => {
               
               console.debug("useIdentityVerification: Loading lightweight MediaPipe FaceDetector...");
               const model = faceDetection.SupportedModels.MediaPipeFaceDetector;
-              const config: faceDetection.MediaPipeFaceDetectorTfjsConfig = {
+              const config: faceDetection.MediaPipeFaceDetectorTfjsModelConfig = {
                 runtime: 'tfjs',
                 maxFaces: 3
               };
 
+              // Yield before running CPU-heavy MediaPipe FaceDetector loading
+              await new Promise(resolve => setTimeout(resolve, 0));
               const newDetector = await faceDetection.createDetector(model, config);
               resolve(newDetector);
             } catch (err) {
@@ -159,14 +183,11 @@ export const useIdentityVerification = () => {
 
         console.log("useIdentityVerification: Lightweight FaceDetector loaded successfully. Timeout cleared.");
 
-        // Only update state if we are still the active promise
-        if (loadingPromiseRef.current === promise) {
-          setDetector(newDetector);
-          setModelState('ready');
-          setActiveDetectorType('facedetector');
-          (window as any).addStartupLog?.("Detector loaded: facedetector");
-          loadingPromiseRef.current = null;
-        }
+        globalIdentityDetector = newDetector;
+        setDetector(newDetector);
+        setModelState('ready');
+        setActiveDetectorType('facedetector');
+        (window as any).addStartupLog?.("Detector loaded: facedetector");
         
         return newDetector;
 
@@ -179,25 +200,24 @@ export const useIdentityVerification = () => {
 
         console.error("useIdentityVerification: Initialization failed:", err);
 
-        if (loadingPromiseRef.current === promise) {
-          const isTimeout = err.message && err.message.includes("timeout");
-          setModelState(isTimeout ? 'timeout' : 'failed');
-          setLastError(err.message || String(err));
-          loadingPromiseRef.current = null;
-        }
+        const isTimeout = err.message && err.message.includes("timeout");
+        setModelState(isTimeout ? 'timeout' : 'failed');
+        setLastError(err.message || String(err));
 
         return null; // Return null instead of throwing to prevent crashing the renderer
       }
     })();
 
-    loadingPromiseRef.current = promise;
+    globalIdentityDetectorPromise = promise;
     return promise;
-  }, [detector]);
+  }, []);
 
   // Clean up loading promise on unmount
   useEffect(() => {
+    console.log("useIdentityVerification.ts: mounted");
     return () => {
-      loadingPromiseRef.current = null;
+      console.log("useIdentityVerification.ts: unmounted");
+      globalIdentityDetectorPromise = null;
       // We cannot easily cancel the promise, but by clearing the ref, 
       // the state transitions in loadModel will be skipped.
     };
@@ -327,11 +347,23 @@ export const useIdentityVerification = () => {
         return { isValid: false, reason: "Webcam feed obstructed or blurry.", brightness, variance };
       }
 
+      // 1b. Downscale video to a small inference canvas to reduce TF tensor math by ~85%.
+      if (!inferenceCanvasRef.current) {
+        inferenceCanvasRef.current = document.createElement('canvas');
+      }
+      const infCanvas = inferenceCanvasRef.current;
+      infCanvas.width = 256;
+      infCanvas.height = 192;
+      const infCtx = infCanvas.getContext('2d');
+      if (infCtx) {
+        infCtx.drawImage(video, 0, 0, 256, 192);
+      }
+
       // 2. Run FaceDetector with tf.tidy scope safety
       let faces: any[] = [];
       tf.engine().startScope();
       try {
-        faces = await activeDetector.estimateFaces(video);
+        faces = await activeDetector.estimateFaces(infCanvas);
       } catch (err: any) {
         console.error("useIdentityVerification: estimateFaces error:", err);
         // Return mock success on inference crashes to avoid lockouts
@@ -393,8 +425,8 @@ export const useIdentityVerification = () => {
         const faceCenterX = box.xMin + box.width / 2;
         const faceCenterY = box.yMin + box.height / 2;
 
-        const normCenterX = faceCenterX / videoWidth;
-        const normCenterY = faceCenterY / videoHeight;
+        const normCenterX = faceCenterX / 256;
+        const normCenterY = faceCenterY / 192;
 
         // Allow middle 80% range instead of 60%
         if (normCenterX < 0.10 || normCenterX > 0.90 || normCenterY < 0.05 || normCenterY > 0.95) {

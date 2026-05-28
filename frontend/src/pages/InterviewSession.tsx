@@ -53,6 +53,19 @@ export default function InterviewSession() {
   const [timeLeft, setTimeLeft] = useState(3600); // 1 hour default
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Proctoring warm-up gate: delays TF.js model mounting until AFTER the main
+  // UI has rendered, preventing the event-loop freeze / heartbeat timeout warning.
+  const [proctoringReady, setProctoringReady] = useState(false);
+
+  useEffect(() => {
+    if (status === "interviewing") {
+      const t = setTimeout(() => setProctoringReady(true), 800);
+      return () => clearTimeout(t);
+    } else {
+      setProctoringReady(false);
+    }
+  }, [status]);
+
   // 1. Initialize from LocalStorage
   useEffect(() => {
     const storedToken = localStorage.getItem("interviewToken");
@@ -294,11 +307,33 @@ export default function InterviewSession() {
 
     return (
       <div className="min-h-screen w-full bg-[#020617] flex flex-col items-center p-4 md:p-8">
-        <Proctoring 
-          interviewId={user?.interviewId || "session"} 
-          candidateId={user?.email || "candidate"} 
-          onTerminate={() => handleFinish()} 
-        />
+        {proctoringReady ? (
+          <Proctoring 
+            interviewId={user?.interviewId || "session"} 
+            candidateId={user?.email || "candidate"} 
+            onTerminate={() => handleFinish()} 
+          />
+        ) : (
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#020617]/95 backdrop-blur-sm pointer-events-none">
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative">
+                <div className="w-14 h-14 rounded-full border-2 border-blue-500/20 flex items-center justify-center">
+                  <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                </div>
+                <div className="absolute inset-0 rounded-full border-2 border-blue-500/10 animate-ping" />
+              </div>
+              <div className="text-center">
+                <p className="text-white font-semibold text-sm">Initializing Proctoring System</p>
+                <p className="text-slate-500 text-xs mt-1">Loading AI models — this takes a few seconds</p>
+              </div>
+              <div className="flex gap-1">
+                {[0,1,2].map(i => (
+                  <div key={i} className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
         
         <div className="w-full max-w-4xl flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
@@ -393,7 +428,7 @@ export default function InterviewSession() {
                     {currentQuestionIndex === questions.length - 1 ? (
                       <Button 
                         onClick={handleFinish} 
-                        disabled={isSubmitting || !answers[currentQ.id]}
+                        disabled={isSubmitting || !answers[currentQ.question_id]}
                         className="bg-blue-600 hover:bg-blue-500 text-white px-8 h-12 rounded-xl font-bold flex gap-2"
                       >
                         {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
@@ -401,7 +436,7 @@ export default function InterviewSession() {
                       </Button>
                     ) : (
                       <Button 
-                        disabled={!answers[currentQ.id]}
+                        disabled={!answers[currentQ.question_id]}
                         onClick={() => setCurrentQuestionIndex(prev => prev + 1)}
                         className="bg-white hover:bg-slate-200 text-black px-8 h-12 rounded-xl font-bold flex gap-2"
                       >

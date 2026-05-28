@@ -3,6 +3,21 @@ import "./config/environment";
 import App from "./App.tsx";
 import "./index.css";
 
+import * as tf from "@tensorflow/tfjs";
+
+async function initTF() {
+  try {
+    await tf.setBackend("webgl");
+    await tf.ready();
+    console.log("TF backend initialized at startup:", tf.getBackend());
+  } catch (err) {
+    console.warn("WebGL unavailable at startup, staying on CPU — expect slowdowns", err);
+  }
+}
+
+// Fire initialization immediately
+void initTF();
+
 import * as Sentry from "@sentry/react";
 import { frontendConfig } from "./config/environment";
 
