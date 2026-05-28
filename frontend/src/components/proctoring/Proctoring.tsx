@@ -5,7 +5,7 @@ import { useAudioMonitor } from '../../hooks/useAudioMonitor';
 import { useRecording } from '../../hooks/useRecording';
 import { useProctoringSocket } from '../../hooks/useProctoringSocket';
 import { Alert, AlertDescription, AlertTitle } from '../ui/alert';
-import { ShieldAlert, Video, Maximize, Terminal, Settings } from 'lucide-react';
+import { ShieldAlert, Video, Maximize } from 'lucide-react';
 import { toast } from 'sonner';
 import { useIdentityVerification } from '../../hooks/useIdentityVerification';
 import { getFeatureFlags } from '../../utils/featureFlags';
@@ -34,31 +34,11 @@ const Proctoring: React.FC<ProctoringProps> = ({
   const remoteAccessCheckIntervalRef = useRef<number | null>(null);
   const devToolsCheckIntervalRef = useRef<number | null>(null);
 
-  // Debug Panel and states
-  const [showDebug, setShowDebug] = useState(false);
-  const showDebugRef = useRef(false);
-  useEffect(() => {
-    showDebugRef.current = showDebug;
-  }, [showDebug]);
-  const lastDebugUpdateTimeRef = useRef(0);
-
   const [violationSnapshots, setViolationSnapshots] = useState<{
     type: string;
     timestamp: string;
     image: string;
   }[]>([]);
-
-  const [debugMetrics, setDebugMetrics] = useState({
-    faceCount: 0,
-    detectionConfidence: 0,
-    fps: 0,
-    audioLevel: 0,
-    gazeStatus: 'Unknown' as 'Center' | 'Looking Away' | 'Unknown',
-    obstructionStatus: 'Clear' as 'Clear' | 'Obstructed' | 'Static' | 'Unknown',
-    loopStatus: 'Initializing' as 'Initializing' | 'Active' | 'Stopped',
-    tfMemory: null as { numTensors: number; numBytes: number } | null,
-    audioSpeechDetected: false
-  });
 
   const { startWebcam, stopWebcam, videoRef, stream, error: cameraError } = useWebcam();
   const socket = useProctoringSocket(interviewId, candidateId, 'candidate');
@@ -148,42 +128,9 @@ const Proctoring: React.FC<ProctoringProps> = ({
     });
   }, [socket, onTerminate, videoRef]);
 
-  const handleFaceDebugUpdate = useCallback((faceMetrics: any) => {
-    if (!showDebugRef.current) return;
-
-    const now = performance.now();
-    if (now - lastDebugUpdateTimeRef.current < 1000) return;
-    lastDebugUpdateTimeRef.current = now;
-
-    setDebugMetrics(prev => ({
-      ...prev,
-      faceCount: faceMetrics.faceCount,
-      detectionConfidence: faceMetrics.detectionConfidence,
-      fps: faceMetrics.fps,
-      gazeStatus: faceMetrics.gazeStatus,
-      obstructionStatus: faceMetrics.obstructionStatus,
-      loopStatus: faceMetrics.loopStatus,
-      tfMemory: faceMetrics.tfMemory
-    }));
-  }, []);
-
-  const handleAudioDebugUpdate = useCallback((audioLevel: number, speechDetected: boolean) => {
-    if (!showDebugRef.current) return;
-
-    const now = performance.now();
-    if (now - lastDebugUpdateTimeRef.current < 1000) return;
-    lastDebugUpdateTimeRef.current = now;
-
-    setDebugMetrics(prev => ({
-      ...prev,
-      audioLevel,
-      audioSpeechDetected: speechDetected
-    }));
-  }, []);
-
   const flags = getFeatureFlags();
-  const { startMonitoring, stopMonitoring } = useFaceDetection(videoRef, handleViolation, handleFaceDebugUpdate);
-  useAudioMonitor(stream, handleViolation, handleAudioDebugUpdate);
+  const { startMonitoring, stopMonitoring } = useFaceDetection(videoRef, handleViolation, undefined);
+  useAudioMonitor(stream, handleViolation, undefined);
   const { startRecording, stopRecording } = useRecording(stream);
 
 
@@ -633,121 +580,7 @@ const Proctoring: React.FC<ProctoringProps> = ({
         </button>
       )}
 
-      {/* Toggle Debug Panel */}
-      <button
-        onClick={() => setShowDebug(prev => !prev)}
-        className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs flex items-center justify-center gap-2 shadow-lg transition-all pointer-events-auto border border-slate-700"
-      >
-        <Terminal className="w-4 h-4 text-emerald-400" />
-        {showDebug ? 'Hide Debug Panel' : 'Show Debug Panel'}
-      </button>
 
-      {/* Debug Metrics Panel */}
-      {showDebug && (
-        <div className="bg-slate-900/95 border border-slate-800 rounded-xl p-4 text-white text-xs shadow-2xl flex flex-col gap-3 pointer-events-auto backdrop-blur-md animate-in slide-in-from-right duration-200">
-          <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-            <Settings className="w-4 h-4 text-slate-400 animate-spin-slow" />
-            <span className="font-bold text-slate-200">AI Proctoring Debugger</span>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 text-[10px]">
-            {referenceSelfie && (
-              <div className="bg-slate-950/60 p-2 rounded border border-slate-950 col-span-2 flex items-center gap-2">
-                <div className="w-8 h-8 rounded overflow-hidden border border-slate-800 bg-black flex-shrink-0">
-                  <img src={referenceSelfie} alt="Verified Reference" className="w-full h-full object-cover" />
-                </div>
-                <div>
-                  <div className="text-slate-500 font-bold uppercase tracking-wider text-[8px]">Verified Identity</div>
-                  <div className="font-semibold text-emerald-400">Selfie Registered</div>
-                </div>
-              </div>
-            )}
-            {referenceEmbedding && referenceEmbedding.length > 0 ? (
-              <div className="bg-slate-950/60 p-2 rounded border border-slate-950 col-span-2">
-                <div className="text-slate-500">Identity Match Similarity</div>
-                <div className={`font-bold ${
-                  identitySimilarity === null 
-                    ? 'text-slate-400' 
-                    : identitySimilarity < 0.65 
-                    ? 'text-red-400 animate-pulse' 
-                    : 'text-emerald-400'
-                }`}>
-                  {identitySimilarity === null ? 'Checking...' : `${(identitySimilarity * 100).toFixed(1)}%`}
-                </div>
-              </div>
-            ) : (
-              <div className="bg-amber-950/40 p-2 rounded border border-amber-900/50 col-span-2 text-amber-400 font-bold uppercase tracking-wider text-[8px] text-center">
-                Advanced verification unavailable
-              </div>
-            )}
-            <div className="bg-slate-950/60 p-2 rounded border border-slate-950">
-              <div className="text-slate-500">FPS</div>
-              <div className="font-bold text-emerald-400">{debugMetrics.fps.toFixed(1)}</div>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded border border-slate-950">
-              <div className="text-slate-500">Faces</div>
-              <div className={`font-bold ${debugMetrics.faceCount > 1 ? 'text-red-400' : 'text-emerald-400'}`}>
-                {debugMetrics.faceCount}
-              </div>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded border border-slate-950 col-span-2">
-              <div className="text-slate-500">Confidence</div>
-              <div className="font-bold text-emerald-400">
-                {(debugMetrics.detectionConfidence * 100).toFixed(0)}%
-              </div>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded border border-slate-950">
-              <div className="text-slate-500">Audio Level</div>
-              <div className="font-bold text-sky-400">{debugMetrics.audioLevel.toFixed(1)}</div>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded border border-slate-950">
-              <div className="text-slate-500">Speech Audio</div>
-              <div className={`font-bold ${debugMetrics.audioSpeechDetected ? 'text-red-400 animate-pulse' : 'text-slate-400'}`}>
-                {debugMetrics.audioSpeechDetected ? 'DETECTED' : 'QUIET'}
-              </div>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded border border-slate-950">
-              <div className="text-slate-500">Gaze</div>
-              <div className={`font-bold ${debugMetrics.gazeStatus === 'Looking Away' ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`}>
-                {debugMetrics.gazeStatus}
-              </div>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded border border-slate-950">
-              <div className="text-slate-500">Obstruction</div>
-              <div className={`font-bold ${debugMetrics.obstructionStatus !== 'Clear' ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`}>
-                {debugMetrics.obstructionStatus}
-              </div>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded border border-slate-950">
-              <div className="text-slate-500">Loop Status</div>
-              <div className="font-bold text-slate-300">{debugMetrics.loopStatus}</div>
-            </div>
-            <div className="bg-slate-950/60 p-2 rounded border border-slate-950">
-              <div className="text-slate-500">TF Tensors</div>
-              <div className="font-bold text-slate-300">
-                {debugMetrics.tfMemory ? debugMetrics.tfMemory.numTensors : 'N/A'}
-              </div>
-            </div>
-          </div>
-
-          {violationSnapshots.length > 0 && (
-            <div className="border-t border-slate-800 pt-2 flex flex-col gap-2">
-              <div className="font-semibold text-slate-400 text-[10px]">VIOLATION SNAPSHOTS</div>
-              <div className="flex gap-2 overflow-x-auto pb-1 max-w-full scrollbar-thin">
-                {violationSnapshots.map((snap, idx) => (
-                  <div key={idx} className="flex-shrink-0 relative w-12 h-12 rounded overflow-hidden border border-slate-700 bg-black group cursor-pointer">
-                    <img src={snap.image} alt={snap.type} className="w-full h-full object-cover" />
-                    <div className="absolute inset-0 bg-black/75 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col justify-end p-0.5 text-[7px] leading-tight text-white pointer-events-none">
-                      <span className="font-semibold truncate">{snap.type}</span>
-                      <span>{snap.timestamp}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {cameraError && (
         <Alert variant="destructive" className="bg-red-950 border-red-500 text-white pointer-events-auto">
