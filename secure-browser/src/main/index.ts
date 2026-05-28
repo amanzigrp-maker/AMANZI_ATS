@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
-import { ProcessMonitorService } from "./security/process-monitor.service.js";
+import { ProcessMonitorService, DetectedProcessThreat } from "./security/process-monitor.service.js";
 import { GlobalShortcutLockService } from "./security/global-shortcut-lock.service.js";
 import { SecureUpdateService } from "./updates/secure-update.service.js";
 
@@ -261,7 +261,7 @@ const createWindow = () => {
     });
   });
 
-  const monitor = new ProcessMonitorService((threat: { action: string }) => {
+  const monitor = new ProcessMonitorService((threat: DetectedProcessThreat) => {
     void postSecurityEvent({
       eventType: "secure_browser.process_detected",
       severity: threat.action === "close_exam" ? "critical" : "high",
@@ -270,7 +270,9 @@ const createWindow = () => {
     });
 
     if (threat.action === "close_exam" && mainWindow) {
-      void mainWindow.loadURL(`${startupUrl}?securityHold=process`);
+      void mainWindow.loadURL(
+        `${startupUrl}?securityHold=process&detectedProcess=${encodeURIComponent(threat.name)}&processName=${encodeURIComponent(threat.processName)}`
+      );
     }
   });
   monitor.start();

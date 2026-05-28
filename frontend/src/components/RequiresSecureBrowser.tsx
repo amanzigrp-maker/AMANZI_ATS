@@ -43,11 +43,45 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
     return () => clearTimeout(timer);
   }, [isElectron, secureProtocolUrl]);
 
+<<<<<<< Updated upstream
   // ── Early return after all hooks ─────────────────────────────────────────────
   // Bypass mode: skip every check and render children in a normal browser
   if (bypassSecureBrowser) {
     return <>{children}</>;
   }
+=======
+  const handleLaunch = () => {
+    setIsLaunching(true);
+    setLaunchFailed(false);
+
+    // Attempt to open the custom protocol
+    window.location.href = secureProtocolUrl;
+
+    let hasBlurred = false;
+    const onBlur = () => {
+      hasBlurred = true;
+      setIsLaunching(false);
+    };
+
+    window.addEventListener('blur', onBlur);
+    window.addEventListener('pagehide', onBlur);
+
+    // After 3 seconds, check if window lost focus
+    setTimeout(() => {
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('pagehide', onBlur);
+      if (!hasBlurred) {
+        setIsLaunching(false);
+        setLaunchFailed(true);
+      }
+    }, 3000);
+  };
+
+  const [searchParams] = useSearchParams();
+  const securityHold = searchParams.get('securityHold');
+  const detectedProcess = searchParams.get('detectedProcess');
+  const processName = searchParams.get('processName');
+>>>>>>> Stashed changes
 
   // ── Electron / secure browser is running ────────────────────────────────────
   if (isElectron) {
@@ -72,19 +106,43 @@ export default function RequiresSecureBrowser({ children }: { children: React.Re
               </p>
               <div className="mt-6 p-4 bg-black/40 rounded-xl border border-red-500/20 text-left space-y-2">
                 <p className="text-xs text-red-400 font-bold uppercase tracking-wider">Please Close:</p>
-                <ul className="text-sm text-slate-300 list-disc pl-5">
-                  <li>Screen Recording (Snipping Tool, OBS, etc.)</li>
-                  <li>Remote Desktop (AnyDesk, TeamViewer)</li>
-                  <li>AI Assistants (ChatGPT Desktop)</li>
-                </ul>
+                {detectedProcess ? (
+                  <div className="p-3 bg-red-950/80 rounded-lg border border-red-500/30 text-white space-y-1">
+                    <div className="text-sm font-semibold flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+                      <span>{detectedProcess}</span>
+                    </div>
+                    {processName && (
+                      <p className="text-xs text-slate-400 font-mono pl-3">
+                        File: {processName}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <ul className="text-sm text-slate-300 list-disc pl-5">
+                    <li>Screen Recording (Snipping Tool, OBS, etc.)</li>
+                    <li>Remote Desktop (AnyDesk, TeamViewer)</li>
+                    <li>AI Assistants (ChatGPT Desktop)</li>
+                  </ul>
+                )}
+                <p className="text-[11px] text-slate-400 pt-2 leading-relaxed">
+                  You must close the application above to proceed with the assessment. Once closed, click the button below to verify and continue.
+                </p>
               </div>
             </CardContent>
             <CardFooter>
               <Button
                 onClick={() => {
+<<<<<<< Updated upstream
                   const params = new URLSearchParams(searchParams.toString());
                   params.delete('securityHold');
                   window.location.search = params.toString();
+=======
+                  searchParams.delete('securityHold');
+                  searchParams.delete('detectedProcess');
+                  searchParams.delete('processName');
+                  window.location.search = searchParams.toString();
+>>>>>>> Stashed changes
                 }}
                 className="w-full h-12 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl"
               >

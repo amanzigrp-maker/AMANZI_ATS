@@ -185,6 +185,10 @@ export const setupSocketHandlers = (io: Server) => {
     socket.on("proctor-event", async (data: ProctorEvent) => {
       const room = `interview-${data.interviewId}`;
       logDebug(`Proctor Event: ${data.type} for interview ${data.interviewId}`);
+      
+      // Explicitly log proctor event to backend console for user visibility during interview
+      logInfo(`[PROCTOR MOVEMENT] Type: ${data.type} | Candidate: ${data.candidateId} | Interview: ${data.interviewId} | Detail: ${data.detail}`);
+
       socket.to(room).emit("proctor-event-admin", data);
 
       await saveProctorEvent(data);
