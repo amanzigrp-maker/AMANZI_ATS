@@ -9,11 +9,24 @@
     "build": "tsc -p tsconfig.json",
     "dev": "electron ."
   },
+  "build": {
+    "appId": "com.amanzi.securebrowser",
+    "productName": "Amanzi Secure Browser",
+    "files": [
+      "dist/main/**/*",
+      "dist/preload/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  },
   "dependencies": {
     "electron-store": "^11.0.2",
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
+    "electron": "^37.10.3",
+    "electron-builder": "^26.8.1",
     "@types/node": "^25.9.0",
     "@types/semver": "^7.7.1",
     "concurrently": "^9.2.1",

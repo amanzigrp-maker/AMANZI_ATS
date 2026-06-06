@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch server.ts",
     "build": "tsc",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives",
+    "lint": "eslint . --report-unused-disable-directives",
     "server": "tsx watch server.ts",
     "start": "node dist/server.js"
   },

@@ -302,7 +302,7 @@ export default function Assessments() {
     e.preventDefault();
     if (!invitingAssessment) return;
 
-    let candidatesToInvite = [...selectedCandidates];
+    const candidatesToInvite = [...selectedCandidates];
 
     if (candidatesToInvite.length === 0) {
       alert("Please select or add at least one candidate recipient.");

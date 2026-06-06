@@ -1,0 +1,117 @@
+name: Amanzi ATS Production CD Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: # Allows manual trigger of deployment
+
+concurrency:
+  group: deployment-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build & Deploy to Production
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'python-worker/requirements_fixed.txt'
+
+      - name: Install Monorepo Root & Frontend Dependencies
+        run: |
+          npm ci
+          cd frontend && npm ci
+
+      - name: Build Frontend Application
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Install Backend Dependencies & Compile
+        run: |
+          cd backend
+          npm ci
+          npm run build
+
+      - name: Configure SSH Key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Sync Artifacts to EC2 Server
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          # 1. Sync frontend static build
+          rsync -avz --delete -e "ssh -i ~/.ssh/id_rsa" frontend/dist/ $SSH_USER@$SSH_HOST:$DEPLOY_PATH/frontend/dist/
+          
+          # 2. Sync backend built artifacts
+          rsync -avz --delete -e "ssh -i ~/.ssh/id_rsa" backend/dist/ $SSH_USER@$SSH_HOST:$DEPLOY_PATH/backend/dist/
+          
+          # 3. Sync backend production manifests
+          rsync -avz -e "ssh -i ~/.ssh/id_rsa" backend/package.json backend/package-lock.json $SSH_USER@$SSH_HOST:$DEPLOY_PATH/backend/
+          
+          # 4. Sync PM2 configuration
+          rsync -avz -e "ssh -i ~/.ssh/id_rsa" ecosystem.config.js $SSH_USER@$SSH_HOST:$DEPLOY_PATH/
+          
+          # 5. Sync Python AI Worker source code
+          rsync -avz --delete --exclude '.venv' --exclude 'venv' --exclude '__pycache__' --exclude 'logs' --exclude 'storage' -e "ssh -i ~/.ssh/id_rsa" python-worker/ $SSH_USER@$SSH_HOST:$DEPLOY_PATH/python-worker/
+
+      - name: Execute Server-side Post-Deployment Scripts
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          ssh -i ~/.ssh/id_rsa $SSH_USER@$SSH_HOST "
+            cd $DEPLOY_PATH &&
+            
+            # Ensure proper directories exist
+            mkdir -p storage/resumes storage/temp &&
+            chmod -R 755 storage &&
+            
+            echo '📦 Installing Backend Production Dependencies...' &&
+            cd backend &&
+            npm ci --omit=dev &&
+            
+            echo '🐍 Setting up Python Virtual Environment & Dependencies...' &&
+            cd ../python-worker &&
+            if [ ! -d '.venv' ]; then
+              python3 -m venv .venv
+            fi &&
+            .venv/bin/pip install -r requirements_fixed.txt &&
+            
+            echo '🔄 Reloading PM2 Processes (Zero-Downtime)...' &&
+            cd .. &&
+            pm2 reload ecosystem.config.js --env production --update-env &&
+            
+            echo '🌐 Reloading Nginx Configuration...' &&
+            sudo systemctl reload nginx &&
+            
+            echo '🚀 Production deployment successfully completed!'
+          "

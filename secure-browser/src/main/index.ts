@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, session } from "electron";
 
 // Electron runtime stability flags
 app.commandLine.appendSwitch('disable-renderer-backgrounding');
@@ -19,13 +19,12 @@ const PROTOCOL = "amanzi-secure-browser";
 
 const API_BASE_URL =
   process.env.AMANZI_API_BASE_URL ??
-  (isDev ? "http://localhost:3003" : "http://13.201.116.154:3003");
+  (isDev ? "http://localhost:3003" : "http://3.109.90.13:3003");
 
 const FRONTEND_BASE_URL =
   process.env.AMANZI_FRONTEND_URL ??
-  (isDev ? "http://localhost:8080" : "http://13.201.116.154");
+  (isDev ? "http://localhost:8080" : "http://3.109.90.13");
 
-/* ✅ FIX #1 — DO NOT START DIRECTLY IN /interview */
 const DEFAULT_URL =
   process.env.AMANZI_EXAM_URL ?? `${FRONTEND_BASE_URL}`;
 
@@ -115,7 +114,7 @@ const createWindow = () => {
       preload: path.join(app.getAppPath(), "dist", "preload", "index.js"),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      sandbox: false,
       backgroundThrottling: false,
       devTools: false,
     },
@@ -161,7 +160,6 @@ const createWindow = () => {
 
         const currentUrl = mainWindow.webContents.getURL();
 
-        /* ✅ FIX #2 — prevent wrong overwrite loops */
         if (!currentUrl.includes("securityHold=process")) {
           void mainWindow.loadURL(targetUrl);
         }
@@ -181,6 +179,16 @@ const createWindow = () => {
 
 app.whenReady().then(() => {
   new SecureUpdateService().configure();
+
+  // Allow webcam/microphone/camera permissions
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowedPermissions = ['media', 'camera', 'microphone', 'video', 'display-capture'];
+    if (allowedPermissions.includes(permission)) {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
 
   const url = process.argv.find((arg) =>
     arg.startsWith(`${PROTOCOL}://`)

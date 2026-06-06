@@ -542,7 +542,7 @@ export const getSocketIOSecurityConfig = () => {
       name: "io",
       httpOnly: true,
       secure: isProduction,
-      sameSite: "strict" as "strict",
+      sameSite: "strict" as const,
       maxAge: 24 * 60 * 60 * 1000,
     },
   };

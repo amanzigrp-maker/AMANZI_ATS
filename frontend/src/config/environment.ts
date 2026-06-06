@@ -17,6 +17,10 @@ const parseEnvironment = (value?: string): FrontendEnvironment => {
 };
 
 const parseUrl = (name: string, value: string) => {
+  if (value === "") return "";
+  if (value.startsWith("/")) {
+    return value.replace(/\/$/, "");
+  }
   try {
     return new URL(value).toString().replace(/\/$/, "");
   } catch {
